@@ -2,3 +2,6 @@
 /data/sdf
 
 /venv
+
+/.idea
+**/__pycache__
