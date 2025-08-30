@@ -20,7 +20,13 @@ class UNet(nn.Module):
 
         for l in range(config.layers):
             filters = config.filters * (config.expansion ** l)
-            layerConfig = Config(filters=filters)
+            layerConfig = Config(in_channels=filters, out_channels=filters * 2, kernel_size=3)
+            self.downs.append(Down(layerConfig))
+            # TODO: Uhhh the whole filters concatenating thing
+            self.ups.append(Up(layerConfig))
+
+        # TODO: Same sitch different line
+        self.out = nn.Linear(config.filters, 1)
 
     def forward(self, x):
         for l in range(self.config.layers):
@@ -40,6 +46,7 @@ class Down(nn.Module):
     def forward(self, x):
         y = self.conv(x)
         x = self.relu(self.bn(self.down(y)))
+        
         return x, y
 
 
@@ -48,8 +55,17 @@ class Up(nn.Module):
         super().__init__()
         self.config = config
 
+        self.conv = ConvBlock(config)
+        self.up = nn.Upsample()
+        self.bn = nn.BatchNorm2d(config.out_channels)
+        self.relu = nn.ReLU()
+
     def forward(self, x, y):
-        pass
+        x = torch.cat([x, y], dim=-1)
+        x = self.conv(x)
+        x = self.relu(self.bn(self.up(x)))
+
+        return x
 
 
 class ConvBlock(nn.Module):
