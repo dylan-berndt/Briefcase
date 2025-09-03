@@ -8,5 +8,6 @@
         "fontSize": 32
     },
     "batchSize": 32,
-    "learningRate": 1e-4
+    "learningRate": 1e-4,
+    "epochs": 40
 }

@@ -1,7 +1,8 @@
 /data/bitmaps
 /data/sdf
+/data/fonts/
 
 /venv
 
 /.idea
-**/__pycache__
+/__pycache__

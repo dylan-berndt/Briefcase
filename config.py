@@ -10,6 +10,12 @@ class Config:
     def keys(self):
         return self._values.keys()
 
+    def __str__(self):
+        output = ""
+        for key, value in self._values.items():
+            output += str(key) + " " + str(value) + "\n"
+        return output
+
     def __getitem__(self, key):
         if "." in key:
             left, right = key.split(".")[0], ".".join(key.split(".")[1:])

@@ -22,15 +22,33 @@ class UNet(nn.Module):
             filters = config.filters * (config.expansion ** l)
             layerConfig = Config(in_channels=filters, out_channels=filters * 2, kernel_size=3)
             self.downs.append(Down(layerConfig))
-            # TODO: Uhhh the whole filters concatenating thing
+
+            layerConfig.in_channels = layerConfig.in_channels * 4
+            layerConfig.out_channels = layerConfig.out_channels // 2
             self.ups.append(Up(layerConfig))
 
-        # TODO: Same sitch different line
         self.out = nn.Linear(config.filters, 1)
 
     def forward(self, x):
+        x = self.input(x)
+        x = torch.permute(x, [0, 3, 2, 1])
+
+        skips = []
         for l in range(self.config.layers):
-            pass
+            x, y = self.downs[l](x)
+            skips.append(y)
+
+        # Yes it's not normal but it makes more sense to me
+        x = nn.functional.interpolate(x, scale_factor=2)
+
+        for l, up in enumerate(reversed(self.ups)):
+            y = skips[-l+1]
+            x, z = up(x, y)
+
+        z = torch.permute(z, [0, 3, 2, 1])
+        z = self.out(z)
+
+        return z
 
 
 class Down(nn.Module):
@@ -39,7 +57,7 @@ class Down(nn.Module):
         self.config = config
 
         self.conv = ConvBlock(config)
-        self.down = nn.Conv2d(config.out_channels, config.out_channels, config.kernel_size, stride=2, padding="same")
+        self.down = nn.MaxPool2d(kernel_size=2, stride=2)
         self.bn = nn.BatchNorm2d(config.out_channels)
         self.relu = nn.ReLU()
 
@@ -56,16 +74,16 @@ class Up(nn.Module):
         self.config = config
 
         self.conv = ConvBlock(config)
-        self.up = nn.Upsample()
+        self.up = nn.Upsample(scale_factor=2)
         self.bn = nn.BatchNorm2d(config.out_channels)
         self.relu = nn.ReLU()
 
     def forward(self, x, y):
-        x = torch.cat([x, y], dim=-1)
-        x = self.conv(x)
-        x = self.relu(self.bn(self.up(x)))
+        x = torch.cat([x, y], dim=1)
+        y = self.conv(x)
+        x = self.relu(self.bn(self.up(y)))
 
-        return x
+        return x, y
 
 
 class ConvBlock(nn.Module):
@@ -92,5 +110,7 @@ if __name__ == "__main__":
     test = torch.randn(32, 32, 32, 1)
 
     outputs = model(test)
+
+    print(outputs.shape)
 
 
