@@ -15,7 +15,7 @@ pygame.init()
 window = pygame.display.set_mode([960, 640])
 clock = pygame.time.Clock()
 
-imageSize = 40
+imageSize = 48
 scale = 10
 
 canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
@@ -58,11 +58,17 @@ while True:
 
     sdf = dist(canvas) - dist(~canvas)
     inputs = torch.tensor(sdf / imageSize, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+    if config.dataset.maps == "bitmaps":
+        inputs = torch.tensor(canvas, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
     with torch.no_grad():
         output = model(inputs).squeeze().detach().numpy()
 
-    out = np.clip((output - output.min()) / (output.max() - output.min() + 1e-8), 0, 1)
-    out = (out * 255).astype(np.uint8)
+    out1 = np.clip((output - output.min()) / (output.max() - output.min() + 1e-8), 0, 1)
+    out = output > 0
+    out = out.astype(np.uint8) * 255
+
+    if config.dataset.maps == "bitmaps":
+        out = out1.astype(np.float32) * 255
 
     image = canvas.astype(np.uint8) * 255
     img = pygame.surfarray.make_surface(np.stack([image] * 3, axis=-1))
