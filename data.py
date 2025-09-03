@@ -72,9 +72,14 @@ class FontData(Dataset):
 
             np.save(path, sdf / imageSize)
 
+        # Lets us choose what kind of images to train on
         images = {}
-        for sdfPath in glob(os.path.join("data", "sdf", "*")):
-            images[os.path.basename(sdfPath).removesuffix(".npy")] = np.load(sdfPath)
+        for imagePath in glob(os.path.join("data", config.maps, "*")):
+            suffix = imagePath.split(".")[-1]
+            if suffix == "npy":
+                images[os.path.basename(imagePath).removesuffix(".npy")] = np.load(imagePath)
+            else:
+                images[os.path.basename(imagePath).removesuffix(".bmp")] = np.array(Image.open(imagePath)) / 255
 
         pairs = []
         mse = []
@@ -99,7 +104,7 @@ class FontData(Dataset):
         plt.show()
 
         # Manually excluding "too similar" pairs
-        pairs = pairs[mse > np.percentile(mse, 0.2)]
+        pairs = pairs[mse > np.percentile(mse, 20)]
 
         self.pairs = pairs
 

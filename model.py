@@ -39,10 +39,10 @@ class UNet(nn.Module):
             skips.append(y)
 
         # Yes it's not normal but it makes more sense to me
-        x = nn.functional.interpolate(x, scale_factor=2)
+        # x = nn.functional.interpolate(x, scale_factor=2)
 
         for l, up in enumerate(reversed(self.ups)):
-            y = skips[-l+1]
+            y = skips[self.config.layers - l - 1]
             x, z = up(x, y)
 
         z = torch.permute(z, [0, 3, 2, 1])
@@ -79,9 +79,10 @@ class Up(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x, y):
+        x = self.up(x)
         x = torch.cat([x, y], dim=1)
         y = self.conv(x)
-        x = self.relu(self.bn(self.up(y)))
+        x = self.relu(self.bn(y))
 
         return x, y
 
@@ -107,7 +108,7 @@ class ConvBlock(nn.Module):
 if __name__ == "__main__":
     model = UNet(Config().load(os.path.join("configs", "config.json")).model)
 
-    test = torch.randn(32, 32, 32, 1)
+    test = torch.randn(32, 40, 40, 1)
 
     outputs = model(test)
 
