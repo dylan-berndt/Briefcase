@@ -18,7 +18,6 @@ georgian = list(range(0x10D0, 0x10FF + 1))
 characters = latin + greek + armenian + cyrillic
 characters = [chr(c) for c in characters]
 characters = characters + [c.upper() for c in characters]
-print(characters)
 
 # 2 characters technically, and messes with checks for empty glyphs
 characters.remove("ԵՒ")
@@ -26,9 +25,15 @@ characters.remove("ԵՒ")
 
 class FontData(Dataset):
     def __init__(self, config: Config):
+         # Just a bit of padding
+        imageSize = int(config.fontSize * 1.5)
         for fontPath in glob(os.path.join("data", "fonts", "*")):
             try:
                 font = ImageFont.truetype(fontPath, config.fontSize)
+                ascent, descent = font.getmetrics()
+                # Gross way to do this, but I don't want another package
+                standard = config.fontSize * (config.fontSize / ascent)
+                font = ImageFont.truetype(fontPath, standard)
                 badBox = font.getbbox('\uFFFF')
                 for char in characters:
                     case = "l" if char == char.lower() else "u"
@@ -37,25 +42,22 @@ class FontData(Dataset):
                     if os.path.exists(path):
                         continue
 
-                    # 22 lines and 5 indents
+                    # 22 lines and 5 indents, classic
                     mask = font.getmask(char)
                     box = font.getbbox(char)
                     if mask.size == (0, 0) or box == badBox:
                         continue
                     im = Image.Image()._new(mask)
 
-                    # Resize bc fonts are evil dastardly things
-                    maxDim = max(im.width, im.height)
-                    w = int(im.width * (config.fontSize / maxDim))
-                    h = int(im.height * (config.fontSize / maxDim))
-                    im = im.resize((w, h))
+                    canvas = Image.new("L", (imageSize, imageSize), 0)
+                    baseline = int(imageSize * 0.9)
+                    offset = baseline - ascent
+                    canvas.paste(im, ((imageSize - im.width) // 2, offset + box[1] - int(imageSize * 0.25)))
 
-                    im.save(path)
+                    canvas.save(path)
             except Exception as e:
                 print(fontPath, e)
 
-        # Just a bit of padding
-        imageSize = int(config.fontSize * 1.25)
         # Creating SDFs from all the bitmaps
         for imagePath in glob(os.path.join("data", "bitmaps", "*")):
             path = os.path.join("data", "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
@@ -63,14 +65,9 @@ class FontData(Dataset):
                 continue
 
             img = np.array(Image.open(imagePath))
-            array = np.zeros([imageSize, imageSize])
-
-            # Place in center of image for standardization purposes
-            offset = (imageSize - img.shape[0]) // 2, (imageSize - img.shape[1]) // 2
-            array[offset[0]:offset[0] + img.shape[0], offset[1]:offset[1] + img.shape[1]] = img
 
             # Magic for sdf generation
-            bits = array > (np.max(array) - np.min(array)) / 2
+            bits = img > (np.max(img) - np.min(img)) / 2
             sdf = dist(bits) - dist(~bits)
 
             np.save(path, sdf / imageSize)
@@ -97,12 +94,12 @@ class FontData(Dataset):
         pairs = np.array(pairs)
         mse = np.array(mse)
 
-        # Manually excluding "too similar" pairs
-        pairs = pairs[mse > 0.005]
+        plt.hist(mse)
+        plt.grid()
+        plt.show()
 
-        # plt.hist(mse)
-        # plt.grid()
-        # plt.show()
+        # Manually excluding "too similar" pairs
+        pairs = pairs[mse > np.percentile(mse, 0.2)]
 
         self.pairs = pairs
 
