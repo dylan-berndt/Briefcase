@@ -83,11 +83,11 @@ while True:
     sdf = dist(canvas) - dist(~canvas)
     inputs = torch.tensor(sdf / imageSize, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
     if config.dataset.maps == "bitmaps":
-        inputs = torch.tensor(canvas, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+        inputs = torch.tensor(canvas.transpose(), dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
     with torch.no_grad():
         output, classification = model(inputs)
         choice = nn.functional.softmax(classification, dim=-1).squeeze().detach().numpy()
-        output = output.squeeze().detach().numpy()
+        output = output.squeeze().detach().numpy().transpose()
 
     out1 = np.clip((output - output.min()) / (output.max() - output.min() + 1e-8), 0, 1)
     out = output > 0

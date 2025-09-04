@@ -15,12 +15,13 @@ greek = list(range(0x03B1, 0x03C9 + 1))
 armenian = list(range(0x0561, 0x0587 + 1))
 cyrillic = list(range(0x0430, 0x044F + 1))
 georgian = list(range(0x10D0, 0x10FF + 1))
-characters = latin + greek + armenian + cyrillic
+# characters = latin + greek + armenian + cyrillic
+characters = latin
 characters = [chr(c) for c in characters]
 characters = characters + [c.upper() for c in characters]
 
 # 2 characters technically, and messes with checks for empty glyphs
-characters.remove("ԵՒ")
+# characters.remove("ԵՒ")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 torch.set_default_device(device)
@@ -110,6 +111,9 @@ class FontData(Dataset):
             other = key[:-1] + "l"
 
             if other not in images:
+                continue
+
+            if key[-2] not in characters:
                 continue
 
             mse.append(np.mean(np.power(images[other] - images[key], 2)))
