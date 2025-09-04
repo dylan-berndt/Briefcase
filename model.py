@@ -110,6 +110,9 @@ class ConvBlock(nn.Module):
             nn.ReLU(),
             nn.Conv2d(config.out_channels, config.out_channels, config.kernel_size, padding="same"),
             nn.BatchNorm2d(config.out_channels),
+            nn.ReLU(),
+            nn.Conv2d(config.out_channels, config.out_channels, config.kernel_size, padding="same"),
+            nn.BatchNorm2d(config.out_channels),
             nn.ReLU()
         )
 

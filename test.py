@@ -17,7 +17,7 @@ window = pygame.display.set_mode([960, 640])
 clock = pygame.time.Clock()
 
 imageSize = 48
-scale = 10
+scale = 5
 
 canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
 
@@ -47,7 +47,7 @@ while True:
         elif event.type == pygame.MOUSEMOTION:
             if drawing:
                 mx, my = pygame.mouse.get_pos()
-                cx, cy = mx - 60, my - 120
+                cx, cy = mx - 60, my - 60
                 dx, dy = mx - lx, my - ly
                 distance = max(int(math.sqrt(dx ** 2 + dy ** 2)), 1)
                 for i in range(distance):
@@ -82,11 +82,11 @@ while True:
     image = canvas.astype(np.uint8) * 255
     img = pygame.surfarray.make_surface(np.stack([image] * 3, axis=-1))
     img = pygame.transform.scale(img, (imageSize * scale, imageSize * scale))
-    window.blit(img, (60, 120))
+    window.blit(img, (60, 60))
 
     img = pygame.surfarray.make_surface(np.stack([out] * 3, axis=-1))
     img = pygame.transform.scale(img, (imageSize * scale, imageSize * scale))
-    window.blit(img, (500, 120))
+    window.blit(img, (960 - imageSize * scale - 60, 60))
 
     pygame.display.flip()
     clock.tick(60)
