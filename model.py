@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from config import *
+from data import characters
 
 import os
 
@@ -29,6 +30,13 @@ class UNet(nn.Module):
 
         self.out = nn.Linear(config.filters, 1)
 
+        width = config.filters * config.expansion ** config.layers
+        self.classifier = nn.Sequential(
+            nn.Linear(width, width),
+            nn.ReLU(),
+            nn.Linear(width, len(characters))
+        )
+
     def forward(self, x):
         x = self.input(x)
         x = torch.permute(x, [0, 3, 2, 1])
@@ -38,17 +46,17 @@ class UNet(nn.Module):
             x, y = self.downs[l](x)
             skips.append(y)
 
-        # Yes it's not normal but it makes more sense to me
-        # x = nn.functional.interpolate(x, scale_factor=2)
+        xMid = x.clone()
 
         for l, up in enumerate(reversed(self.ups)):
             y = skips[self.config.layers - l - 1]
             x, z = up(x, y)
 
         z = torch.permute(z, [0, 3, 2, 1])
+        c = torch.mean(self.classifier(xMid.permute(0, 3, 2, 1)), dim=(1, 2))
         z = self.out(z)
 
-        return z
+        return z, c
 
 
 class Down(nn.Module):
@@ -61,9 +69,13 @@ class Down(nn.Module):
         self.bn = nn.BatchNorm2d(config.out_channels)
         self.relu = nn.ReLU()
 
+        self.drop = nn.Dropout(0.4)
+
     def forward(self, x):
         y = self.conv(x)
         x = self.relu(self.bn(self.down(y)))
+
+        y = self.drop(y)
         
         return x, y
 

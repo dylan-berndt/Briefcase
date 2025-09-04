@@ -10,6 +10,7 @@ configPath = os.path.join(testPath, "config.json")
 config = Config().load(configPath)
 model = UNet(config.model)
 model.load_state_dict(torch.load(modelPath, weights_only=False).state_dict())
+model.eval()
 
 pygame.init()
 window = pygame.display.set_mode([960, 640])
@@ -68,7 +69,8 @@ while True:
     if config.dataset.maps == "bitmaps":
         inputs = torch.tensor(canvas, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
     with torch.no_grad():
-        output = model(inputs).squeeze().detach().numpy()
+        output, classification = model(inputs)
+        output = output.squeeze().detach().numpy()
 
     out1 = np.clip((output - output.min()) / (output.max() - output.min() + 1e-8), 0, 1)
     out = output > 0

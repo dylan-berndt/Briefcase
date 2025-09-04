@@ -102,6 +102,7 @@ class FontData(Dataset):
 
         pairs = []
         mse = []
+        letters = []
         for key in images:
             case = key[-1]
             if case == "l":
@@ -114,18 +115,22 @@ class FontData(Dataset):
             mse.append(np.mean(np.power(images[other] - images[key], 2)))
 
             pairs.append((images[other], images[key]))
+            letters.append(key[-2])
 
         pairs = np.array(pairs)
         mse = np.array(mse)
+        letters = np.array(letters)
 
         plt.hist(mse)
         plt.grid()
         plt.show()
 
         # Manually excluding "too similar" pairs
-        pairs = pairs[mse > np.percentile(mse, 20)]
+        pairs = pairs[mse > np.percentile(mse, 60)]
+        letters = letters[mse > np.percentile(mse, 60)]
 
         self.pairs = pairs
+        self.letters = letters
 
     def __len__(self):
         return len(self.pairs)
@@ -139,7 +144,7 @@ class FontData(Dataset):
         lower = lower.unsqueeze(-1)
         upper = upper.unsqueeze(-1)
 
-        return lower, upper
+        return lower, upper, torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
 
 
 if __name__ == "__main__":

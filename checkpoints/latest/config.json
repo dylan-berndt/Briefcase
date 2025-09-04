@@ -9,6 +9,6 @@
         "maps": "bitmaps"
     },
     "batchSize": 32,
-    "learningRate": 0.0003,
+    "learningRate": 0.001,
     "epochs": 80
 }
