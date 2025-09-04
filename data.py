@@ -22,12 +22,18 @@ characters = characters + [c.upper() for c in characters]
 # 2 characters technically, and messes with checks for empty glyphs
 characters.remove("ԵՒ")
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.set_default_device(device)
+
 
 class FontData(Dataset):
     def __init__(self, config: Config):
          # Just a bit of padding
         imageSize = int(config.fontSize * 1.5)
-        for fontPath in glob(os.path.join("data", "fonts", "*")):
+        fontPaths = glob(os.path.join("data", "fonts", "**", "*"), recursive=True)
+        for f, fontPath in enumerate(fontPaths):
+            if not os.path.isfile(fontPath):
+                continue
             try:
                 font = ImageFont.truetype(fontPath, config.fontSize)
                 ascent, descent = font.getmetrics()
@@ -58,28 +64,41 @@ class FontData(Dataset):
             except Exception as e:
                 print(fontPath, e)
 
+            print(f"\rFonts serialized: {f + 1}/{len(fontPaths)}", end="")
+
         # Creating SDFs from all the bitmaps
-        for imagePath in glob(os.path.join("data", "bitmaps", "*")):
-            path = os.path.join("data", "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
-            if os.path.exists(path):
-                continue
+        imagePaths = glob(os.path.join("data", "bitmaps", "*"))
+        for i, imagePath in enumerate(imagePaths):
+            try:
+                path = os.path.join("data", "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
+                if os.path.exists(path):
+                    continue
 
-            img = np.array(Image.open(imagePath))
+                img = np.array(Image.open(imagePath))
 
-            # Magic for sdf generation
-            bits = img > (np.max(img) - np.min(img)) / 2
-            sdf = dist(bits) - dist(~bits)
+                # Magic for sdf generation
+                bits = img > (np.max(img) - np.min(img)) / 2
+                sdf = dist(bits) - dist(~bits)
 
-            np.save(path, sdf / imageSize)
+                np.save(path, sdf / imageSize)
+            except Image.UnidentifiedImageError:
+                print(imagePath, "Unidentified")
+
+            print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
 
         # Lets us choose what kind of images to train on
         images = {}
-        for imagePath in glob(os.path.join("data", config.maps, "*")):
-            suffix = imagePath.split(".")[-1]
-            if suffix == "npy":
-                images[os.path.basename(imagePath).removesuffix(".npy")] = np.load(imagePath)
-            else:
-                images[os.path.basename(imagePath).removesuffix(".bmp")] = np.array(Image.open(imagePath)) / 255
+        imagePaths = glob(os.path.join("data", config.maps, "*"))
+        for i, imagePath in enumerate(imagePaths):
+            try:
+                suffix = imagePath.split(".")[-1]
+                if suffix == "npy":
+                    images[os.path.basename(imagePath).removesuffix(".npy")] = np.load(imagePath)
+                else:
+                    images[os.path.basename(imagePath).removesuffix(".bmp")] = np.array(Image.open(imagePath)) / 255
+            except Image.UnidentifiedImageError:
+                print(imagePath, "Unidentified")
+            print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
 
         pairs = []
         mse = []

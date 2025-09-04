@@ -1,7 +1,7 @@
 {
     "model": {
         "layers": 3,
-        "filters": 16,
+        "filters": 8,
         "expansion": 2
     },
     "dataset": {
@@ -9,6 +9,6 @@
         "maps": "bitmaps"
     },
     "batchSize": 32,
-    "learningRate": 1e-3,
-    "epochs": 40
+    "learningRate": 3e-4,
+    "epochs": 80
 }

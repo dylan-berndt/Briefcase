@@ -23,7 +23,8 @@ canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
 drawing = False
 drawingMode = "add"
 lx, ly = (None, None)
-cursorSize = 2
+cursorSize = 3
+
 
 while True:
     window.fill((55, 75, 200))
@@ -53,6 +54,12 @@ while True:
                     fx, fy = cx + dx * path, cy + dy * path
                     nx, ny = int(fx // scale), int(fy // scale)
                     canvas[nx: nx + cursorSize, ny: ny + cursorSize] = drawingMode == "add"
+
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_LEFTBRACKET:
+                cursorSize -= 1
+            if event.key == pygame.K_RIGHTBRACKET:
+                cursorSize += 1
 
     lx, ly = pygame.mouse.get_pos()
 
