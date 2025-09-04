@@ -13,18 +13,34 @@ model.load_state_dict(torch.load(modelPath, weights_only=False).state_dict())
 model.eval()
 
 pygame.init()
-window = pygame.display.set_mode([960, 640])
+windowSize = [960, 640]
+window = pygame.display.set_mode(windowSize)
 clock = pygame.time.Clock()
 
 imageSize = 48
-scale = 5
+scale = 7
 
 canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
 
 drawing = False
 drawingMode = "add"
 lx, ly = (None, None)
-cursorSize = 3
+cursorSize = 2
+
+classColumns = 52
+uiFont = pygame.font.SysFont("Calibri", 12)
+
+uiSurface = pygame.Surface(windowSize, pygame.SRCALPHA, 32)
+uiSurface = uiSurface.convert_alpha()
+
+gridWidth = (windowSize[0] - 120) // classColumns
+gridHeight = (windowSize[1] - 180 - imageSize * scale) / math.ceil(len(characters) / classColumns)
+for c, char in enumerate(characters):
+    column = c % classColumns
+    row = c // classColumns
+    position = 120 + imageSize * scale + row * gridHeight, 60 + column * gridWidth
+    text = uiFont.render(char, False, [255, 255, 255])
+    uiSurface.blit(text, (position[1], position[0]))
 
 
 while True:
@@ -70,6 +86,7 @@ while True:
         inputs = torch.tensor(canvas, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
     with torch.no_grad():
         output, classification = model(inputs)
+        choice = nn.functional.softmax(classification, dim=-1).squeeze().detach().numpy()
         output = output.squeeze().detach().numpy()
 
     out1 = np.clip((output - output.min()) / (output.max() - output.min() + 1e-8), 0, 1)
@@ -86,7 +103,17 @@ while True:
 
     img = pygame.surfarray.make_surface(np.stack([out] * 3, axis=-1))
     img = pygame.transform.scale(img, (imageSize * scale, imageSize * scale))
-    window.blit(img, (960 - imageSize * scale - 60, 60))
+    window.blit(img, (windowSize[0] - imageSize * scale - 60, 60))
+
+    gridWidth = (windowSize[0] - 120) // classColumns
+    gridHeight = (windowSize[1] - 180 - imageSize * scale) / math.ceil(len(characters) / classColumns)
+    for c, char in enumerate(characters):
+        column = c % classColumns
+        row = c // classColumns
+        position = 120 + imageSize * scale + row * gridHeight, 60 + column * gridWidth
+        pygame.draw.rect(window, [255 * choice[c], 0, 0], [position[1], position[0], gridWidth, gridHeight])
+    
+    window.blit(uiSurface, [0, 0])
 
     pygame.display.flip()
     clock.tick(60)
