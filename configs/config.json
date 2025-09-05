@@ -1,14 +1,14 @@
 {
     "model": {
         "layers": 3,
-        "filters": 8,
+        "filters": 12,
         "expansion": 2
     },
     "dataset": {
         "fontSize": 32,
         "maps": "bitmaps"
     },
-    "batchSize": 32,
+    "batchSize": 128,
     "learningRate": 1e-3,
     "epochs": 80
 }
