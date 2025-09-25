@@ -78,6 +78,9 @@ while True:
             if event.key == pygame.K_RIGHTBRACKET:
                 cursorSize += 1
 
+            if event.key == pygame.K_DELETE:
+                canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
+
     lx, ly = pygame.mouse.get_pos()
 
     sdf = dist(canvas) - dist(~canvas)
