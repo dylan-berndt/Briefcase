@@ -1,7 +1,7 @@
 # Briefcase
 
 Neural network designed originally to produce uppercase versions of lowercase glpyhs, taking inspiration from [Tom7's lowercasing work](http://tom7.org/lowercase/). This iteration uses a U-Net architecture operating on pre-rendered bitmap glyphs of the fonts. 
-Initial iterations have used ~4,000 fonts, with strong accuracy.
+Initial iterations have used ~3,000 fonts, with strong accuracy.
 
 # Getting Started
 
