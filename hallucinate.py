@@ -1,4 +1,4 @@
-from model import *
+from utils import *
 import numpy as np
 from itertools import product
 from PIL import Image

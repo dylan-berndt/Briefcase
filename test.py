@@ -1,16 +1,9 @@
-from model import *
-from data import *
+from utils import *
 import pygame
 import math
 
 testPath = os.path.join("checkpoints", "latest")
-modelPath = os.path.join(testPath, "checkpoint.pt")
-configPath = os.path.join(testPath, "config.json")
-
-config = Config().load(configPath)
-model = UNet(config.model)
-model.load_state_dict(torch.load(modelPath, weights_only=False).state_dict())
-model.eval()
+model, config = UNet.load(testPath)
 
 pygame.init()
 windowSize = [960, 640]

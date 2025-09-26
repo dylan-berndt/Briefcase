@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
-from config import *
-from data import characters
+from .config import *
+from .data import characters
+import utils.model
 
 import os
+import sys
 
 
 class UNet(nn.Module):
@@ -57,6 +59,22 @@ class UNet(nn.Module):
         z = self.out(z)
 
         return z, c
+    
+    @staticmethod
+    def load(path):
+        modelPath = os.path.join(path, "checkpoint.pt")
+        configPath = os.path.join(path, "config.json")
+
+        loadedConfig = Config().load(configPath)
+        loadedModel = UNet(loadedConfig.model)
+
+        # Doofus. I saved the whole module, not just the state dict.
+        sys.modules["model"] = utils.model
+        sys.modules["config"] = utils.config
+        loadedModel.load_state_dict(torch.load(modelPath, weights_only=False).state_dict())
+        loadedModel.eval()
+
+        return loadedModel, loadedConfig
 
 
 class Down(nn.Module):

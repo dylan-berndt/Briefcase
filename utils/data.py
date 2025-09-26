@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset
-from config import *
+from .config import *
 import numpy as np
 
 import os
