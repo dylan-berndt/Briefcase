@@ -24,6 +24,7 @@ Note: Glyph classifier was added to force differentiation between characters.
 
 <img width="883" height="369" alt="Screenshot 2025-09-26 132213" src="https://github.com/user-attachments/assets/41ad392c-1978-4d32-8840-bb07e252d5d5" />
 <img width="872" height="379" alt="Screenshot 2025-09-26 132333" src="https://github.com/user-attachments/assets/204f9eba-3d1b-4828-8f59-7c1addfae54e" />
+<img width="871" height="366" alt="Screenshot 2025-09-26 134328" src="https://github.com/user-attachments/assets/9d9abb34-ac40-4fe8-a929-2233f4494362" />
 <img width="877" height="369" alt="Screenshot 2025-09-26 132421" src="https://github.com/user-attachments/assets/a28901c1-bc3b-41bd-bc85-deebe8df575f" />
 <img width="875" height="373" alt="Screenshot 2025-09-26 132253" src="https://github.com/user-attachments/assets/f5cb64a8-51b2-44fb-902e-c43da8b34dc5" />
 
