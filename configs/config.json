@@ -6,7 +6,10 @@
     },
     "dataset": {
         "fontSize": 32,
-        "maps": "bitmaps"
+        "maps": "bitmaps",
+        "split": "holdout",
+        "standardFonts": ["Calibri", "Arial", "Tahoma", "Times New Roman"],
+        "stylizedFonts": ["Brush Script MT Italic", "Chiller Regular", "Goudy Stout Regular", "Jokerman Regular"]
     },
     "batchSize": 128,
     "learningRate": 1e-3,

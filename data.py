@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 from config import *
 import numpy as np
 
@@ -121,6 +121,7 @@ class FontData(Dataset):
             pairs.append((images[other], images[key]))
             letters.append(key[-2])
 
+        names = np.array(images.keys())
         pairs = np.array(pairs)
         mse = np.array(mse)
         letters = np.array(letters)
@@ -129,10 +130,14 @@ class FontData(Dataset):
         plt.grid()
         plt.show()
 
-        # Manually excluding "too similar" pairs
-        pairs = pairs[mse > np.percentile(mse, 60)]
-        letters = letters[mse > np.percentile(mse, 60)]
+        mask = mse > np.percentile(mse, 60)
 
+        # Manually excluding "too similar" pairs
+        names = names[mask]
+        pairs = pairs[mask]
+        letters = letters[mask]
+
+        self.names = names
         self.pairs = pairs
         self.letters = letters
 
@@ -149,6 +154,17 @@ class FontData(Dataset):
         upper = upper.unsqueeze(-1)
 
         return lower, upper, torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+    
+    @staticmethod
+    def split(dataset, config):
+        if config.split == "random":
+            return torch.utils.data.random_split(dataset, [0.8, 0.2])
+        
+        # Designed to holdout a specific set of fonts for testing later
+        if config.split == "holdout":
+            testIndices = dataset.names.isin(config.standardFonts + config.stylizedFonts)
+            trainIndices = ~testIndices
+            return Subset(dataset, np.arange(len(dataset.names))[trainIndices]), Subset(dataset, np.arange(len(dataset.names))[testIndices])
 
 
 if __name__ == "__main__":
