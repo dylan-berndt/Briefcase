@@ -1,7 +1,7 @@
 {
     "model": {
-        "layers": 3,
-        "filters": 12,
+        "layers": 4,
+        "filters": 16,
         "expansion": 2
     },
     "dataset": {
