@@ -29,9 +29,17 @@ torch.set_default_device(device)
 
 class FontData(Dataset):
     def __init__(self, config: Config):
+        if not os.path.exists(os.path.join(config.directory, "bitmaps")):
+            os.mkdir(os.path.join(config.directory, "bitmaps"))
+
+        if not os.path.exists(os.path.join(config.directory, "sdf")):
+            os.mkdir(os.path.join(config.directory, "sdf"))
+
          # Just a bit of padding
         imageSize = int(config.fontSize * 1.5)
-        fontPaths = glob(os.path.join("data", "fonts", "**", "*"), recursive=True)
+        ttfPaths = glob(os.path.join(config.directory, "fonts", "**", "*.ttf"), recursive=True)
+        otfPaths = glob(os.path.join(config.directory, "fonts", "**", "*.otf"), recursive=True)
+        fontPaths = ttfPaths + otfPaths
         for f, fontPath in enumerate(fontPaths):
             if not os.path.isfile(fontPath):
                 continue
@@ -45,7 +53,7 @@ class FontData(Dataset):
                 for char in characters:
                     case = "l" if char == char.lower() else "u"
                     name = os.path.basename(fontPath) + " " + char.lower() + case
-                    path = os.path.join("data", "bitmaps", name + ".bmp")
+                    path = os.path.join(config.directory, "bitmaps", name + ".bmp")
                     if os.path.exists(path):
                         continue
 
@@ -68,10 +76,10 @@ class FontData(Dataset):
             print(f"\rFonts serialized: {f + 1}/{len(fontPaths)}", end="")
 
         # Creating SDFs from all the bitmaps
-        imagePaths = glob(os.path.join("data", "bitmaps", "*"))
+        imagePaths = glob(os.path.join(config.directory, "bitmaps", "*"))
         for i, imagePath in enumerate(imagePaths):
             try:
-                path = os.path.join("data", "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
+                path = os.path.join(config.directory, "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
                 if os.path.exists(path):
                     continue
 
@@ -89,7 +97,7 @@ class FontData(Dataset):
 
         # Lets us choose what kind of images to train on
         images = {}
-        imagePaths = glob(os.path.join("data", config.maps, "*"))
+        imagePaths = glob(os.path.join(config.directory, config.maps, "*"))
         for i, imagePath in enumerate(imagePaths):
             try:
                 suffix = imagePath.split(".")[-1]
@@ -104,6 +112,7 @@ class FontData(Dataset):
         pairs = []
         mse = []
         letters = []
+        names = []
         for key in images:
             case = key[-1]
             if case == "l":
@@ -121,7 +130,9 @@ class FontData(Dataset):
             pairs.append((images[other], images[key]))
             letters.append(key[-2])
 
-        names = np.array(images.keys())
+            names.append(key[:-2])
+
+        names = np.array(names)
         pairs = np.array(pairs)
         mse = np.array(mse)
         letters = np.array(letters)
@@ -130,7 +141,7 @@ class FontData(Dataset):
         plt.grid()
         plt.show()
 
-        mask = mse > np.percentile(mse, 60)
+        mask = mse > np.percentile(mse, 40)
 
         # Manually excluding "too similar" pairs
         names = names[mask]

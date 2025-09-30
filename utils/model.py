@@ -13,6 +13,9 @@ class UNet(nn.Module):
         super().__init__()
         self.config = config
 
+        kernelSize = 3 if "kernelSize" not in config else config.kernelSize
+        blockDepth = 3 if "blockDepth" not in config else config.blockDepth
+
         self.input = nn.Sequential(
             nn.Linear(1, config.filters),
             nn.ReLU()
@@ -23,7 +26,8 @@ class UNet(nn.Module):
 
         for l in range(config.layers):
             filters = config.filters * (config.expansion ** l)
-            layerConfig = Config(in_channels=filters, out_channels=filters * 2, kernel_size=3)
+            layerConfig = Config(in_channels=filters, out_channels=filters * 2,
+                                 kernel_size=kernelSize, block_depth=blockDepth)
             self.downs.append(Down(layerConfig))
 
             layerConfig.in_channels = layerConfig.in_channels * 4
@@ -71,7 +75,10 @@ class UNet(nn.Module):
         # Doofus. I saved the whole module, not just the state dict.
         sys.modules["model"] = utils.model
         sys.modules["config"] = utils.config
-        loadedModel.load_state_dict(torch.load(modelPath, weights_only=False).state_dict())
+        loaded = torch.load(modelPath, weights_only=False)
+        if hasattr(loaded, "state_dict"):
+            loaded = loaded.state_dict()
+        loadedModel.load_state_dict(loaded)
         loadedModel.eval()
 
         return loadedModel, loadedConfig
@@ -122,17 +129,20 @@ class ConvBlock(nn.Module):
         super().__init__()
         self.config = config
 
-        self.module = nn.Sequential(
+        modules = nn.ModuleList([
             nn.Conv2d(config.in_channels, config.out_channels, config.kernel_size, padding="same"),
             nn.BatchNorm2d(config.out_channels),
-            nn.ReLU(),
-            nn.Conv2d(config.out_channels, config.out_channels, config.kernel_size, padding="same"),
-            nn.BatchNorm2d(config.out_channels),
-            nn.ReLU(),
-            nn.Conv2d(config.out_channels, config.out_channels, config.kernel_size, padding="same"),
-            nn.BatchNorm2d(config.out_channels),
             nn.ReLU()
-        )
+        ])
+
+        for layer in range(config.block_depth - 1):
+            modules.extend([
+                nn.Conv2d(config.out_channels, config.out_channels, config.kernel_size, padding="same"),
+                nn.BatchNorm2d(config.out_channels),
+                nn.ReLU()
+            ])
+
+        self.module = nn.Sequential(*modules)
 
     def forward(self, x):
         return self.module(x)

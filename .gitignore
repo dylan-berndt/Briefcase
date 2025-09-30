@@ -1,6 +1,10 @@
 /data/bitmaps
 /data/sdf
 /data/fonts
+/google/bitmaps
+/google/sdf
+/google/fonts
+
 
 /venv
 

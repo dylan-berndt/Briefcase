@@ -13,7 +13,7 @@ clock = pygame.time.Clock()
 imageSize = 48
 scale = 7
 
-canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
+canvas = np.zeros((imageSize, imageSize), dtype=bool)
 
 drawing = False
 drawingMode = "add"
