@@ -19,8 +19,8 @@ import matplotlib.pyplot as plt
 # Method for obtaining the correlation between the style applied to the actual images
 # and the model's prediction for what style is applied
 def batchCorrelation(yTrueNormal, yTrueStyle, yPredNormal, yPredStyle):
-    yTrueResidual = yTrueStyle - yTrueNormal.numpy()
-    yPredResidual = yPredStyle.numpy() - yPredNormal
+    yTrueResidual = yTrueStyle - yTrueNormal
+    yPredResidual = yPredStyle - yPredNormal
 
     result = pearsonr(yTrueResidual.flatten(), yPredResidual.flatten())
 
@@ -32,9 +32,9 @@ def listify(array):
 
 
 if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("..", "checkpoints", "latest"))
+    model, config = UNet.load(os.path.join("checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join("..", "data")
+    config.dataset.directory = os.path.join("data")
     dataset = FontData(config.dataset)
 
     standardFonts = {
@@ -81,7 +81,7 @@ if __name__ == "__main__":
             referenceOrder = dataset.letters[namespaces[font]["reference"]]
             styleOrder = dataset.letters[namespace]
 
-            refTarget, refPred = references[font]
+            refPred, refTarget = references[font]
 
             referenceDF = pd.DataFrame({"letter": referenceOrder,
                                         "refTarget": listify(refTarget), "refPrediction": listify(refPred)})
