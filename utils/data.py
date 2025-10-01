@@ -52,7 +52,8 @@ class FontData(Dataset):
                 badBox = font.getbbox('\uFFFF')
                 for char in characters:
                     case = "l" if char == char.lower() else "u"
-                    name = os.path.basename(fontPath) + " " + char.lower() + case
+                    fontName, fontStyle = font.getname()
+                    name = f"{fontName} {fontStyle} {char.lower()}{case}"
                     path = os.path.join(config.directory, "bitmaps", name + ".bmp")
                     if os.path.exists(path):
                         continue

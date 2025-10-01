@@ -72,7 +72,7 @@ while True:
                 cursorSize += 1
 
             if event.key == pygame.K_DELETE:
-                canvas = np.zeros((imageSize, imageSize), dtype=np.bool)
+                canvas = np.zeros((imageSize, imageSize), dtype=bool)
 
     lx, ly = pygame.mouse.get_pos()
 
