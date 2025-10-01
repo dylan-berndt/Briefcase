@@ -19,10 +19,10 @@ import matplotlib.pyplot as plt
 # Method for obtaining the correlation between the style applied to the actual images
 # and the model's prediction for what style is applied
 def batchCorrelation(yTrueNormal, yTrueStyle, yPredNormal, yPredStyle):
-    yTrueResidual = yTrueStyle - yTrueNormal
-    yPredResidual = yPredStyle - yPredNormal
+    yTrueResidual = yTrueStyle - yTrueNormal.numpy()
+    yPredResidual = yPredStyle.numpy() - yPredNormal
 
-    result = pearsonr(yTrueResidual.flatten().numpy(), yPredResidual.flatten().numpy())
+    result = pearsonr(yTrueResidual.flatten(), yPredResidual.flatten())
 
     return result.statistic, result.pvalue
 
@@ -39,7 +39,7 @@ if __name__ == "__main__":
 
     standardFonts = {
         "Calibri": ["Regular", "Bold Italic", "Light Italic", "Light", "Italic", "Bold"],
-        "Arial": ["Regular", "Rounded", "Narrow", "Narrow Italic", "Narrow Bold Italic", "Narrow Bold",
+        "Arial": ["Regular", "Narrow", "Narrow Italic", "Narrow Bold Italic", "Narrow Bold",
                   "Italic", "Bold Italic", "Bold"],
         "Times New Roman": ["Regular", "Bold", "Bold Italic", "Italic"]
     }
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     namespaces = {font: {"reference": None} for font in standardFonts}
     for font in standardFonts:
         for style in standardFonts[font]:
-            space = dataset.names == f"{font} {style}"
+            space = dataset.names == f"{font} {style} "
             if namespaces[font]["reference"] is None:
                 namespaces[font]["reference"] = space
                 continue
@@ -58,10 +58,11 @@ if __name__ == "__main__":
     references = {}
     for font in namespaces:
         namespace = namespaces[font]["reference"]
-        inputs = dataset.pairs[namespace][: 0]
-        targets = dataset.pairs[namespace][: 1]
-        inputs = torch.tensor(inputs, dtype=torch.float32).unsqueeze(-1)
-        output, classification = model(inputs)
+        inputs = dataset.pairs[namespace][:, 0]
+        targets = dataset.pairs[namespace][:, 1]
+        with torch.no_grad():
+            inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
+            output, classification = model(inputs)
         references[font] = output, targets
 
     for font in namespaces:
@@ -71,10 +72,11 @@ if __name__ == "__main__":
                 continue
 
             namespace = namespaces[font][style]
-            inputs = dataset.pairs[namespace][: 0]
-            targets = dataset.pairs[namespace][: 1]
-            inputs = torch.tensor(inputs, dtype=torch.float32).unsqueeze(-1)
-            output, classification = model(inputs)
+            inputs = dataset.pairs[namespace][:, 0]
+            targets = dataset.pairs[namespace][:, 1]
+            with torch.no_grad():
+                inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
+                output, classification = model(inputs)
 
             referenceOrder = dataset.letters[namespaces[font]["reference"]]
             styleOrder = dataset.letters[namespace]
@@ -87,11 +89,10 @@ if __name__ == "__main__":
                                     "styleTarget": listify(targets), "stylePrediction": listify(output)})
 
             joined = pd.merge(styleDF, referenceDF, how="inner", on="letter")
-            print(font, style, len(joined))
 
             series[f"{style} ({len(joined)})"] = [
                 batchCorrelation(joined.refTarget.to_numpy()[i], joined.styleTarget.to_numpy()[i],
-                                 joined.refPrediction.to_numpy()[i], joined.stylePrediction.to_numpy()[i])
+                                 joined.refPrediction.to_numpy()[i], joined.stylePrediction.to_numpy()[i])[0]
                 for i in range(len(joined))
             ]
 
@@ -101,6 +102,7 @@ if __name__ == "__main__":
         ax = plt.subplot(1, 1, 1)
         ax.boxplot(y)
         ax.set_xticklabels(x)
+        # ax.set_xticks(range(1, len(x) + 1), x, rotation=45)
         ax.set_xlabel("Style")
         ax.set_ylabel("Correlation")
         ax.grid()
