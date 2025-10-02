@@ -112,7 +112,7 @@ if __name__ == "__main__":
         plt.show()
 
     # Getting all the activations for every font with every character in the latin alphabet
-    comparativeFonts = ["Calibri Regular", "Broadway Regular", "Jokerman Regular", "Wide Latin Regular", "Comic Sans MS Regular"]
+    comparativeFonts = ["Edwardian Script ITC", "Calibri", "Comic Sans MS", "Broadway", "Jokerman", "Wide Latin"]
     testCharacters = [chr(c) for c in latin]
     ablationActivations = []
     layers = None
@@ -120,9 +120,9 @@ if __name__ == "__main__":
         fontActivations = []
         for character in testCharacters:
             # Just plainly wasteful, but keeps things in order without sorting so idc
-            if np.sum(np.bitwise_and(dataset.names == font, dataset.letters == character)) == 0:
+            if np.sum(np.bitwise_and(dataset.names == f"{font} Regular", dataset.letters == character)) == 0:
                 print(font, character)
-            pair = dataset.pairs[np.bitwise_and(dataset.names == font, dataset.letters == character)]
+            pair = dataset.pairs[np.bitwise_and(dataset.names == f"{font} Regular", dataset.letters == character)]
             with torch.no_grad():
                 inputs = torch.tensor(pair[:, 0], dtype=torch.float32).squeeze().unsqueeze(0).unsqueeze(-1)
                 activations = model.activations(inputs)
@@ -154,13 +154,14 @@ if __name__ == "__main__":
         # Weighted sum (char 1 = char 2 has a weight of 0)
         correlation = np.sum(observe, axis=(2, 3))
         correlation = correlation / np.sum(~mask, axis=(2, 3))
+        correlation = np.flip(correlation, axis=0)
 
         ax = plt.subplot(height, width, layer + 1)
         ax.set_title(f"Layer {layer + 1}")
         ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
         # ax.colorbar()
         ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
-        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts)
+        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
 
         for i in range(correlation.shape[0]):
             for j in range(correlation.shape[0]):
@@ -179,13 +180,14 @@ if __name__ == "__main__":
         
         correlation = np.sum(observe, axis=(2, 3))
         correlation = correlation / np.sum(mask, axis=(2, 3))
+        correlation = np.flip(correlation, axis=0)
 
         ax = plt.subplot(height, width, layer + 1)
         ax.set_title(f"Layer {layer + 1}")
         ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
         # ax.colorbar()
         ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
-        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts)
+        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
 
         for i in range(correlation.shape[0]):
             for j in range(correlation.shape[0]):
