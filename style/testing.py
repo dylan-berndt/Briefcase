@@ -14,6 +14,7 @@ from scipy.stats import pearsonr
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.metrics import roc_auc_score
 
 
 # Method for obtaining the correlation between the style applied to the actual images
@@ -29,6 +30,36 @@ def batchCorrelation(yTrueNormal, yTrueStyle, yPredNormal, yPredStyle):
 
 def listify(array):
     return [array[i] for i in range(array.shape[0])]
+
+
+def diagonalCohensD(matrix):
+    mask = np.eye(matrix.shape[0], dtype=bool)
+    onDiag = matrix[mask]
+    offDiag = matrix[~mask]
+
+    diagStd = np.std(onDiag, ddof=1)
+    offStd = np.std(offDiag, ddof=1)
+    diagMean = np.mean(onDiag)
+    offMean = np.mean(offDiag)
+
+    pooledStd = np.sqrt((diagStd ** 2 + offStd ** 2) / 2.0)
+    return (diagMean - offMean) / (pooledStd + 1e-6)
+
+
+def auc(matrix):
+    labels = np.eye(matrix.shape[0], dtype=bool)
+    return roc_auc_score(labels.flatten(), matrix.flatten())
+
+
+def diff(matrix):
+    mask = np.eye(matrix.shape[0], dtype=bool)
+    onDiag = matrix[mask]
+    offDiag = matrix[~mask]
+
+    diagMean = np.mean(onDiag)
+    offMean = np.mean(offDiag)
+    
+    return diagMean - offMean
 
 
 # TODO: Refactor the mess
@@ -154,12 +185,13 @@ if __name__ == "__main__":
         # Weighted sum (char 1 = char 2 has a weight of 0)
         correlation = np.sum(observe, axis=(2, 3))
         correlation = correlation / np.sum(~mask, axis=(2, 3))
-        correlation = np.flip(correlation, axis=0)
 
         ax = plt.subplot(height, width, layer + 1)
-        ax.set_title(f"Layer {layer + 1}")
+        ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
+
+        correlation = np.flip(correlation, axis=0)
         ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
-        # ax.colorbar()
+
         ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
         ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
 
@@ -169,7 +201,7 @@ if __name__ == "__main__":
                 color = "k" if (value > np.percentile(correlation, 40)) else "w"
                 text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
 
-    plt.suptitle("Layer Activation Correlations (c1 != c2)")
+    plt.suptitle("Layer Activation Cosine Similarity (c1 != c2)")
     plt.show()
 
     for layer in range(layers):
@@ -180,12 +212,13 @@ if __name__ == "__main__":
         
         correlation = np.sum(observe, axis=(2, 3))
         correlation = correlation / np.sum(mask, axis=(2, 3))
-        correlation = np.flip(correlation, axis=0)
 
         ax = plt.subplot(height, width, layer + 1)
-        ax.set_title(f"Layer {layer + 1}")
+        ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
+
+        correlation = np.flip(correlation, axis=0)
         ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
-        # ax.colorbar()
+
         ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
         ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
 
@@ -195,6 +228,6 @@ if __name__ == "__main__":
                 color = "k" if (value > np.percentile(correlation, 40)) else "w"
                 text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
 
-    plt.suptitle("Layer Activation Correlations (c1 == c2)")
+    plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
     plt.show()
 
