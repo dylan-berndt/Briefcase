@@ -31,11 +31,12 @@ def listify(array):
     return [array[i] for i in range(array.shape[0])]
 
 
+# TODO: Refactor the mess
 if __name__ == "__main__":
     model, config = UNet.load(os.path.join("checkpoints", "latest"))
 
     config.dataset.directory = os.path.join("data")
-    dataset = FontData(config.dataset)
+    dataset = FontData(config.dataset, training=False)
 
     standardFonts = {
         "Calibri": ["Regular", "Bold Italic", "Light Italic", "Light", "Italic", "Bold"],
@@ -48,7 +49,7 @@ if __name__ == "__main__":
     namespaces = {font: {"reference": None} for font in standardFonts}
     for font in standardFonts:
         for style in standardFonts[font]:
-            space = dataset.names == f"{font} {style} "
+            space = dataset.names == f"{font} {style}"
             if namespaces[font]["reference"] is None:
                 namespaces[font]["reference"] = space
                 continue
@@ -109,4 +110,89 @@ if __name__ == "__main__":
 
         plt.title(f"{font} Style Correlations")
         plt.show()
+
+    # Getting all the activations for every font with every character in the latin alphabet
+    comparativeFonts = ["Calibri Regular", "Broadway Regular", "Jokerman Regular", "Wide Latin Regular", "Comic Sans MS Regular"]
+    testCharacters = [chr(c) for c in latin]
+    ablationActivations = []
+    layers = None
+    for font in comparativeFonts:
+        fontActivations = []
+        for character in testCharacters:
+            # Just plainly wasteful, but keeps things in order without sorting so idc
+            if np.sum(np.bitwise_and(dataset.names == font, dataset.letters == character)) == 0:
+                print(font, character)
+            pair = dataset.pairs[np.bitwise_and(dataset.names == font, dataset.letters == character)]
+            with torch.no_grad():
+                inputs = torch.tensor(pair[:, 0], dtype=torch.float32).squeeze().unsqueeze(0).unsqueeze(-1)
+                activations = model.activations(inputs)
+            layers = len(activations)
+            fontActivations.append(activations)
+
+        ablationActivations.append(fontActivations)
+
+    # All possible combinations of layer activation similarities
+    # Yes this is perhaps the single most revolting bit of code I have ever written
+    ablationMatrix = np.zeros([layers, len(comparativeFonts), len(comparativeFonts), len(testCharacters), len(testCharacters)])
+    for f1 in range(len(comparativeFonts)):
+        for f2 in range(len(comparativeFonts)):
+            for c1 in range(len(testCharacters)):
+                for c2 in range(len(testCharacters)):
+                    for l in range(layers):
+                        x = ablationActivations[f1][c1][l].flatten()
+                        y = ablationActivations[f2][c2][l].flatten()
+                        ablationMatrix[l, f1, f2, c1, c2] = nn.functional.cosine_similarity(x, y, dim=0).item()
+
+    width = int(math.ceil(math.sqrt(layers * 2)))
+    height = int(math.ceil(layers / width))
+    for layer in range(layers):
+        mask = np.eye(len(testCharacters), dtype=bool)
+        mask = np.expand_dims(mask, (0, 1))
+
+        observe = np.where(mask, 0, ablationMatrix[layer])
+        
+        # Weighted sum (char 1 = char 2 has a weight of 0)
+        correlation = np.sum(observe, axis=(2, 3))
+        correlation = correlation / np.sum(~mask, axis=(2, 3))
+
+        ax = plt.subplot(height, width, layer + 1)
+        ax.set_title(f"Layer {layer + 1}")
+        ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
+        # ax.colorbar()
+        ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
+        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts)
+
+        for i in range(correlation.shape[0]):
+            for j in range(correlation.shape[0]):
+                value = correlation[i, j]
+                color = "k" if (value > np.percentile(correlation, 40)) else "w"
+                text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
+
+    plt.suptitle("Layer Activation Correlations (c1 != c2)")
+    plt.show()
+
+    for layer in range(layers):
+        mask = np.eye(len(testCharacters), dtype=bool)
+        mask = np.expand_dims(mask, (0, 1))
+
+        observe = np.where(mask, ablationMatrix[layer], 0)
+        
+        correlation = np.sum(observe, axis=(2, 3))
+        correlation = correlation / np.sum(mask, axis=(2, 3))
+
+        ax = plt.subplot(height, width, layer + 1)
+        ax.set_title(f"Layer {layer + 1}")
+        ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
+        # ax.colorbar()
+        ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
+        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts)
+
+        for i in range(correlation.shape[0]):
+            for j in range(correlation.shape[0]):
+                value = correlation[i, j]
+                color = "k" if (value > np.percentile(correlation, 40)) else "w"
+                text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
+
+    plt.suptitle("Layer Activation Correlations (c1 == c2)")
+    plt.show()
 

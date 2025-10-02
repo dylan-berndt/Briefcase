@@ -64,6 +64,25 @@ class UNet(nn.Module):
 
         return z, c
     
+    def activations(self, x):
+        x = self.input(x)
+        x = torch.permute(x, [0, 3, 2, 1])
+
+        activations = []
+
+        skips = []
+        for l in range(self.config.layers):
+            x, y = self.downs[l](x)
+            skips.append(y)
+            activations.append(y)
+
+        for l, up in enumerate(reversed(self.ups)):
+            y = skips[self.config.layers - l - 1]
+            x, z = up(x, y)
+            activations.append(z)
+
+        return activations
+    
     @staticmethod
     def load(path):
         modelPath = os.path.join(path, "checkpoint.pt")

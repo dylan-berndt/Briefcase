@@ -28,7 +28,7 @@ torch.set_default_device(device)
 
 
 class FontData(Dataset):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, training=True):
         if not os.path.exists(os.path.join(config.directory, "bitmaps")):
             os.mkdir(os.path.join(config.directory, "bitmaps"))
 
@@ -131,7 +131,7 @@ class FontData(Dataset):
             pairs.append((images[other], images[key]))
             letters.append(key[-2])
 
-            names.append(key[:-2])
+            names.append(key[:-3])
 
         names = np.array(names)
         pairs = np.array(pairs)
@@ -142,16 +142,19 @@ class FontData(Dataset):
         plt.grid()
         plt.show()
 
-        mask = mse > np.percentile(mse, 40)
+        if training:
+            mask = mse > np.percentile(mse, 40)
 
-        # Manually excluding "too similar" pairs
-        names = names[mask]
-        pairs = pairs[mask]
-        letters = letters[mask]
+            # Manually excluding "too similar" pairs
+            names = names[mask]
+            pairs = pairs[mask]
+            letters = letters[mask]
 
         self.names = names
         self.pairs = pairs
         self.letters = letters
+
+        print()
 
     def __len__(self):
         return len(self.pairs)
