@@ -67,9 +67,9 @@ def diff(matrix):
 
 # TODO: Refactor the mess
 if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("checkpoints", "latest"))
+    model, config = UNet.load(os.path.join("..", "checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join("data")
+    config.dataset.directory = os.path.join("..", "windows")
     dataset = FontData(config.dataset, training=False)
 
     layers = config.model.layers * 2
@@ -234,36 +234,51 @@ if __name__ == "__main__":
     # plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
     # plt.show()
 
-    loader = DataLoader(dataset, batch_size=128)
-    allActivations = [None for _ in range(layers)]
-    progress = 0
-    for inputs, targets, info in loader:
+    mask = dataset.letters == "a"
+    pairs = dataset.pairs[mask]
+    names = dataset.names[mask]
+
+    # TODO: Refactor for single character
+    allActivations = [{} for _ in range(layers)]
+    activationCounts = [{} for _ in range(layers)]
+    allImages = {}
+    batchSize = 128
+    for i in range(0, len(pairs), batchSize):
         with torch.no_grad():
+            j = min(len(pairs) - 1, i + batchSize)
+            inputs = torch.tensor(pairs[i:j, 0], dtype=torch.float32).squeeze().unsqueeze(-1)
             activations = model.activations(inputs)
 
-            for layer in range(layers):
-                if allActivations[layer] is None:
-                    allActivations[layer] = activations[layer]
-                else:
-                    allActivations[layer] = torch.concat([allActivations[layer], activations[layer]])
-        progress += 1
-        print(f"\r{progress}/{len(loader)}", end="")
+            batchNames = names[i:j]
+            batchImages = pairs[i:j, 1]
 
-    # Take average of activations with respect to font
-    names = []
-    images = []
-    for layer in range(layers):
-        df = pd.DataFrame({"name": dataset.names, "activation": listify(allActivations[layer]), "image": dataset.pairs[:, 1]})
-        grouped = df.groupby(["name"], as_index=False).mean()
-        allActivations[layer] = grouped["activation"].to_numpy()
-        names.append(grouped["name"])
-        images.append(df.groupby(["name"], as_index=False).first()["image"])
+            for n, name in enumerate(batchNames):
+                for layer in range(layers):
+                    # Running average of activation due to memory usage
+                    if name in allActivations[layer]:
+                        num = activationCounts[layer][name]
+                        allActivations[layer][name] = (allActivations[layer][name] * num + activations[layer][n])\
+                                                      / (num + 1)
+                        activationCounts[layer][name] += 1
+                    else:
+                        allActivations[layer][name] = activations[layer][n]
+                        activationCounts[layer][name] = 1
 
+                    # Add reference image to dictionary
+                    if name not in allImages:
+                        allImages[name] = batchImages[n]
+
+        print(f"\r{j}/{len(pairs)} samples for PCA compiled", end="")
+
+    print()
+
+    percent = 1
+    plt.figure(figsize=(20, 10))
     for layer in range(layers):
         components = PCA(n_components=2)
-        data = allActivations[layer]
+        data = torch.stack([value for key, value in allActivations[layer].items()], dim=0).cpu().numpy()
         data = data.reshape(data.shape[0], -1)
-        print(f"Training PCA with {data.shape[1]} dimensions")
+        print(f"Training PCA with {data.shape[1]} dimensions for layer {layer + 1}")
 
         transformed = components.fit_transform(data)
         x, y = transformed[:, 0], transformed[:, 1]
@@ -272,13 +287,18 @@ if __name__ == "__main__":
         ax.scatter(x, y, s=0)
 
         for i in range(len(x)):
-            box = OffsetImage(images[layer][i], zoom=0.5)
-            annotation = AnnotationBbox(box, (x[i], y[i]), xybox=(0, 0),
-                                        xycoords="data", boxcoords="offset points", frameon=False)
+            # Display less of the damned things
+            if np.random.rand() > percent:
+                continue
+            image = allImages[list(allActivations[layer].keys())[i]]
+            image[image <= 1e-6] = np.nan
+            box = OffsetImage(image, zoom=1, cmap="binary", interpolation="bilinear", resample=True)
+            annotation = AnnotationBbox(box, (x[i], y[i]), xybox=(0, 0), xycoords="data",
+                                        boxcoords="offset points", frameon=False)
             
             ax.add_artist(annotation)
 
-        ax.set_label(f"Layer {layer + 1}")
+        ax.set_title(f"Layer {layer + 1}")
 
     plt.suptitle("Principal Components per Layer")
     plt.show()
