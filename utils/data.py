@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from scipy.ndimage import distance_transform_edt as dist
 from PIL import Image, ImageFont
+from fontTools.ttLib import TTFont
 
 latin = list(range(ord('a'), ord('z') + 1))
 greek = list(range(0x03B1, 0x03C9 + 1))
@@ -49,6 +50,7 @@ class FontData(Dataset):
                 # Gross way to do this, but I don't want another package
                 standard = config.fontSize * (config.fontSize / ascent)
                 font = ImageFont.truetype(fontPath, standard)
+                ttf = TTFont(fontPath)
                 badBox = font.getbbox('\uFFFF')
                 for char in characters:
                     case = "l" if char == char.lower() else "u"
@@ -58,10 +60,15 @@ class FontData(Dataset):
                     if os.path.exists(path):
                         continue
 
+                    hasGlyph = False
+                    for table in ttf['cmap'].tables:
+                        if ord(char) in table.cmap.keys():
+                            hasGlyph = True
+
                     # 22 lines and 5 indents, classic
                     mask = font.getmask(char)
                     box = font.getbbox(char)
-                    if mask.size == (0, 0) or box == badBox:
+                    if mask.size == (0, 0) or not hasGlyph:
                         continue
                     im = Image.Image()._new(mask)
 
