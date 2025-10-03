@@ -67,9 +67,9 @@ def diff(matrix):
 
 # TODO: Refactor the mess
 if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("..", "checkpoints", "latest"))
+    model, config = UNet.load(os.path.join("checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join("..", "data")
+    config.dataset.directory = os.path.join("data")
     dataset = FontData(config.dataset, training=False)
 
     layers = config.model.layers * 2
@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
     # # Getting all the activations for every font with every character in the latin alphabet
     # comparativeFonts = ["Edwardian Script ITC", "Calibri", "Comic Sans MS", "Broadway", "Jokerman", "Wide Latin"]
-    # testCharacters = [chr(c) for c in latin]
+    testCharacters = [chr(c) for c in latin]
     # ablationActivations = []
     # for font in comparativeFonts:
     #     fontActivations = []
@@ -234,9 +234,11 @@ if __name__ == "__main__":
     # plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
     # plt.show()
 
-    mask = dataset.letters == "b"
+    # Only latin characters, prevents character set skew
+    mask = np.isin(dataset.letters, np.array(testCharacters))
     pairs = dataset.pairs[mask]
     names = dataset.names[mask]
+    letters = dataset.letters[mask]
 
     # TODO: Refactor for single character
     allActivations = [{} for _ in range(layers)]
@@ -251,6 +253,7 @@ if __name__ == "__main__":
 
             batchNames = names[i:j]
             batchImages = pairs[i:j, 0]
+            batchLetters = letters[i:j]
 
             for n, name in enumerate(batchNames):
                 for layer in range(layers):
@@ -265,21 +268,30 @@ if __name__ == "__main__":
                         activationCounts[layer][name] = 1
 
                     # Add reference image to dictionary
-                    if name not in allImages:
+                    if name not in allImages and batchLetters[n] == "a":
                         allImages[name] = batchImages[n]
 
         print(f"\r{j}/{len(pairs)} samples for PCA compiled", end="")
 
     print()
 
+    # Excluding examples that do not have all the test characters
+    # I don't know why some sets have only a subset of the latin characters.
+    for name in list(allActivations[0].keys()):
+        if activationCounts[0][name] != len(testCharacters):
+            print(name, activationCounts[0][name])
+            for layer in range(layers):
+                del allActivations[layer][name]
+
     percent = 1
     plt.figure(figsize=(20, 10))
     for layer in range(layers):
         components = PCA(n_components=2)
         data = torch.stack([value for key, value in allActivations[layer].items()], dim=0).cpu().numpy()
-        # data = np.mean(data, axis=(1, 2))
+        shape = data.shape
+        # data = np.mean(data, axis=(2, 3))
         data = data.reshape(data.shape[0], -1)
-        print(f"Training PCA with {data.shape[1]} dimensions for layer {layer + 1}")
+        print(f"Training PCA from {data.shape[1]} -> 2 dimensions for layer {layer + 1} (Originally {shape})")
 
         transformed = components.fit_transform(data)
         x, y = transformed[:, 0], transformed[:, 1]
