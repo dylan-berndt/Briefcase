@@ -69,7 +69,7 @@ def diff(matrix):
 if __name__ == "__main__":
     model, config = UNet.load(os.path.join("..", "checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join("..", "windows")
+    config.dataset.directory = os.path.join("..", "data")
     dataset = FontData(config.dataset, training=False)
 
     layers = config.model.layers * 2
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     # plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
     # plt.show()
 
-    mask = dataset.letters == "a"
+    mask = dataset.letters == "b"
     pairs = dataset.pairs[mask]
     names = dataset.names[mask]
 
@@ -250,7 +250,7 @@ if __name__ == "__main__":
             activations = model.activations(inputs)
 
             batchNames = names[i:j]
-            batchImages = pairs[i:j, 1]
+            batchImages = pairs[i:j, 0]
 
             for n, name in enumerate(batchNames):
                 for layer in range(layers):
@@ -277,6 +277,7 @@ if __name__ == "__main__":
     for layer in range(layers):
         components = PCA(n_components=2)
         data = torch.stack([value for key, value in allActivations[layer].items()], dim=0).cpu().numpy()
+        # data = np.mean(data, axis=(1, 2))
         data = data.reshape(data.shape[0], -1)
         print(f"Training PCA with {data.shape[1]} dimensions for layer {layer + 1}")
 
@@ -290,9 +291,15 @@ if __name__ == "__main__":
             # Display less of the damned things
             if np.random.rand() > percent:
                 continue
-            image = allImages[list(allActivations[layer].keys())[i]]
+            name = list(allActivations[layer].keys())[i]
+            image = allImages[name]
             image[image <= 1e-6] = np.nan
-            box = OffsetImage(image, zoom=1, cmap="binary", interpolation="bilinear", resample=True)
+            cmap = "binary"
+            if "Italic" in name:
+                cmap = "viridis"
+            if "Bold" in name:
+                cmap = "YlGn"
+            box = OffsetImage(image, zoom=1, cmap=cmap, interpolation="bilinear", resample=True)
             annotation = AnnotationBbox(box, (x[i], y[i]), xybox=(0, 0), xycoords="data",
                                         boxcoords="offset points", frameon=False)
             
