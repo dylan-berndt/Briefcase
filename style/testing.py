@@ -67,174 +67,175 @@ def diff(matrix):
 
 # TODO: Refactor the mess
 if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("checkpoints", "latest"))
+    model, config = UNet.load(os.path.join("..", "checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join("data")
+    config.dataset.directory = os.path.join("..", "data")
     dataset = FontData(config.dataset, training=False)
 
     layers = config.model.layers * 2
 
-    # standardFonts = {
-    #     "Calibri": ["Regular", "Bold Italic", "Light Italic", "Light", "Italic", "Bold"],
-    #     "Arial": ["Regular", "Narrow", "Narrow Italic", "Narrow Bold Italic", "Narrow Bold",
-    #               "Italic", "Bold Italic", "Bold"],
-    #     "Times New Roman": ["Regular", "Bold", "Bold Italic", "Italic"]
-    # }
+    standardFonts = {
+        "Calibri": ["Regular", "Bold Italic", "Light Italic", "Light", "Italic", "Bold"],
+        "Arial": ["Regular", "Narrow", "Narrow Italic", "Narrow Bold Italic", "Narrow Bold",
+                  "Italic", "Bold Italic", "Bold"],
+        "Times New Roman": ["Regular", "Bold", "Bold Italic", "Italic"]
+    }
 
-    # # Compiling all available samples for the standard fonts
-    # namespaces = {font: {"reference": None} for font in standardFonts}
-    # for font in standardFonts:
-    #     for style in standardFonts[font]:
-    #         space = dataset.names == f"{font} {style}"
-    #         if namespaces[font]["reference"] is None:
-    #             namespaces[font]["reference"] = space
-    #             continue
-    #         namespaces[font][style] = space
+    # Compiling all available samples for the standard fonts
+    namespaces = {font: {"reference": None} for font in standardFonts}
+    for font in standardFonts:
+        for style in standardFonts[font]:
+            space = dataset.names == f"{font} {style}"
+            if namespaces[font]["reference"] is None:
+                namespaces[font]["reference"] = space
+                continue
+            namespaces[font][style] = space
 
-    # # Getting reference "unstyled" glyph predictions and targets
-    # references = {}
-    # for font in namespaces:
-    #     namespace = namespaces[font]["reference"]
-    #     inputs = dataset.pairs[namespace][:, 0]
-    #     targets = dataset.pairs[namespace][:, 1]
-    #     with torch.no_grad():
-    #         inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
-    #         output, classification = model(inputs)
-    #     references[font] = output, targets
+    # Getting reference "unstyled" glyph predictions and targets
+    references = {}
+    for font in namespaces:
+        namespace = namespaces[font]["reference"]
+        inputs = dataset.pairs[namespace][:, 0]
+        targets = dataset.pairs[namespace][:, 1]
+        with torch.no_grad():
+            inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
+            output, classification = model(inputs)
+        references[font] = output, targets
 
-    # for font in namespaces:
-    #     series = {}
-    #     for style in namespaces[font]:
-    #         if style == "reference":
-    #             continue
+    for font in namespaces:
+        series = {}
+        for style in namespaces[font]:
+            if style == "reference":
+                continue
 
-    #         namespace = namespaces[font][style]
-    #         inputs = dataset.pairs[namespace][:, 0]
-    #         targets = dataset.pairs[namespace][:, 1]
-    #         with torch.no_grad():
-    #             inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
-    #             output, classification = model(inputs)
+            namespace = namespaces[font][style]
+            inputs = dataset.pairs[namespace][:, 0]
+            targets = dataset.pairs[namespace][:, 1]
+            with torch.no_grad():
+                inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
+                output, classification = model(inputs)
 
-    #         referenceOrder = dataset.letters[namespaces[font]["reference"]]
-    #         styleOrder = dataset.letters[namespace]
+            referenceOrder = dataset.letters[namespaces[font]["reference"]]
+            styleOrder = dataset.letters[namespace]
 
-    #         refPred, refTarget = references[font]
+            refPred, refTarget = references[font]
 
-    #         referenceDF = pd.DataFrame({"letter": referenceOrder,
-    #                                     "refTarget": listify(refTarget), "refPrediction": listify(refPred)})
-    #         styleDF = pd.DataFrame({"letter": styleOrder,
-    #                                 "styleTarget": listify(targets), "stylePrediction": listify(output)})
+            referenceDF = pd.DataFrame({"letter": referenceOrder,
+                                        "refTarget": listify(refTarget), "refPrediction": listify(refPred)})
+            styleDF = pd.DataFrame({"letter": styleOrder,
+                                    "styleTarget": listify(targets), "stylePrediction": listify(output)})
 
-    #         joined = pd.merge(styleDF, referenceDF, how="inner", on="letter")
+            joined = pd.merge(styleDF, referenceDF, how="inner", on="letter")
 
-    #         series[f"{style} ({len(joined)})"] = [
-    #             batchCorrelation(joined.refTarget.to_numpy()[i], joined.styleTarget.to_numpy()[i],
-    #                              joined.refPrediction.to_numpy()[i], joined.stylePrediction.to_numpy()[i])[0]
-    #             for i in range(len(joined))
-    #         ]
+            series[f"{style} ({len(joined)})"] = [
+                batchCorrelation(joined.refTarget.to_numpy()[i], joined.styleTarget.to_numpy()[i],
+                                 joined.refPrediction.to_numpy()[i], joined.stylePrediction.to_numpy()[i])[0]
+                for i in range(len(joined))
+            ]
 
-    #     x = series.keys()
-    #     y = [series[key] for key in x]
+        x = series.keys()
+        y = [series[key] for key in x]
 
-    #     ax = plt.subplot(1, 1, 1)
-    #     ax.boxplot(y)
-    #     ax.set_xticklabels(x)
-    #     # ax.set_xticks(range(1, len(x) + 1), x, rotation=45)
-    #     ax.set_xlabel("Style")
-    #     ax.set_ylabel("Correlation")
-    #     ax.grid()
+        ax = plt.subplot(1, 1, 1)
+        ax.boxplot(y)
+        ax.set_xticklabels(x)
+        # ax.set_xticks(range(1, len(x) + 1), x, rotation=45)
+        ax.set_xlabel("Style")
+        ax.set_ylabel("Correlation")
+        ax.grid()
 
-    #     plt.title(f"{font} Style Correlations")
-    #     plt.show()
+        plt.title(f"{font} Style Correlations")
+        plt.show()
 
     # # Getting all the activations for every font with every character in the latin alphabet
-    # comparativeFonts = ["Edwardian Script ITC", "Calibri", "Comic Sans MS", "Broadway", "Jokerman", "Wide Latin"]
+    comparativeFonts = ["Edwardian Script IT", "Pristina", "Calibri", "Comic Sans MS", "Impact", "Broadway", "Jokerman"]
     testCharacters = [chr(c) for c in latin]
-    # ablationActivations = []
-    # for font in comparativeFonts:
-    #     fontActivations = []
-    #     for character in testCharacters:
-    #         # Just plainly wasteful, but keeps things in order without sorting so idc
-    #         if np.sum(np.bitwise_and(dataset.names == f"{font} Regular", dataset.letters == character)) == 0:
-    #             print(font, character)
-    #         pair = dataset.pairs[np.bitwise_and(dataset.names == f"{font} Regular", dataset.letters == character)]
-    #         with torch.no_grad():
-    #             inputs = torch.tensor(pair[:, 0], dtype=torch.float32).squeeze().unsqueeze(0).unsqueeze(-1)
-    #             activations = model.activations(inputs)
-    #         fontActivations.append(activations)
+    ablationActivations = []
+    for font in comparativeFonts:
+        fontActivations = []
+        for character in testCharacters:
+            # Just plainly wasteful, but keeps things in order without sorting so idc
+            if np.sum(np.bitwise_and(dataset.names == f"{font} Regular", dataset.letters == character)) == 0:
+                print(font, character)
+            pair = dataset.pairs[np.bitwise_and(dataset.names == f"{font} Regular", dataset.letters == character)]
+            with torch.no_grad():
+                inputs = torch.tensor(pair[:, 0], dtype=torch.float32).squeeze().unsqueeze(0).unsqueeze(-1)
+                activations = model.activations(inputs)
+            fontActivations.append(activations)
 
-    #     ablationActivations.append(fontActivations)
+        ablationActivations.append(fontActivations)
 
-    # # All possible combinations of layer activation similarities
-    # # Yes this is perhaps the single most revolting bit of code I have ever written
-    # ablationMatrix = np.zeros([layers, len(comparativeFonts), len(comparativeFonts), len(testCharacters), len(testCharacters)])
-    # for f1 in range(len(comparativeFonts)):
-    #     for f2 in range(len(comparativeFonts)):
-    #         for c1 in range(len(testCharacters)):
-    #             for c2 in range(len(testCharacters)):
-    #                 for l in range(layers):
-    #                     x = ablationActivations[f1][c1][l].flatten()
-    #                     y = ablationActivations[f2][c2][l].flatten()
-    #                     ablationMatrix[l, f1, f2, c1, c2] = nn.functional.cosine_similarity(x, y, dim=0).item()
+    # All possible combinations of layer activation similarities
+    # Yes this is perhaps the single most revolting bit of code I have ever written
+    ablationMatrix = np.zeros([layers, len(comparativeFonts), len(comparativeFonts), len(testCharacters), len(testCharacters)])
+    for f1 in range(len(comparativeFonts)):
+        for f2 in range(len(comparativeFonts)):
+            for c1 in range(len(testCharacters)):
+                for c2 in range(len(testCharacters)):
+                    for l in range(layers):
+                        x = ablationActivations[f1][c1][l].flatten()
+                        y = ablationActivations[f2][c2][l].flatten()
+                        ablationMatrix[l, f1, f2, c1, c2] = nn.functional.cosine_similarity(x, y, dim=0).item()
 
     width = int(math.ceil(math.sqrt(layers * 2)))
     height = int(math.ceil(layers / width))
-    # for layer in range(layers):
-    #     mask = np.eye(len(testCharacters), dtype=bool)
-    #     mask = np.expand_dims(mask, (0, 1))
+    for layer in range(layers):
+        mask = np.eye(len(testCharacters), dtype=bool)
+        mask = np.expand_dims(mask, (0, 1))
 
-    #     observe = np.where(mask, 0, ablationMatrix[layer])
+        observe = np.where(mask, 0, ablationMatrix[layer])
         
-    #     # Weighted sum (char 1 = char 2 has a weight of 0)
-    #     correlation = np.sum(observe, axis=(2, 3))
-    #     correlation = correlation / np.sum(~mask, axis=(2, 3))
+        # Weighted sum (char 1 = char 2 has a weight of 0)
+        correlation = np.sum(observe, axis=(2, 3))
+        correlation = correlation / np.sum(~mask, axis=(2, 3))
 
-    #     ax = plt.subplot(height, width, layer + 1)
-    #     ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
+        ax = plt.subplot(height, width, layer + 1)
+        ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
 
-    #     correlation = np.flip(correlation, axis=0)
-    #     ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
+        correlation = np.flip(correlation, axis=0)
+        ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
 
-    #     ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
-    #     ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
+        ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
+        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
 
-    #     for i in range(correlation.shape[0]):
-    #         for j in range(correlation.shape[0]):
-    #             value = correlation[i, j]
-    #             color = "k" if (value > np.percentile(correlation, 40)) else "w"
-    #             text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
+        for i in range(correlation.shape[0]):
+            for j in range(correlation.shape[0]):
+                value = correlation[i, j]
+                color = "k" if (value > np.percentile(correlation, 40)) else "w"
+                text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
 
-    # plt.suptitle("Layer Activation Cosine Similarity (c1 != c2)")
-    # plt.show()
+    plt.suptitle("Layer Activation Cosine Similarity (c1 != c2)")
+    plt.show()
 
-    # for layer in range(layers):
-    #     mask = np.eye(len(testCharacters), dtype=bool)
-    #     mask = np.expand_dims(mask, (0, 1))
+    for layer in range(layers):
+        mask = np.eye(len(testCharacters), dtype=bool)
+        mask = np.expand_dims(mask, (0, 1))
 
-    #     observe = np.where(mask, ablationMatrix[layer], 0)
+        observe = np.where(mask, ablationMatrix[layer], 0)
         
-    #     correlation = np.sum(observe, axis=(2, 3))
-    #     correlation = correlation / np.sum(mask, axis=(2, 3))
+        correlation = np.sum(observe, axis=(2, 3))
+        correlation = correlation / np.sum(mask, axis=(2, 3))
 
-    #     ax = plt.subplot(height, width, layer + 1)
-    #     ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
+        ax = plt.subplot(height, width, layer + 1)
+        ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
 
-    #     correlation = np.flip(correlation, axis=0)
-    #     ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
+        correlation = np.flip(correlation, axis=0)
+        ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
 
-    #     ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
-    #     ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
+        ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
+        ax.set_yticks(range(len(comparativeFonts)), comparativeFonts[::-1])
 
-    #     for i in range(correlation.shape[0]):
-    #         for j in range(correlation.shape[0]):
-    #             value = correlation[i, j]
-    #             color = "k" if (value > np.percentile(correlation, 40)) else "w"
-    #             text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
+        for i in range(correlation.shape[0]):
+            for j in range(correlation.shape[0]):
+                value = correlation[i, j]
+                color = "k" if (value > np.percentile(correlation, 40)) else "w"
+                text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
 
-    # plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
-    # plt.show()
+    plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
+    plt.show()
 
     # Only latin characters, prevents character set skew
+    testCharacters = ["b"]
     mask = np.isin(dataset.letters, np.array(testCharacters))
     pairs = dataset.pairs[mask]
     names = dataset.names[mask]
@@ -268,7 +269,7 @@ if __name__ == "__main__":
                         activationCounts[layer][name] = 1
 
                     # Add reference image to dictionary
-                    if name not in allImages and batchLetters[n] == "a":
+                    if name not in allImages and batchLetters[n] == "b":
                         allImages[name] = batchImages[n]
 
         print(f"\r{j}/{len(pairs)} samples for PCA compiled", end="")
@@ -289,8 +290,8 @@ if __name__ == "__main__":
         components = PCA(n_components=2)
         data = torch.stack([value for key, value in allActivations[layer].items()], dim=0).cpu().numpy()
         shape = data.shape
-        # data = np.mean(data, axis=(2, 3))
-        data = data.reshape(data.shape[0], -1)
+        data = np.mean(data, axis=(2, 3))
+        # data = data.reshape(data.shape[0], -1)
         print(f"Training PCA from {data.shape[1]} -> 2 dimensions for layer {layer + 1} (Originally {shape})")
 
         transformed = components.fit_transform(data)

@@ -84,24 +84,25 @@ class FontData(Dataset):
             print(f"\rFonts serialized: {f + 1}/{len(fontPaths)}", end="")
 
         # Creating SDFs from all the bitmaps
-        imagePaths = glob(os.path.join(config.directory, "bitmaps", "*"))
-        for i, imagePath in enumerate(imagePaths):
-            try:
-                path = os.path.join(config.directory, "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
-                if os.path.exists(path):
-                    continue
+        if config.maps == "sdf":
+            imagePaths = glob(os.path.join(config.directory, "bitmaps", "*"))
+            for i, imagePath in enumerate(imagePaths):
+                try:
+                    path = os.path.join(config.directory, "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
+                    if os.path.exists(path):
+                        continue
 
-                img = np.array(Image.open(imagePath))
+                    img = np.array(Image.open(imagePath))
 
-                # Magic for sdf generation
-                bits = img > (np.max(img) - np.min(img)) / 2
-                sdf = dist(bits) - dist(~bits)
+                    # Magic for sdf generation
+                    bits = img > (np.max(img) - np.min(img)) / 2
+                    sdf = dist(bits) - dist(~bits)
 
-                np.save(path, sdf / imageSize)
-            except Image.UnidentifiedImageError:
-                print(imagePath, "Unidentified")
+                    np.save(path, sdf / imageSize)
+                except Image.UnidentifiedImageError:
+                    print(imagePath, "Unidentified")
 
-            print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
+                print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
 
         # Lets us choose what kind of images to train on
         images = {}
