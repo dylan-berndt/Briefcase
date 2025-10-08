@@ -41,6 +41,9 @@ class FontData(Dataset):
         ttfPaths = glob(os.path.join(config.directory, "fonts", "**", "*.ttf"), recursive=True)
         otfPaths = glob(os.path.join(config.directory, "fonts", "**", "*.otf"), recursive=True)
         fontPaths = ttfPaths + otfPaths
+
+        self.fonts = {}
+
         for f, fontPath in enumerate(fontPaths):
             if not os.path.isfile(fontPath):
                 continue
@@ -57,6 +60,9 @@ class FontData(Dataset):
                     fontName, fontStyle = font.getname()
                     name = f"{fontName} {fontStyle} {char.lower()}{case}"
                     path = os.path.join(config.directory, "bitmaps", name + ".bmp")
+
+                    self.fonts[f"{fontName} {fontStyle}"] = font
+
                     if os.path.exists(path):
                         continue
 

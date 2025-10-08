@@ -15,6 +15,7 @@ import pandas as pd
 from scipy.stats import pearsonr
 from sklearn.metrics import roc_auc_score
 from sklearn.decomposition import PCA
+from sklearn.cluster import DBSCAN, OPTICS
 
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
@@ -67,9 +68,9 @@ def diff(matrix):
 
 # TODO: Refactor the mess
 if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("..", "checkpoints", "latest"))
+    model, config = UNet.load(os.path.join("checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join("..", "data")
+    config.dataset.directory = os.path.join("data")
     dataset = FontData(config.dataset, training=False)
 
     layers = config.model.layers * 2
@@ -148,7 +149,7 @@ if __name__ == "__main__":
         plt.show()
 
     # # Getting all the activations for every font with every character in the latin alphabet
-    comparativeFonts = ["Edwardian Script IT", "Pristina", "Calibri", "Comic Sans MS", "Impact", "Broadway", "Jokerman"]
+    comparativeFonts = ["Edwardian Script ITC", "Pristina", "Calibri", "Comic Sans MS", "Impact", "Broadway", "Jokerman"]
     testCharacters = [chr(c) for c in latin]
     ablationActivations = []
     for font in comparativeFonts:
@@ -164,6 +165,7 @@ if __name__ == "__main__":
             fontActivations.append(activations)
 
         ablationActivations.append(fontActivations)
+        #TODO: Progress update messages
 
     # All possible combinations of layer activation similarities
     # Yes this is perhaps the single most revolting bit of code I have ever written
@@ -228,7 +230,7 @@ if __name__ == "__main__":
         for i in range(correlation.shape[0]):
             for j in range(correlation.shape[0]):
                 value = correlation[i, j]
-                color = "k" if (value > np.percentile(correlation, 40)) else "w"
+                color = "k" if (value > 0.4) else "w"
                 text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
 
     plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
@@ -323,4 +325,42 @@ if __name__ == "__main__":
     plt.suptitle("Principal Components per Layer")
     plt.show()
 
+    fontDisplayImages = {name: Image.Image()._new(font.getmask("ABCDEFGHIJKLMNOPQRSTUVWXYZ")) for name, font in dataset.fonts.items()}
 
+    for layer in range(layers):
+        # components = PCA(n_components=16)
+        data = torch.stack([value for key, value in allActivations[layer].items()], dim=0).cpu().numpy()
+        shape = data.shape
+        data = np.mean(data, axis=(2, 3))
+        # data = data.reshape(data.shape[0], -1)
+        print(f"Running clustering on {data.shape[0]} samples, {data.shape[-1]} dimensions for layer {layer + 1} (Originally {shape})")
+
+        # transformed = components.fit_transform(data)
+        clustering = OPTICS()
+
+        clusters = clustering.fit_predict(data)
+        names = np.array(list(allActivations[layer].keys()))
+        
+        for clusterID in np.unique(clusters):
+            clusterNames = names[clusters == clusterID]
+            clusterImages = [fontDisplayImages[name] for name in clusterNames]
+
+            # TODO: Medoids and outliers? This is essentially random already, could be fine
+            samples = clusterImages[:20]
+
+            displayHeight = sum([image.size[1] for image in samples]) + (16 * (len(samples) + 1))
+            displayWidth = max([image.size[0] for image in samples]) + (32 * 2)
+
+            canvas = Image.new("L", (displayWidth, displayHeight), 0)
+
+            total = 16
+            for i in range(len(samples)):
+                canvas.paste(samples[i], (32, total))
+                total += samples[i].size[1] + 16
+
+            folderPath = os.path.join("style", "results", "clustering", f"Layer {layer + 1}")
+            if not os.path.exists(folderPath):
+                os.makedirs(folderPath)
+
+            imagePath = os.path.join(folderPath, f"Cluster {clusterID}.png")
+            canvas.save(imagePath)
