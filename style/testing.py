@@ -16,6 +16,7 @@ from scipy.stats import pearsonr
 from sklearn.metrics import roc_auc_score
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN, OPTICS
+from sklearn.preprocessing import normalize
 
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
@@ -68,9 +69,12 @@ def diff(matrix):
 
 # TODO: Refactor the mess
 if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("checkpoints", "latest"))
+    # Inconsistencies between VSCode and Pycharm
+    cwd = ".." if os.getcwd().endswith("style") else ""
 
-    config.dataset.directory = os.path.join("data")
+    model, config = UNet.load(os.path.join(cwd, "checkpoints", "latest"))
+
+    config.dataset.directory = os.path.join(cwd, "windows")
     dataset = FontData(config.dataset, training=False)
 
     layers = config.model.layers * 2
@@ -101,7 +105,7 @@ if __name__ == "__main__":
         with torch.no_grad():
             inputs = torch.tensor(inputs, dtype=torch.float32).squeeze().unsqueeze(-1)
             output, classification = model(inputs)
-        references[font] = output, targets
+        references[font] = output.cpu(), targets
 
     for font in namespaces:
         series = {}
@@ -124,7 +128,7 @@ if __name__ == "__main__":
             referenceDF = pd.DataFrame({"letter": referenceOrder,
                                         "refTarget": listify(refTarget), "refPrediction": listify(refPred)})
             styleDF = pd.DataFrame({"letter": styleOrder,
-                                    "styleTarget": listify(targets), "stylePrediction": listify(output)})
+                                    "styleTarget": listify(targets), "stylePrediction": listify(output.cpu())})
 
             joined = pd.merge(styleDF, referenceDF, how="inner", on="letter")
 
@@ -194,7 +198,7 @@ if __name__ == "__main__":
         ax = plt.subplot(height, width, layer + 1)
         ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
 
-        correlation = np.flip(correlation, axis=0)
+        correlation = np.flip(correlation, axis=1)
         ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
 
         ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
@@ -203,7 +207,7 @@ if __name__ == "__main__":
         for i in range(correlation.shape[0]):
             for j in range(correlation.shape[0]):
                 value = correlation[i, j]
-                color = "k" if (value > np.percentile(correlation, 40)) else "w"
+                color = "k" if (value > 0.4) else "w"
                 text = ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=color)
 
     plt.suptitle("Layer Activation Cosine Similarity (c1 != c2)")
@@ -221,7 +225,7 @@ if __name__ == "__main__":
         ax = plt.subplot(height, width, layer + 1)
         ax.set_title(f"Layer {layer + 1} (Mean Diff: {diff(correlation):.2f})")
 
-        correlation = np.flip(correlation, axis=0)
+        correlation = np.flip(correlation, axis=1)
         ax.imshow(correlation, cmap="binary_r", vmin=0, vmax=1)
 
         ax.set_xticks(range(len(comparativeFonts)), comparativeFonts, rotation=45, ha="right", rotation_mode="anchor")
@@ -237,7 +241,6 @@ if __name__ == "__main__":
     plt.show()
 
     # Only latin characters, prevents character set skew
-    testCharacters = ["b"]
     mask = np.isin(dataset.letters, np.array(testCharacters))
     pairs = dataset.pairs[mask]
     names = dataset.names[mask]
@@ -336,17 +339,16 @@ if __name__ == "__main__":
         print(f"Running clustering on {data.shape[0]} samples, {data.shape[-1]} dimensions for layer {layer + 1} (Originally {shape})")
 
         # transformed = components.fit_transform(data)
-        clustering = OPTICS()
+        clustering = OPTICS(min_samples=2, cluster_method='xi', xi=0.01, min_cluster_size=2, metric="cosine")
+        # clustering = OPTICS(min_samples=2, cluster_method='dbscan')
 
-        clusters = clustering.fit_predict(data)
+        clusters = clustering.fit_predict(normalize(data))
         names = np.array(list(allActivations[layer].keys()))
-        
-        for clusterID in np.unique(clusters):
-            clusterNames = names[clusters == clusterID]
-            clusterImages = [fontDisplayImages[name] for name in clusterNames]
 
-            # TODO: Medoids and outliers? This is essentially random already, could be fine
-            samples = clusterImages[:20]
+        for clusterID in np.unique(clusters):
+            print(clusterID, np.sum(clusters == clusterID))
+            clusterNames = names[clusters == clusterID]
+            samples = [fontDisplayImages[name] for name in clusterNames]
 
             displayHeight = sum([image.size[1] for image in samples]) + (16 * (len(samples) + 1))
             displayWidth = max([image.size[0] for image in samples]) + (32 * 2)
@@ -358,7 +360,7 @@ if __name__ == "__main__":
                 canvas.paste(samples[i], (32, total))
                 total += samples[i].size[1] + 16
 
-            folderPath = os.path.join("style", "results", "clustering", f"Layer {layer + 1}")
+            folderPath = os.path.join(cwd, "style", "results", "clustering", f"Layer {layer + 1}")
             if not os.path.exists(folderPath):
                 os.makedirs(folderPath)
 
