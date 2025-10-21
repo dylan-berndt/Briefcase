@@ -105,7 +105,15 @@ class QueryData(FontData):
 
         self.maxLength = max([len(description) for name, description in self.descriptions.items()])
 
-    def __getitem__(self, item):
+        viable = np.isin(self.fonts, list(self.descriptions.keys()))
+        print(f"{np.mean(viable) * 100:.2f}% fonts have descriptions")
+        self.index = np.arange(len(self.pairs))[viable]
+
+    def __len__(self):
+        return len(self.index)
+
+    def __getitem__(self, i):
+        item = self.index[i]
         lower, upper = self.pairs[item]
 
         lower = torch.tensor(lower, dtype=torch.float32)
