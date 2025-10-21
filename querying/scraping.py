@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import *
 import random
 import pandas as pd
+from transformers import AutoTokenizer
 
 from bs4 import BeautifulSoup
 import spacy
@@ -18,7 +19,7 @@ nlp = spacy.load("en_core_web_sm")
 
 
 def getAdjectives(filePath):
-    with open(filePath, "r") as file:
+    with open(filePath, "r", encoding="utf-8") as file:
         data = file.read()
         soup = BeautifulSoup(data, 'html.parser')
         text = soup.get_text()
@@ -29,8 +30,10 @@ def getAdjectives(filePath):
     
 
 class Description:
+    tokenizer = None
+
     def __init__(self, name, adjectives, tags=None):
-        tags = tags if tags is not None else []
+        tags = tags if tags is not None else {}
         
         self.name = name
         self.adjectives = adjectives
@@ -45,16 +48,26 @@ class Description:
 
         return "a " + joined
 
+    def __len__(self):
+        descriptors = self.adjectives + list(self.tags.keys())
+        description = ", ".join(descriptors) + " font named " + self.name
+        tokens = Description.tokenizer([description], padding=False, return_tensors="pt")
+        return len(tokens["input_ids"][0])
+
 
 # This is very specifically tailored to the Google Fonts repository
 class QueryData(FontData):
     def __init__(self, config, training=False):
         super().__init__(config, training)
 
+        self.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        Description.tokenizer = self.tokenizer
+
         self.descriptions = {}
+        self.fontMap = {}
 
         lastCaption = None
-        for root, dirs, files in os.walk(os.path.join(config.directory, "fonts")):
+        for root, dirs, files in os.walk(os.path.join(config.directory, "fonts"), topdown=False):
             for file in files:
                 if file.endswith(".html"):
                     filePath = os.path.join(root, file)
@@ -63,12 +76,20 @@ class QueryData(FontData):
             for file in files:
                 if file.endswith(".otf") or file.endswith(".ttf"):
                     filePath = os.path.join(root, file)
-                    font = ImageFont.truetype(filePath, 32)
-                    fontName, fontStyle = font.getname()
+                    try:
+                        font = ImageFont.truetype(filePath, 32)
+                        fontName, fontStyle = font.getname()
 
-                    self.descriptions[f"{fontName}"] = Description(f"{fontName} {fontStyle}", lastCaption, [fontStyle])
+                    except Exception as e:
+                        print(filePath, e)
+                        continue
 
-        tagFile = os.path.join(config.directory, "fonts", "tags", "families.csv")
+                    print(f"\r{fontName} {fontStyle} {lastCaption}", end="")
+
+                    self.fontMap[f"{fontName} {fontStyle}"] = fontName
+                    self.descriptions[fontName] = Description(f"{fontName} {fontStyle}", lastCaption, {fontStyle: 0.2})
+
+        tagFile = os.path.join(config.directory, "fonts", "tags", "all", "families.csv")
         tagDF = pd.read_csv(tagFile, names=["family", "na", "tags", "weight"])
         for family in tagDF.family.unique():
             familyDF = tagDF[tagDF.family == family]
@@ -82,13 +103,34 @@ class QueryData(FontData):
 
             self.descriptions[family].tags = tagDict
 
-    def __getitem__(self, i):
-        pass
+        self.maxLength = max([len(description) for name, description in self.descriptions.items()])
+
+    def __getitem__(self, item):
+        lower, upper = self.pairs[item]
+
+        lower = torch.tensor(lower, dtype=torch.float32)
+        upper = torch.tensor(upper, dtype=torch.float32)
+
+        lower = lower.unsqueeze(-1)
+        upper = upper.unsqueeze(-1)
+
+        fontName = self.fontMap[self.fonts[item]]
+        description = self.descriptions[fontName].sample()
+        tokens = self.tokenizer(description, padding='max_length', max_length=self.maxLength, return_tensors="pt")
+
+        character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+
+        return lower, upper, tokens["input_ids"][0], character
 
 
 if __name__ == "__main__":
-    cwd = ".." if os.getcwd().endswith("style") else ""
+    cwd = ".." if os.getcwd().endswith("querying") else ""
     model, config = UNet.load(os.path.join(cwd, "checkpoints", "latest"))
 
-    config.dataset.directory = os.path.join(cwd, "data")
+    config.dataset.directory = os.path.join(cwd, "google")
     dataset = QueryData(config.dataset)
+
+    loader = DataLoader(dataset, batch_size=32)
+    inputs = next(iter(loader))
+    shape = [i.shape for i in inputs]
+    print(shape)

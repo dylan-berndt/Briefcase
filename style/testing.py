@@ -328,25 +328,32 @@ if __name__ == "__main__":
     plt.suptitle("Principal Components per Layer")
     plt.show()
 
-    fontDisplayImages = {name: Image.Image()._new(font.getmask("abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ")) for name, font in dataset.fonts.items()}
+    oneString = "abcdefghijklmnopqrstuvwxyz"
+    fontDisplayImages = {name: Image.Image()._new(font.getmask(oneString)) for name, font in dataset.fonts.items()}
 
     for layer in range(layers):
-        # components = PCA(n_components=16)
+        components = PCA(n_components=16)
         data = torch.stack([value for key, value in allActivations[layer].items()], dim=0).cpu().numpy()
         shape = data.shape
         data = np.mean(data, axis=(2, 3))
         # data = data.reshape(data.shape[0], -1)
         print(f"Running clustering on {data.shape[0]} samples, {data.shape[-1]} dimensions for layer {layer + 1} (Originally {shape})")
 
-        # transformed = components.fit_transform(data)
-        # clustering = OPTICS(min_samples=2, cluster_method='xi', xi=0.01, min_cluster_size=2, metric="cosine")
-        # clustering = OPTICS(min_samples=2, cluster_method='dbscan')
-        clustering = AgglomerativeClustering(n_clusters=48, metric="cosine", linkage="average")
+        transformed = components.fit_transform(data)
+        # clustering = OPTICS(min_samples=2, cluster_method='xi', xi=0.01, min_cluster_size=10, metric="cosine")
+        # clustering = OPTICS(min_samples=4, cluster_method='dbscan', eps=0.1)
+        clustering = AgglomerativeClustering(n_clusters=48, linkage="average", metric="cosine")
 
-        clusters = clustering.fit_predict(normalize(data))
+        clusters = clustering.fit_predict(normalize(transformed))
         names = np.array(list(allActivations[layer].keys()))
 
+        # reach = clustering.reachability_[clustering.ordering_]
+        # plt.bar(np.arange(len(reach)), reach)
+        # plt.show()
+
         for clusterID in np.unique(clusters):
+            if clusterID == -1:
+                print("\t", np.sum(clusters == clusterID), "noisy samples")
             clusterNames = names[clusters == clusterID]
             samples = [fontDisplayImages[name] for name in clusterNames]
 
@@ -366,50 +373,3 @@ if __name__ == "__main__":
 
             imagePath = os.path.join(folderPath, f"Cluster {clusterID}.png")
             canvas.save(imagePath)
-
-
-    conglomerated = {}
-    for layer in range(layers):
-        for key in allActivations[layer].keys():
-            activation = torch.mean(allActivations[layer][key], dim=(1, 2)).cpu()
-            if key not in conglomerated:
-                conglomerated[key] = activation
-                continue
-
-            conglomerated[key] = torch.cat([conglomerated[key], activation], dim=-1)
-
-    
-    data = torch.stack([value for key, value in conglomerated.items()], dim=0).cpu().numpy()
-    shape = data.shape
-    # data = data.reshape(data.shape[0], -1)
-    print(f"Running clustering on {data.shape[0]} samples, {data.shape[-1]} dimensions for entire model")
-
-    # transformed = components.fit_transform(data)
-    # clustering = OPTICS(min_samples=2, cluster_method='xi', xi=0.01, min_cluster_size=2, metric="cosine")
-    # clustering = OPTICS(min_samples=2, cluster_method='dbscan')
-    clustering = AgglomerativeClustering(n_clusters=48, metric="cosine", linkage="average")
-
-    clusters = clustering.fit_predict(normalize(data))
-    names = np.array(list(conglomerated.keys()))
-
-    for clusterID in np.unique(clusters):
-        clusterNames = names[clusters == clusterID]
-        samples = [fontDisplayImages[name] for name in clusterNames]
-
-        displayHeight = sum([image.size[1] for image in samples]) + (16 * (len(samples) + 1))
-        displayWidth = max([image.size[0] for image in samples]) + (32 * 2)
-
-        canvas = Image.new("L", (displayWidth, displayHeight), 0)
-
-        total = 16
-        for i in range(len(samples)):
-            canvas.paste(samples[i], (32, total))
-            total += samples[i].size[1] + 16
-
-        folderPath = os.path.join(cwd, "style", "results", "clustering", f"Model")
-        if not os.path.exists(folderPath):
-            os.makedirs(folderPath)
-
-        imagePath = os.path.join(folderPath, f"Cluster {clusterID}.png")
-        canvas.save(imagePath)
-
