@@ -101,11 +101,15 @@ class QueryData(FontData):
                 tag = tagSet.split("/")[-1]
                 tagDict[tag] = weights[i] / 100
 
+            if family not in self.descriptions:
+                continue
+
             self.descriptions[family].tags = tagDict
 
         self.maxLength = max([len(description) for name, description in self.descriptions.items()])
 
-        viable = np.isin(self.fonts, list(self.descriptions.keys()))
+        names = np.array([self.fontMap[name] for name in self.names])
+        viable = np.isin(names, list(self.descriptions.keys()))
         print(f"{np.mean(viable) * 100:.2f}% fonts have descriptions")
         self.index = np.arange(len(self.pairs))[viable]
 
@@ -122,7 +126,7 @@ class QueryData(FontData):
         lower = lower.unsqueeze(-1)
         upper = upper.unsqueeze(-1)
 
-        fontName = self.fontMap[self.fonts[item]]
+        fontName = self.fontMap[self.names[item]]
         description = self.descriptions[fontName].sample()
         tokens = self.tokenizer(description, padding='max_length', max_length=self.maxLength, return_tensors="pt")
 

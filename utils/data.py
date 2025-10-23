@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import distance_transform_edt as dist
 from PIL import Image, ImageFont
 from fontTools.ttLib import TTFont
+import cv2
+from concurrent.futures import ThreadPoolExecutor
 
 latin = list(range(ord('a'), ord('z') + 1))
 greek = list(range(0x03B1, 0x03C9 + 1))
@@ -26,6 +28,20 @@ characters.remove("ԵՒ")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 torch.set_default_device(device)
+
+
+# Lets us choose what kind of images to train on
+def loadImage(imagePath):
+    suffix = imagePath.split(".")[-1]
+    if suffix == "npy":
+        name, image = os.path.basename(imagePath).removesuffix(".npy"), np.load(imagePath)
+    else:
+        img = np.fromfile(imagePath, dtype=np.uint8)
+        img = cv2.imdecode(img, cv2.IMREAD_GRAYSCALE)
+        img = img.astype(np.float32) / 255.0
+        name, image = os.path.basename(imagePath).removesuffix(".bmp"), img
+
+    return name, image
 
 
 class FontData(Dataset):
@@ -55,9 +71,14 @@ class FontData(Dataset):
                 font = ImageFont.truetype(fontPath, standard)
                 ttf = TTFont(fontPath)
                 badBox = font.getbbox('\uFFFF')
+
+                fontName, fontStyle = font.getname()
+                imagePath = os.path.join(config.directory, "bitmaps", f"{fontName} {fontStyle} al.bmp")
+                if os.path.exists(imagePath):
+                    continue
+
                 for char in characters:
                     case = "l" if char == char.lower() else "u"
-                    fontName, fontStyle = font.getname()
                     name = f"{fontName} {fontStyle} {char.lower()}{case}"
                     path = os.path.join(config.directory, "bitmaps", name + ".bmp")
 
@@ -98,7 +119,7 @@ class FontData(Dataset):
                     if os.path.exists(path):
                         continue
 
-                    img = np.array(Image.open(imagePath))
+                    img = np.fromfile(imagePath, dtype=np.float32)
 
                     # Magic for sdf generation
                     bits = img > (np.max(img) - np.min(img)) / 2
@@ -110,19 +131,15 @@ class FontData(Dataset):
 
                 print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
 
-        # Lets us choose what kind of images to train on
         images = {}
         imagePaths = glob(os.path.join(config.directory, config.maps, "*"))
-        for i, imagePath in enumerate(imagePaths):
-            try:
-                suffix = imagePath.split(".")[-1]
-                if suffix == "npy":
-                    images[os.path.basename(imagePath).removesuffix(".npy")] = np.load(imagePath)
-                else:
-                    images[os.path.basename(imagePath).removesuffix(".bmp")] = np.array(Image.open(imagePath)) / 255
-            except Image.UnidentifiedImageError:
-                print(imagePath, "Unidentified")
-            print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
+            for i, result in enumerate(executor.map(loadImage, imagePaths)):
+                name, image = result
+                images[name] = image
+
+                if i % 100 == 0:
+                    print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
 
         pairs = []
         mse = []
@@ -152,7 +169,7 @@ class FontData(Dataset):
         mse = np.array(mse)
         letters = np.array(letters)
 
-        plt.hist(mse)
+        plt.hist(mse, bins=10)
         plt.grid()
         plt.show()
 
