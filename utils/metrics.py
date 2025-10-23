@@ -18,6 +18,7 @@ def regressionTransform(z, y, clusters, decompositionRate, clusteringMetric):
     return z, torch.tensor(y, dtype=torch.long)
 
 
+# https://arxiv.org/abs/2106.09362
 def codingRate(z, eps=1e-4):
     n, d = z.shape
     _, rate = torch.linalg.slogdet((torch.eye(d) + 1 / (n * eps) * z.transpose() @ z))

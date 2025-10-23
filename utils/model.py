@@ -43,6 +43,8 @@ class UNet(nn.Module):
             nn.Linear(width, len(characters))
         )
 
+        self.numLayers = config.layers * 2
+
     def forward(self, x):
         x = self.input(x)
         x = torch.permute(x, [0, 3, 2, 1])

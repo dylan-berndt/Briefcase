@@ -152,9 +152,11 @@ if __name__ == "__main__":
         plt.title(f"{font} Style Correlations")
         plt.show()
 
-    # # Getting all the activations for every font with every character in the latin alphabet
-    comparativeFonts = ["Edwardian Script ITC", "Pristina", "Calibri", "Comic Sans MS", "Impact", "Broadway", "Jokerman"]
     testCharacters = [chr(c) for c in latin]
+    allActivations, allImages = imageModelActivations(model, dataset, testCharacters)
+
+    # Getting all the activations for every font with every character in the latin alphabet
+    comparativeFonts = ["Edwardian Script ITC", "Pristina", "Calibri", "Comic Sans MS", "Impact", "Broadway", "Jokerman"]
     ablationActivations = []
     for font in comparativeFonts:
         fontActivations = []
@@ -239,55 +241,6 @@ if __name__ == "__main__":
 
     plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
     plt.show()
-
-    # Only latin characters, prevents character set skew
-    mask = np.isin(dataset.letters, np.array(testCharacters))
-    pairs = dataset.pairs[mask]
-    names = dataset.names[mask]
-    letters = dataset.letters[mask]
-
-    # TODO: Refactor for single character
-    allActivations = [{} for _ in range(layers)]
-    activationCounts = [{} for _ in range(layers)]
-    allImages = {}
-    batchSize = 128
-    for i in range(0, len(pairs), batchSize):
-        with torch.no_grad():
-            j = min(len(pairs) - 1, i + batchSize)
-            inputs = torch.tensor(pairs[i:j, 0], dtype=torch.float32).squeeze().unsqueeze(-1)
-            activations = model.activations(inputs)
-
-            batchNames = names[i:j]
-            batchImages = pairs[i:j, 0]
-            batchLetters = letters[i:j]
-
-            for n, name in enumerate(batchNames):
-                for layer in range(layers):
-                    # Running average of activation due to memory usage
-                    if name in allActivations[layer]:
-                        num = activationCounts[layer][name]
-                        allActivations[layer][name] = (allActivations[layer][name] * num + activations[layer][n])\
-                                                      / (num + 1)
-                        activationCounts[layer][name] += 1
-                    else:
-                        allActivations[layer][name] = activations[layer][n]
-                        activationCounts[layer][name] = 1
-
-                    # Add reference image to dictionary
-                    if name not in allImages and batchLetters[n] == "b":
-                        allImages[name] = batchImages[n]
-
-        print(f"\r{j}/{len(pairs)} samples for PCA compiled", end="")
-
-    print()
-
-    # Excluding examples that do not have all the test characters
-    # I don't know why some sets have only a subset of the latin characters.
-    for name in list(allActivations[0].keys()):
-        if activationCounts[0][name] != len(testCharacters):
-            print(name, activationCounts[0][name])
-            for layer in range(layers):
-                del allActivations[layer][name]
 
     percent = 1
     plt.figure(figsize=(20, 10))

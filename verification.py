@@ -5,13 +5,15 @@
 from utils import *
 
 
-if __name__ == "__main__":
-    model, config = UNet.load(os.path.join("checkpoints", "latest"))
+checkpoints = ["latest"]
+
+
+for checkpoint in checkpoints:
+    model, config = UNet.load(os.path.join("checkpoints", checkpoint))
 
     config.dataset.directory = "data"
     dataset = QueryData(config.dataset)
 
-    loader = DataLoader(dataset, batch_size=32)
-    inputs = next(iter(loader))
-    shape = [i.shape for i in inputs]
-    print(shape)
+    testCharacters = [chr(c) for c in latin]
+
+    allActivations, allImages = imageModelActivations(model, dataset, testCharacters)

@@ -128,6 +128,7 @@ class QueryData(FontData):
     def __len__(self):
         return len(self.index)
 
+    # TODO: Rework for upper -> lower and masked autoencoder tasks
     def __getitem__(self, i):
         item = self.index[i]
         lower, upper = self.pairs[item]
@@ -144,4 +145,4 @@ class QueryData(FontData):
 
         character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
 
-        return lower, upper, tokens["input_ids"][0], character
+        return lower, upper, character, tokens["input_ids"][0]
