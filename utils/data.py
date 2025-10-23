@@ -46,6 +46,9 @@ def loadImage(imagePath):
 
 class FontData(Dataset):
     def __init__(self, config: Config, training=True):
+        self.config = config
+        self.method = self.config.method if "method" in self.config else "upper"
+
         if not os.path.exists(os.path.join(config.directory, "bitmaps")):
             os.mkdir(os.path.join(config.directory, "bitmaps"))
 
@@ -188,7 +191,7 @@ class FontData(Dataset):
         print()
 
     def __len__(self):
-        if self.config.method == "masking":
+        if self.method == "masking":
             return len(self.pairs) * 2
 
         return len(self.pairs)
@@ -202,10 +205,12 @@ class FontData(Dataset):
         lower = lower.unsqueeze(-1)
         upper = upper.unsqueeze(-1)
 
-        if self.config.method == "lower":
-            return upper, lower, torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+        character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+
+        if self.method == "lower":
+            return {"inputs": upper, "outputs": lower, "class": character, "name": self.names[item], "letter": self.letters[item]}
         
-        return lower, upper, torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+        return {"inputs": lower, "outputs": upper, "class": character, "name": self.names[item], "letter": self.letters[item]}
     
     def getMasked(self, item):
         lower, upper = self.pairs[item // 2]
@@ -225,10 +230,20 @@ class FontData(Dataset):
         maskedImage = torch.tensor(maskedImage, dtype=torch.float32)
         image = torch.tensor(image, dtype=torch.float32)
 
-        return maskedImage, image, torch.tensor(characters.index(self.letters[item // 2]), dtype=torch.long)
+        character = torch.tensor(characters.index(self.letters[item // 2]), dtype=torch.long)
+
+        return {"inputs": maskedImage, "outputs": image, "class": character, "name": self.names[item // 2], "letter": self.letters[item // 2]}
+    
+    @staticmethod
+    def collate(samples):
+        inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
+        outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
+        characters = torch.stack([sample["class"] for sample in samples], dim=0)
+
+        return inputs, outputs, characters
 
     def __getitem__(self, item):
-        if self.config.method == "masking":
+        if self.method == "masking":
             return self.getMasked(item)
         
         return self.getPair(item)

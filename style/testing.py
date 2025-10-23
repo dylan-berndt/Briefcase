@@ -153,7 +153,6 @@ if __name__ == "__main__":
         plt.show()
 
     testCharacters = [chr(c) for c in latin]
-    allActivations, allImages = imageModelActivations(model, dataset, testCharacters)
 
     # Getting all the activations for every font with every character in the latin alphabet
     comparativeFonts = ["Edwardian Script ITC", "Pristina", "Calibri", "Comic Sans MS", "Impact", "Broadway", "Jokerman"]
@@ -241,6 +240,8 @@ if __name__ == "__main__":
 
     plt.suptitle("Layer Activation Cosine Similarity (c1 == c2)")
     plt.show()
+
+    allActivations, allImages = imageModelActivations(model, dataset, testCharacters)
 
     percent = 1
     plt.figure(figsize=(20, 10))

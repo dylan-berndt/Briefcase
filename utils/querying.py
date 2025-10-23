@@ -125,24 +125,23 @@ class QueryData(FontData):
         print(f"{np.mean(viable) * 100:.2f}% fonts have descriptions")
         self.index = np.arange(len(self.pairs))[viable]
 
-    def __len__(self):
-        return len(self.index)
-
-    # TODO: Rework for upper -> lower and masked autoencoder tasks
-    def __getitem__(self, i):
-        item = self.index[i]
-        lower, upper = self.pairs[item]
-
-        lower = torch.tensor(lower, dtype=torch.float32)
-        upper = torch.tensor(upper, dtype=torch.float32)
-
-        lower = lower.unsqueeze(-1)
-        upper = upper.unsqueeze(-1)
+    def __getitem__(self, item):
+        data = super()[item]
 
         fontName = self.fontMap[self.names[item]]
         description = self.descriptions[fontName].sample()
-        tokens = self.tokenizer(description, padding='max_length', max_length=self.maxLength, return_tensors="pt")
 
-        character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+        data["description"] = description
 
-        return lower, upper, character, tokens["input_ids"][0]
+        return data
+    
+    @staticmethod
+    def collate(samples):
+        inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
+        outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
+        characters = torch.stack([sample["class"] for sample in samples], dim=0)
+
+        tokens = Description.tokenizer([sample["description"] for sample in samples], padding="longest", return_tensors="pt")
+        descriptions = tokens["input_ids"]
+
+        return inputs, outputs, characters, descriptions

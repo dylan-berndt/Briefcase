@@ -4,29 +4,39 @@
 
 from .model import *
 from .data import *
+from .querying import *
 
 
 def imageModelActivations(model, dataset, testCharacters, batchSize=128):
     layers = model.numLayers
 
-    mask = np.isin(dataset.letters, np.array(testCharacters))
+    inputs = []
+    names = []
+    letters = []
+    for i in range(len(dataset)):
+        data = dataset[i]
+        inputs.append(data["inputs"])
+        names.append(data["name"])
+        letters.append(data["letter"])
 
-    # TODO: Rework for upper -> lower and masked autoencoder tasks
-    pairs = dataset.pairs[mask]
-    names = dataset.names[mask]
-    letters = dataset.letters[mask]
+    inputs, names, letters = np.array(inputs), np.array(names), np.array(letters)
+
+    mask = np.isin(letters, np.array(testCharacters))
+    inputs = inputs[mask]
+    names = names[mask]
+    letters = letters[mask]
 
     allActivations = [{} for _ in range(layers)]
     activationCounts = [{} for _ in range(layers)]
     allImages = {}
-    for i in range(0, len(pairs), batchSize):
+    for i in range(0, len(inputs), batchSize):
         with torch.no_grad():
-            j = min(len(pairs) - 1, i + batchSize)
-            inputs = torch.tensor(pairs[i:j, 0], dtype=torch.float32).squeeze().unsqueeze(-1)
-            activations = model.activations(inputs)
+            j = min(len(inputs) - 1, i + batchSize)
+            ips = torch.tensor(inputs[i:j], dtype=torch.float32).squeeze().unsqueeze(-1)
+            activations = model.activations(ips)
 
             batchNames = names[i:j]
-            batchImages = pairs[i:j, 0]
+            batchImages = inputs[i:j]
             batchLetters = letters[i:j]
 
             for n, name in enumerate(batchNames):
@@ -45,7 +55,7 @@ def imageModelActivations(model, dataset, testCharacters, batchSize=128):
                     if name not in allImages and batchLetters[n] == "b":
                         allImages[name] = batchImages[n]
 
-        print(f"\r{j}/{len(pairs)} activation samples compiled", end="")
+        print(f"\r{j}/{len(inputs)} activation samples compiled", end="")
 
     print()
 
@@ -58,4 +68,8 @@ def imageModelActivations(model, dataset, testCharacters, batchSize=128):
                 del allActivations[layer][name]
 
     return allActivations, allImages
+
+
+def textModelActivations(model, dataset, batchSize=128):
+    pass
 
