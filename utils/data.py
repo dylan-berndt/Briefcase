@@ -73,6 +73,8 @@ class FontData(Dataset):
                 badBox = font.getbbox('\uFFFF')
 
                 fontName, fontStyle = font.getname()
+                self.fonts[f"{fontName} {fontStyle}"] = font
+
                 imagePath = os.path.join(config.directory, "bitmaps", f"{fontName} {fontStyle} al.bmp")
                 if os.path.exists(imagePath):
                     continue
@@ -81,8 +83,6 @@ class FontData(Dataset):
                     case = "l" if char == char.lower() else "u"
                     name = f"{fontName} {fontStyle} {char.lower()}{case}"
                     path = os.path.join(config.directory, "bitmaps", name + ".bmp")
-
-                    self.fonts[f"{fontName} {fontStyle}"] = font
 
                     if os.path.exists(path):
                         continue
@@ -188,9 +188,12 @@ class FontData(Dataset):
         print()
 
     def __len__(self):
-        return len(self.pairs)
+        if self.config.method == "masking":
+            return len(self.pairs) * 2
 
-    def __getitem__(self, item):
+        return len(self.pairs)
+    
+    def getPair(self, item):
         lower, upper = self.pairs[item]
 
         lower = torch.tensor(lower, dtype=torch.float32)
@@ -199,7 +202,36 @@ class FontData(Dataset):
         lower = lower.unsqueeze(-1)
         upper = upper.unsqueeze(-1)
 
+        if self.config.method == "lower":
+            return upper, lower, torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+        
         return lower, upper, torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+    
+    def getMasked(self, item):
+        lower, upper = self.pairs[item // 2]
+        image = lower if (item % 2 == 0) else upper
+
+        maskedImage = image.copy()
+
+        patchSize = self.config.imageSize // 5
+        x = np.random.randint(0, maskedImage.shape[0] - patchSize + 1)
+        y = np.random.randint(0, maskedImage.shape[1] - patchSize + 1)
+
+        maskedImage[x: x + patchSize, y: y + patchSize]
+
+        noiseMask = np.random.randint(0, 100, size=maskedImage.shape) > 20
+        maskedImage[noiseMask] = 0
+
+        maskedImage = torch.tensor(maskedImage, dtype=torch.float32)
+        image = torch.tensor(image, dtype=torch.float32)
+
+        return maskedImage, image, torch.tensor(characters.index(self.letters[item // 2]), dtype=torch.long)
+
+    def __getitem__(self, item):
+        if self.config.method == "masking":
+            return self.getMasked(item)
+        
+        return self.getPair(item)
     
     @staticmethod
     def split(dataset, config):

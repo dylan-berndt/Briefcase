@@ -4,10 +4,9 @@
 # When loading later, can shuffle name, tags, description and randomly include / exclude for robustness
 
 import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils import *
+from .model import *
+from .data import *
 import random
 import pandas as pd
 from transformers import AutoTokenizer
@@ -24,8 +23,21 @@ def getAdjectives(filePath):
         soup = BeautifulSoup(data, 'html.parser')
         text = soup.get_text()
 
-        # TODO: Include adjective-noun phrases?
-        adjectives = [token.text for token in nlp(text) if token.pos_ == "ADJ"]
+        last = None
+        adjectives = []
+
+        # Yippee for state machines
+        for token in nlp(text):
+            if token.pos_ == "ADJ":
+                last = token.text
+            elif token.pos_ == "NN":
+                if last is not None:
+                    adjectives.append(f"{last} {token.text}")
+                    last = None
+            elif last is not None:
+                adjectives.append(last)
+                last = None
+        
         return adjectives
     
 
@@ -133,16 +145,3 @@ class QueryData(FontData):
         character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
 
         return lower, upper, tokens["input_ids"][0], character
-
-
-if __name__ == "__main__":
-    cwd = ".." if os.getcwd().endswith("querying") else ""
-    model, config = UNet.load(os.path.join(cwd, "checkpoints", "latest"))
-
-    config.dataset.directory = os.path.join(cwd, "google")
-    dataset = QueryData(config.dataset)
-
-    loader = DataLoader(dataset, batch_size=32)
-    inputs = next(iter(loader))
-    shape = [i.shape for i in inputs]
-    print(shape)
