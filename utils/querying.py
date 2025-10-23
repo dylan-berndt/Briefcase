@@ -65,6 +65,36 @@ class Description:
         description = ", ".join(descriptors) + " font named " + self.name
         tokens = Description.tokenizer([description], padding=False, return_tensors="pt")
         return len(tokens["input_ids"][0])
+    
+
+def loadFolderDescription(walk):
+    root, dirs, files = walk
+    if not any([file.endswith(".otf") or file.endswith(".ttf") for file in files]):
+        return None
+    
+    fontNames = []
+    fontStyles = []
+    caption = [""]
+    
+    for file in glob(os.path.join(root, "*.html")):
+        if file.endswith(".html"):
+            filePath = os.path.join(root, file)
+            caption = getAdjectives(filePath)
+
+    for file in files:
+        if file.endswith(".otf") or file.endswith(".ttf"):
+            filePath = os.path.join(root, file)
+            try:
+                font = ImageFont.truetype(filePath, 32)
+                fontName, fontStyle = font.getname()
+                fontNames.append(fontName)
+                fontStyles.append(fontStyle)
+
+            except Exception as e:
+                print(filePath, e)
+                continue
+
+    return fontNames, fontStyles, caption
 
 
 # This is very specifically tailored to the Google Fonts repository
@@ -78,29 +108,23 @@ class QueryData(FontData):
         self.descriptions = {}
         self.fontMap = {}
 
-        lastCaption = None
-        for root, dirs, files in os.walk(os.path.join(config.directory, "fonts"), topdown=False):
-            for file in files:
-                if file.endswith(".html"):
-                    filePath = os.path.join(root, file)
-                    lastCaption = getAdjectives(filePath)
+        walks = os.walk(os.path.join(config.directory, "fonts"))
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
+            for i, result in enumerate(executor.map(loadFolderDescription, walks)):
+                if result is None:
+                    continue
 
-            for file in files:
-                if file.endswith(".otf") or file.endswith(".ttf"):
-                    filePath = os.path.join(root, file)
-                    try:
-                        font = ImageFont.truetype(filePath, 32)
-                        fontName, fontStyle = font.getname()
+                fontNames, fontStyles, caption = result
 
-                    except Exception as e:
-                        print(filePath, e)
-                        continue
-
-                    print(f"\r{fontName} {fontStyle} {lastCaption}", end="")
-
+                for i in range(len(fontNames)):
+                    fontName = fontNames[i]
+                    fontStyle = fontStyles[i]
                     self.fontMap[f"{fontName} {fontStyle}"] = fontName
-                    self.descriptions[fontName] = Description(f"{fontName} {fontStyle}", lastCaption, {fontStyle: 0.2})
+                    self.descriptions[fontName] = Description(f"{fontName} {fontStyle}", caption, {fontStyle: 0.2})
 
+                if i % 100 == 0:
+                    print(f"\rPaths checked: {i + 1}/{len(walks)}", end="")
+                    
         tagFile = os.path.join(config.directory, "fonts", "tags", "all", "families.csv")
         tagDF = pd.read_csv(tagFile, names=["family", "na", "tags", "weight"])
         for family in tagDF.family.unique():
