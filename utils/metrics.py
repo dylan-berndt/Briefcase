@@ -5,7 +5,7 @@ from sklearn.preprocessing import normalize
 import numpy as np
 
 
-def regressionTransform(z, y, clusters, decompositionRate=4, clusteringMetric="cosine"):
+def regressionTransform(z, y, clusters, decompositionRate, clusteringMetric):
     _, dimension = y.shape
     y = y.numpy()
 
@@ -24,8 +24,8 @@ def codingRate(z, eps=1e-4):
     return 0.5 * rate
 
 
-def transRate(z, y, clusters=48, eps=1e-4):
-    z, y = regressionTransform(z, y, clusters)
+def transRate(z, y, clusters=48, decompositionRate=4, clusteringMetric="cosine", eps=1e-4):
+    z, y = regressionTransform(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
 
     z = z - torch.mean(z, axis=0, keepdim=True)
     rz = codingRate(z, eps)
