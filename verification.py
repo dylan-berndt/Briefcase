@@ -52,6 +52,8 @@ for checkpoint in checkpoints:
     path = os.path.join("style", "activations", f"{checkpoint} image.pkl")
 
     if not os.path.exists(path):
+        print(f"\nGetting image activations for {checkpoint} model")
+        print("=" * 28)
         allImageActivations, _ = imageModelActivations(imageModel, dataset, testCharacters)
         with open(path, "wb") as file:
             pickle.dump(allImageActivations, file)
@@ -66,6 +68,8 @@ for t in range(len(textModels)):
     path = os.path.join("style", "activations", f"{textModelNames[t]} text.pkl")
 
     if not os.path.exists(path):
+        print(f"\nGetting text activations for {textModelNames[t]} model")
+        print("=" * 28)
         allTextActivations = textModelActivations(textModel, dataset, testCharacters)
         with open(path, "wb") as file:
             pickle.dump(allImageActivations, file)

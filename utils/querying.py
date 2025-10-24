@@ -43,6 +43,7 @@ def getAdjectives(filePath):
 
 class Description:
     tokenizer = None
+    maxDescriptors = 12
 
     def __init__(self, name, adjectives, tags=None):
         tags = tags if tags is not None else {}
@@ -52,14 +53,19 @@ class Description:
         self.tags = tags
 
     def sample(self):
-        sampledAdjectives = random.sample(self.adjectives, int(len(self.adjectives) * random.uniform(0.4, 0.8)))
-        sampledTags = [tag for tag, value in self.tags.items() if random.uniform(0, 1) < value]
-        joined = ", ".join(sampledAdjectives + sampledTags) + " font"
+        tags = [tag for tag, value in self.tags.items() if random.uniform(0, 1) < value]
+
+        chosenDescriptors = self.adjectives + tags
+        numDescriptors = int(random.uniform(0.6, 1.0) * Description.maxDescriptors)
+        sampledDescriptors = random.sample(chosenDescriptors, min(len(chosenDescriptors), numDescriptors))
+
+        joined = ", ".join(sampledDescriptors) + " font"
         if random.uniform(0, 1) > 0.2:
             joined = joined + " named " + self.name
 
         return "a " + joined
 
+    # TODO: Rework for new sampling system
     def __len__(self):
         descriptors = self.adjectives + list(self.tags.keys())
         description = ", ".join(descriptors) + " font named " + self.name
@@ -170,6 +176,8 @@ class QueryData(FontData):
         outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
         characters = torch.stack([sample["class"] for sample in samples], dim=0)
 
-        tokens = Description.tokenizer([sample["description"] for sample in samples], padding="longest", return_tensors="pt")
+        tokens = Description.tokenizer([sample["description"] for sample in samples], 
+                                       padding="longest", truncation=True,
+                                       return_tensors="pt")
 
         return inputs, outputs, characters, tokens
