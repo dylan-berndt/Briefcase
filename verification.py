@@ -13,6 +13,8 @@ def compare(allImageActivations, allTextActivations):
     textActivations = []
     for l in range(len(allImageActivations)):
         for key in list(allImageActivations[l].keys()):
+            if key not in allTextActivations:
+                continue
             imageActivations.append(allImageActivations[l][key])
             textActivations.append(allTextActivations[key])
 
