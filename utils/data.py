@@ -62,6 +62,7 @@ class FontData(Dataset):
         fontPaths = ttfPaths + otfPaths
 
         self.fonts = {}
+        self.fontMap = {}
 
         for f, fontPath in enumerate(fontPaths):
             if not os.path.isfile(fontPath):
@@ -77,6 +78,7 @@ class FontData(Dataset):
 
                 fontName, fontStyle = font.getname()
                 self.fonts[f"{fontName} {fontStyle}"] = font
+                self.fontMap[f"{fontName} {fontStyle}"] = fontName
 
                 imagePath = os.path.join(config.directory, "bitmaps", f"{fontName} {fontStyle} al.bmp")
                 if os.path.exists(imagePath):
@@ -172,9 +174,9 @@ class FontData(Dataset):
         mse = np.array(mse)
         letters = np.array(letters)
 
-        plt.hist(mse, bins=10)
-        plt.grid()
-        plt.show()
+        # plt.hist(mse, bins=10)
+        # plt.grid()
+        # plt.show()
 
         if training:
             mask = mse > np.percentile(mse, 40)
@@ -188,15 +190,18 @@ class FontData(Dataset):
         self.pairs = pairs
         self.letters = letters
 
+        self.index = np.arange(len(self.pairs))
+
         print()
 
     def __len__(self):
         if self.method == "masking":
-            return len(self.pairs) * 2
+            return len(self.index) * 2
 
-        return len(self.pairs)
+        return len(self.index)
     
-    def getPair(self, item):
+    def getPair(self, i):
+        item = self.index[i]
         lower, upper = self.pairs[item]
 
         lower = torch.tensor(lower, dtype=torch.float32)
@@ -208,13 +213,16 @@ class FontData(Dataset):
         character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
 
         if self.method == "lower":
-            return {"inputs": upper, "outputs": lower, "class": character, "name": self.names[item], "letter": self.letters[item]}
+            return {"inputs": upper, "outputs": lower, "class": character,
+                    "name": self.names[item], "letter": self.letters[item]}
         
-        return {"inputs": lower, "outputs": upper, "class": character, "name": self.names[item], "letter": self.letters[item]}
+        return {"inputs": lower, "outputs": upper, "class": character,
+                "name": self.names[item], "letter": self.letters[item]}
     
-    def getMasked(self, item):
-        lower, upper = self.pairs[item // 2]
-        image = lower if (item % 2 == 0) else upper
+    def getMasked(self, i):
+        item = self.index[i // 2]
+        lower, upper = self.pairs[item]
+        image = lower if (i % 2 == 0) else upper
 
         maskedImage = image.copy()
 
@@ -222,7 +230,7 @@ class FontData(Dataset):
         x = np.random.randint(0, maskedImage.shape[0] - patchSize + 1)
         y = np.random.randint(0, maskedImage.shape[1] - patchSize + 1)
 
-        maskedImage[x: x + patchSize, y: y + patchSize]
+        maskedImage[x: x + patchSize, y: y + patchSize] = 0
 
         noiseMask = np.random.randint(0, 100, size=maskedImage.shape) > 20
         maskedImage[noiseMask] = 0
@@ -230,9 +238,10 @@ class FontData(Dataset):
         maskedImage = torch.tensor(maskedImage, dtype=torch.float32)
         image = torch.tensor(image, dtype=torch.float32)
 
-        character = torch.tensor(characters.index(self.letters[item // 2]), dtype=torch.long)
+        character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
 
-        return {"inputs": maskedImage, "outputs": image, "class": character, "name": self.names[item // 2], "letter": self.letters[item // 2]}
+        return {"inputs": maskedImage, "outputs": image, "class": character,
+                "name": self.names[item], "letter": self.letters[item]}
     
     @staticmethod
     def collate(samples):

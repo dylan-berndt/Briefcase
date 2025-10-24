@@ -15,7 +15,7 @@ def imageModelActivations(model, dataset, testCharacters, batchSize=128):
     letters = []
     for i in range(len(dataset)):
         data = dataset[i]
-        inputs.append(data["inputs"])
+        inputs.append(data["inputs"].cpu())
         names.append(data["name"])
         letters.append(data["letter"])
 
@@ -55,7 +55,7 @@ def imageModelActivations(model, dataset, testCharacters, batchSize=128):
                     if name not in allImages and batchLetters[n] == "b":
                         allImages[name] = batchImages[n]
 
-        print(f"\r{j}/{len(inputs)} activation samples compiled", end="")
+        print(f"\r{j}/{len(inputs)} image activation samples compiled", end="")
 
     print()
 
@@ -70,6 +70,53 @@ def imageModelActivations(model, dataset, testCharacters, batchSize=128):
     return allActivations, allImages
 
 
-def textModelActivations(model, dataset, batchSize=128):
-    pass
+def textModelActivations(model, dataset, testCharacters, batchSize=128):
+    names = []
+    letters = []
+    for i in range(len(dataset)):
+        data = dataset[i]
+        names.append(data["name"])
+        letters.append(data["letter"])
 
+    names, letters = np.array(names), np.array(letters)
+
+    loader = DataLoader(dataset, batch_size=batchSize, collate_fn=dataset.collate)
+
+    allActivations = {}
+    activationCounts = {}
+
+    # I realize that this runs the same description for each letter in the test set,
+    # but also I don't care and maybe it will average the tag sampling in a neat way
+    for i, batch in enumerate(loader):
+        with torch.no_grad():
+            _, _, _, text = batch
+            outputs = model(**text)
+            pooled = outputs.pooler_output
+
+            j = i * batchSize
+            k = min(len(dataset) - 1, (i + 1) * batchSize)
+
+            batchNames = names[j:k]
+
+            for n, name in enumerate(batchNames):
+                # Running average of activation due to memory usage
+                if name in allActivations:
+                    num = activationCounts[name]
+                    allActivations[name] = (allActivations[name] * num + pooled[n]) / (num + 1)
+                    activationCounts[name] += 1
+                else:
+                    allActivations[name] = pooled[n]
+                    activationCounts[name] = 1
+
+        print(f"\r{j}/{len(loader) * batchSize} text activation samples compiled", end="")
+
+    print()
+
+    # Excluding examples that do not have all the test characters
+    # I don't know why some sets have only a subset of the latin characters.
+    for name in list(allActivations.keys()):
+        if activationCounts[name] != len(testCharacters):
+            print(name, activationCounts[name])
+            del allActivations[name]
+
+    return allActivations

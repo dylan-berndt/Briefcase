@@ -9,7 +9,7 @@ from .model import *
 from .data import *
 import random
 import pandas as pd
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, CLIPTextModel, BertModel
 
 from bs4 import BeautifulSoup
 import spacy
@@ -69,30 +69,29 @@ class Description:
 
 def loadFolderDescription(walk):
     root, dirs, files = walk
-    if not any([file.endswith(".otf") or file.endswith(".ttf") for file in files]):
+    if not any([file.endswith("METADATA.pb") for file in files]):
         return None
     
     fontNames = []
     fontStyles = []
-    caption = [""]
+    caption = None
     
-    for file in glob(os.path.join(root, "*.html")):
+    for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
         if file.endswith(".html"):
-            filePath = os.path.join(root, file)
-            caption = getAdjectives(filePath)
+            caption = getAdjectives(file)
 
-    for file in files:
-        if file.endswith(".otf") or file.endswith(".ttf"):
-            filePath = os.path.join(root, file)
-            try:
-                font = ImageFont.truetype(filePath, 32)
-                fontName, fontStyle = font.getname()
-                fontNames.append(fontName)
-                fontStyles.append(fontStyle)
+    otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
+    ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
+    for filePath in (otf + ttf):
+        try:
+            font = ImageFont.truetype(filePath, 32)
+            fontName, fontStyle = font.getname()
+            fontNames.append(fontName)
+            fontStyles.append(fontStyle)
 
-            except Exception as e:
-                print(filePath, e)
-                continue
+        except Exception as e:
+            print(filePath, e)
+            continue
 
     return fontNames, fontStyles, caption
 
@@ -102,12 +101,14 @@ class QueryData(FontData):
     def __init__(self, config, training=False):
         super().__init__(config, training)
 
-        self.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        # self.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         Description.tokenizer = self.tokenizer
 
         self.descriptions = {}
-        self.fontMap = {}
 
+        walks = os.walk(os.path.join(config.directory, "fonts"))
+        roots = [root for root, dirs, files in walks]
         walks = os.walk(os.path.join(config.directory, "fonts"))
         with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
             for i, result in enumerate(executor.map(loadFolderDescription, walks)):
@@ -116,14 +117,19 @@ class QueryData(FontData):
 
                 fontNames, fontStyles, caption = result
 
-                for i in range(len(fontNames)):
-                    fontName = fontNames[i]
-                    fontStyle = fontStyles[i]
-                    self.fontMap[f"{fontName} {fontStyle}"] = fontName
+                if caption is None:
+                    print(roots[i], fontNames)
+                    continue
+
+                for j in range(len(fontNames)):
+                    fontName = fontNames[j]
+                    fontStyle = fontStyles[j]
                     self.descriptions[fontName] = Description(f"{fontName} {fontStyle}", caption, {fontStyle: 0.2})
 
                 if i % 100 == 0:
-                    print(f"\rPaths checked: {i + 1}/{len(walks)}", end="")
+                    print(f"\rPaths checked: {i + 1}/{len(roots)}", end="")
+
+        print()
                     
         tagFile = os.path.join(config.directory, "fonts", "tags", "all", "families.csv")
         tagDF = pd.read_csv(tagFile, names=["family", "na", "tags", "weight"])
@@ -142,17 +148,15 @@ class QueryData(FontData):
 
             self.descriptions[family].tags = tagDict
 
-        self.maxLength = max([len(description) for name, description in self.descriptions.items()])
-
         names = np.array([self.fontMap[name] for name in self.names])
         viable = np.isin(names, list(self.descriptions.keys()))
-        print(f"{np.mean(viable) * 100:.2f}% fonts have descriptions")
+        print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
         self.index = np.arange(len(self.pairs))[viable]
 
-    def __getitem__(self, item):
-        data = super()[item]
+    def __getitem__(self, i):
+        data = super().__getitem__(i)
 
-        fontName = self.fontMap[self.names[item]]
+        fontName = self.fontMap[data["name"]]
         description = self.descriptions[fontName].sample()
 
         data["description"] = description
@@ -166,6 +170,5 @@ class QueryData(FontData):
         characters = torch.stack([sample["class"] for sample in samples], dim=0)
 
         tokens = Description.tokenizer([sample["description"] for sample in samples], padding="longest", return_tensors="pt")
-        descriptions = tokens["input_ids"]
 
-        return inputs, outputs, characters, descriptions
+        return inputs, outputs, characters, tokens
