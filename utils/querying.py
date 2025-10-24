@@ -98,12 +98,10 @@ def loadFolderDescription(walk):
 
 # This is very specifically tailored to the Google Fonts repository
 class QueryData(FontData):
-    def __init__(self, config, training=False):
+    def __init__(self, config, training=False, tokenizer="bert-base-uncased"):
         super().__init__(config, training)
 
-        # self.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-        Description.tokenizer = self.tokenizer
+        self.setTokenizer(tokenizer)
 
         self.descriptions = {}
 
@@ -152,6 +150,9 @@ class QueryData(FontData):
         viable = np.isin(names, list(self.descriptions.keys()))
         print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
         self.index = np.arange(len(self.pairs))[viable]
+
+    def setTokenizer(self, name):
+        Description.tokenizer = AutoTokenizer.from_pretrained(name)
 
     def __getitem__(self, i):
         data = super().__getitem__(i)

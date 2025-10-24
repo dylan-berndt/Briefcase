@@ -97,8 +97,13 @@ def textModelActivations(model, dataset, testCharacters, batchSize=128):
             k = min(len(dataset) - 1, (i + 1) * batchSize)
 
             batchNames = names[j:k]
+            batchLetters = letters[j:k]
 
             for n, name in enumerate(batchNames):
+                # Exceptionally wasteful. Don't care
+                if batchLetters[n] not in testCharacters:
+                    continue
+
                 # Running average of activation due to memory usage
                 if name in allActivations:
                     num = activationCounts[name]

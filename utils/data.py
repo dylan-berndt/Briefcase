@@ -97,7 +97,6 @@ class FontData(Dataset):
                         if ord(char) in table.cmap.keys():
                             hasGlyph = True
 
-                    # 22 lines and 5 indents, classic
                     mask = font.getmask(char)
                     box = font.getbbox(char)
                     if mask.size == (0, 0) or not hasGlyph:
@@ -193,6 +192,9 @@ class FontData(Dataset):
         self.index = np.arange(len(self.pairs))
 
         print()
+
+    def mask(self, mask):
+        pass
 
     def __len__(self):
         if self.method == "masking":
