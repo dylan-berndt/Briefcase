@@ -15,13 +15,13 @@ def regressionTransform(z, y, clusters, decompositionRate, clusteringMetric):
     clustering = AgglomerativeClustering(clusters, linkage="average", metric=clusteringMetric)
     clusters = clustering.fit_predict(normalize(transformed))
 
-    return z, torch.tensor(y, dtype=torch.long)
+    return z, torch.tensor(clusters, dtype=torch.long).cpu()
 
 
 # https://arxiv.org/abs/2106.09362
 def codingRate(z, eps=1e-4):
     n, d = z.shape
-    _, rate = torch.linalg.slogdet((torch.eye(d) + 1 / (n * eps) * z.transpose() @ z))
+    _, rate = torch.linalg.slogdet((torch.eye(d).cpu() + 1 / (n * eps) * z.transpose(0, 1) @ z))
     return 0.5 * rate
 
 
@@ -88,7 +88,7 @@ def logME(z, y):
     y = y.numpy()
 
     fh = z
-    f = f.transpose()
+    f = z.transpose()
     D, N = f.shape
     v, s, vh = np.linalg.svd(f @ fh, full_matrices=True)
 

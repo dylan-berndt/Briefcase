@@ -1,0 +1,20 @@
+{
+    "model": {
+        "layers": 4,
+        "filters": 24,
+        "expansion": 2,
+        "blockDepth": 4
+    },
+    "dataset": {
+        "fontSize": 32,
+        "maps": "bitmaps",
+        "split": "random",
+        "directory": "google",
+        "method": "upper",
+        "standardFonts": ["Calibri", "Arial", "Tahoma", "Times New Roman"],
+        "stylizedFonts": ["Brush Script MT Italic", "Chiller Regular", "Goudy Stout Regular", "Jokerman Regular"]
+    },
+    "batchSize": 128,
+    "learningRate": 1e-3,
+    "epochs": 80
+}
