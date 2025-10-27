@@ -8,6 +8,8 @@
 /windows/sdf
 /windows/fonts
 
+**/*.pkl
+
 /style/results/clustering
 
 

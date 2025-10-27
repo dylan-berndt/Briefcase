@@ -82,8 +82,8 @@ while True:
         inputs = torch.tensor(canvas.transpose(), dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
     with torch.no_grad():
         output, classification = model(inputs)
-        choice = nn.functional.softmax(classification, dim=-1).squeeze().detach().numpy()
-        output = output.squeeze().detach().numpy().transpose()
+        choice = nn.functional.softmax(classification, dim=-1).squeeze().detach().cpu().numpy()
+        output = output.squeeze().detach().cpu().numpy().transpose()
 
     out1 = np.clip((output - output.min()) / (output.max() - output.min() + 1e-8), 0, 1)
     out = output > 0

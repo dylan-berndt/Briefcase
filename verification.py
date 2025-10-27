@@ -27,7 +27,7 @@ def compare(testImageActivations, testTextActivations):
     return testScores
 
 
-checkpoints = ["upper"]
+checkpoints = ["upper", "lower", "masked"]
 textModels = [BertModel, CLIPTextModel]
 textModelNames = ["bert-base-uncased", "openai/clip-vit-base-patch32"]
 
@@ -96,7 +96,7 @@ for i in range(len(imageActivationPaths)):
     with open(imageActivationPaths[i], "rb") as file:
         imageActivations = pickle.load(file)
     for t in range(len(textActivationPaths)):
-        with open(textActivationPaths[i], "rb") as file:
+        with open(textActivationPaths[t], "rb") as file:
             textActivations = pickle.load(file)
 
         scores = compare(imageActivations, textActivations)
@@ -106,15 +106,17 @@ for i in range(len(imageActivationPaths)):
 
         scoreMatrix[i, t] = scores["TransRate"]
 
+        plt.suptitle(f"{imageModelNames[i]} -> {textModelNames[t]}")
+
         plt.subplot(1, 2, 1)
-        plt.title(f"TransRate Scores {imageModelNames[i]} -> {textModelNames[t]}")
+        plt.title(f"TransRate Scores")
         plt.bar(range(imageModel.numLayers), scores["TransRate"])
         plt.ylabel("TransRate")
         plt.xlabel("Layer")
         plt.grid()
 
         plt.subplot(1, 2, 2)
-        plt.title(f"LogME Scores {imageModelNames[i]} -> {textModelNames[t]}")
+        plt.title(f"LogME Scores")
         plt.bar(range(imageModel.numLayers), scores["LogME"])
         plt.ylabel("LogME")
         plt.xlabel("Layer")

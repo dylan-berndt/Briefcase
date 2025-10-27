@@ -197,7 +197,7 @@ class FontData(Dataset):
         pass
 
     def __len__(self):
-        if self.method == "masking":
+        if self.method == "masked":
             return len(self.index) * 2
 
         return len(self.index)
@@ -225,25 +225,26 @@ class FontData(Dataset):
         item = self.index[i // 2]
         lower, upper = self.pairs[item]
         image = lower if (i % 2 == 0) else upper
-
         maskedImage = image.copy()
 
-        patchSize = self.config.imageSize // 5
+        patchSize = maskedImage.shape[0] // 4
         x = np.random.randint(0, maskedImage.shape[0] - patchSize + 1)
         y = np.random.randint(0, maskedImage.shape[1] - patchSize + 1)
 
+
         maskedImage[x: x + patchSize, y: y + patchSize] = 0
 
-        noiseMask = np.random.randint(0, 100, size=maskedImage.shape) > 20
+        noiseMask = np.random.randint(0, 100, size=maskedImage.shape) < 40
         maskedImage[noiseMask] = 0
 
-        maskedImage = torch.tensor(maskedImage, dtype=torch.float32)
-        image = torch.tensor(image, dtype=torch.float32)
+        maskedImage = torch.tensor(maskedImage, dtype=torch.float32).unsqueeze(-1)
+        image = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
 
-        character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
+        letter = self.letters[item] if (i % 2 == 0) else self.letters[item].upper()
+        character = torch.tensor(characters.index(letter), dtype=torch.long)
 
         return {"inputs": maskedImage, "outputs": image, "class": character,
-                "name": self.names[item], "letter": self.letters[item]}
+                "name": self.names[item], "letter": letter}
     
     @staticmethod
     def collate(samples):
@@ -254,7 +255,7 @@ class FontData(Dataset):
         return inputs, outputs, characters
 
     def __getitem__(self, item):
-        if self.method == "masking":
+        if self.method == "masked":
             return self.getMasked(item)
         
         return self.getPair(item)

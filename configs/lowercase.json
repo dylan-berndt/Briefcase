@@ -16,5 +16,5 @@
     },
     "batchSize": 128,
     "learningRate": 1e-3,
-    "epochs": 80
+    "epochs": 8000
 }
