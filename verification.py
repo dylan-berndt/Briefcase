@@ -10,24 +10,27 @@ def compare(testImageActivations, testTextActivations):
     testScores = {"TransRate": [], "LogME": []}
 
     for l in range(len(testImageActivations)):
-        imageActivations = []
-        textActivations = []
+        imageActivations2 = []
+        textActivations2 = []
         for key in list(testImageActivations[l].keys()):
             if key not in testTextActivations:
                 continue
-            imageActivations.append(testImageActivations[l][key])
-            textActivations.append(testTextActivations[key])
+            imageActivations2.append(testImageActivations[l][key])
+            textActivations2.append(testTextActivations[key])
 
-        imageActivations = torch.stack(imageActivations, dim=0).mean(dim=(2, 3)).cpu()
-        textActivations = torch.stack(textActivations, dim=0).cpu()
+        imageActivations2 = torch.stack(imageActivations2, dim=0).cpu()
+        textActivations2 = torch.stack(textActivations2, dim=0).cpu()
 
-        testScores["TransRate"].append(transRate(imageActivations, textActivations))
-        testScores["LogME"].append(logME(imageActivations, textActivations))
+        if len(imageActivations2.shape) > 2:
+            imageActivations2 = imageActivations2.mean(dim=(2, 3))
+
+        testScores["TransRate"].append(transRate(imageActivations2, textActivations2))
+        testScores["LogME"].append(logME(imageActivations2, textActivations2))
 
     return testScores
 
 
-checkpoints = ["upper", "lower", "masked"]
+checkpoints = ["upper", "lower", "masked", "CLIP"]
 textModels = [BertModel, CLIPTextModel]
 textModelNames = ["bert-base-uncased", "openai/clip-vit-base-patch32"]
 
@@ -43,9 +46,17 @@ if not os.path.exists(os.path.join("style", "activations")):
 
 # Get and save activations for each of the image models
 for checkpoint in checkpoints:
-    imageModel, imageConfig = UNet.load(os.path.join("checkpoints", checkpoint))
+    if checkpoint == "CLIP":
+        imageModel = CLIPEmbedder(None)
+    else:
+        imageModel, imageConfig = UNet.load(os.path.join("checkpoints", checkpoint))
+
     if "method" in imageConfig.dataset:
         dataset.method = imageConfig.dataset.method
+
+    # Get all images, upper or lower
+    if checkpoint == "CLIP":
+        dataset.method = "masked"
 
     path = os.path.join("style", "activations", f"{checkpoint} image.pkl")
 
@@ -90,7 +101,8 @@ textModelNames = [os.path.basename(name).removesuffix(" text.pkl") for name in t
 transRateLayerScores = []
 logMELayerScores = []
 
-scoreMatrix = np.zeros([len(imageActivationPaths), len(textActivationPaths), imageModel.numLayers])
+transScoreMatrix = np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
+logMEScoreMatrix = np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
 
 for i in range(len(imageActivationPaths)):
     with open(imageActivationPaths[i], "rb") as file:
@@ -101,60 +113,67 @@ for i in range(len(imageActivationPaths)):
 
         scores = compare(imageActivations, textActivations)
 
+        del textActivations
+
+        torch.cuda.empty_cache()
+
         transRateLayerScores.append(scores["TransRate"])
         logMELayerScores.append(scores["LogME"])
 
-        scoreMatrix[i, t] = scores["TransRate"]
+        transScoreMatrix[i, t] = scores["TransRate"]
+        logMEScoreMatrix[i, t] = scores["LogME"]
 
         plt.suptitle(f"{imageModelNames[i]} -> {textModelNames[t]}")
 
         plt.subplot(1, 2, 1)
         plt.title(f"TransRate Scores")
-        plt.bar(range(imageModel.numLayers), scores["TransRate"])
+        plt.bar(np.arange(len(scores["TransRate"])) + 1, scores["TransRate"])
         plt.ylabel("TransRate")
         plt.xlabel("Layer")
         plt.grid()
 
         plt.subplot(1, 2, 2)
         plt.title(f"LogME Scores")
-        plt.bar(range(imageModel.numLayers), scores["LogME"])
+        plt.bar(np.arange(len(scores["TransRate"])) + 1, scores["LogME"])
         plt.ylabel("LogME")
         plt.xlabel("Layer")
         plt.grid()
 
         plt.show()
 
-averageTransRateScore = np.array(transRateLayerScores).mean(axis=0)
-averageLogMEScore = np.array(logMELayerScores).mean(axis=0)
+    del imageActivations
+    torch.cuda.empty_cache()
 
-plt.subplot(1, 2, 1)
-plt.title(f"Average Layer TransRate Scores")
-plt.bar(range(imageModel.numLayers), averageTransRateScore)
-plt.ylabel("TransRate")
-plt.xlabel("Layer")
-plt.grid()
+transMatrix = [[max(transScoreMatrix[i, t])
+                for t in range(len(transScoreMatrix[i]))]
+               for i in range(len(transScoreMatrix))]
+logMEMatrix = [[max(logMEScoreMatrix[i, t])
+                for t in range(len(logMEScoreMatrix[i]))]
+               for i in range(len(logMEScoreMatrix))]
 
-plt.subplot(1, 2, 2)
-plt.title(f"Average Layer LogME Scores")
-plt.bar(range(imageModel.numLayers), averageLogMEScore)
-plt.ylabel("LogME")
-plt.xlabel("Layer")
-plt.grid()
+transMatrix = np.array(transMatrix)
+logMEMatrix = np.array(logMEMatrix)
+
+fig, (ax1, ax2) = plt.subplots(1, 2)
+ax1.set_title("Model Pre-training TransRate Scores")
+ax2.set_title("Model Pre-training LogME Scores")
+im1 = ax1.imshow(transMatrix, cmap="viridis")
+im2 = ax2.imshow(logMEMatrix, cmap="viridis")
+fig.colorbar(im1, ax=ax1)
+fig.colorbar(im2, ax=ax2)
+ax1.set_xticks(range(len(textModelNames)))
+ax1.set_xticklabels(textModelNames)
+ax1.set_yticks(range(len(imageModelNames)))
+ax1.set_yticklabels(imageModelNames)
+
+ax2.set_xticks(range(len(textModelNames)))
+ax2.set_xticklabels(textModelNames)
+ax2.set_yticks(range(len(imageModelNames)))
+ax2.set_yticklabels(imageModelNames)
+
+ax1.set_xlabel("Text Model")
+ax2.set_xlabel("Text Model")
+ax1.set_ylabel("Image Model")
 
 plt.show()
 
-bestLayer = np.argmax(averageTransRateScore)
-matrix = scoreMatrix[:, :, bestLayer]
-fig, ax = plt.subplots()
-plt.title("Model Pre-training TransRate Scores")
-plt.imshow(matrix, cmap="viridis")
-plt.colorbar()
-ax.set_xticks(range(len(textModelNames)))
-ax.set_xticklabels(textModelNames)
-ax.set_yticks(range(len(imageModelNames)))
-ax.set_yticklabels(imageModelNames)
-
-ax.set_xlabel("Text Model")
-ax.set_ylabel("Image Model")
-
-plt.show()

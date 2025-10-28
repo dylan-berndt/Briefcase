@@ -9,7 +9,7 @@ from .model import *
 from .data import *
 import random
 import pandas as pd
-from transformers import AutoTokenizer, CLIPTextModel, BertModel
+from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel
 
 from bs4 import BeautifulSoup
 import spacy
@@ -180,3 +180,38 @@ class QueryData(FontData):
                                        return_tensors="pt")
 
         return inputs, outputs, characters, tokens
+
+
+class CLIPEmbedder(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+
+        self.config = config
+        # Didn't realize this expects PIL
+        # self.processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        self.model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.numLayers = 1
+
+    def preprocess(self, x):
+        x = x * 255.0
+        x = x.clamp(0, 255)
+
+        mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=x.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=x.device).view(1, 3, 1, 1)
+        x = (x / 255.0 - mean) / std
+
+        x = torch.nn.functional.interpolate(x, size=(224, 224), mode='bicubic', align_corners=False)
+        return x
+
+    def forward(self, x):
+        x = x.permute(0, 3, 1, 2)
+        x = x.repeat(1, 3, 1, 1)
+        x = self.preprocess(x)
+        x = self.model(x)
+        return x
+
+    def activations(self, x):
+        outputs = self.forward(x)
+        return [outputs.pooler_output]
+
+

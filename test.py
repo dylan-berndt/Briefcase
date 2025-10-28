@@ -2,7 +2,7 @@ from utils import *
 import pygame
 import math
 
-testPath = os.path.join("checkpoints", "latest")
+testPath = os.path.join("checkpoints", "upper")
 model, config = UNet.load(testPath)
 
 pygame.init()
