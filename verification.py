@@ -6,8 +6,8 @@ from utils import *
 import pickle
 
 
-def compare(testImageActivations, testTextActivations):
-    testScores = {"TransRate": [], "LogME": []}
+def compare(testImageActivations, testTextActivations, testFunctions):
+    testScores = {name: [] for name in testFunctions.keys()}
 
     for l in range(len(testImageActivations)):
         imageActivations2 = []
@@ -24,8 +24,8 @@ def compare(testImageActivations, testTextActivations):
         if len(imageActivations2.shape) > 2:
             imageActivations2 = imageActivations2.mean(dim=(2, 3))
 
-        testScores["TransRate"].append(transRate(imageActivations2, textActivations2))
-        testScores["LogME"].append(logME(imageActivations2, textActivations2))
+        for name in testFunctions.keys():
+            testScores[name].append(testFunctions[name](imageActivations2, textActivations2))
 
     return testScores
 
@@ -98,11 +98,11 @@ textActivationPaths = glob(os.path.join("style", "activations", "* text.pkl"))
 imageModelNames = [os.path.basename(name).removesuffix(" image.pkl") for name in imageActivationPaths]
 textModelNames = [os.path.basename(name).removesuffix(" text.pkl") for name in textActivationPaths]
 
-transRateLayerScores = []
-logMELayerScores = []
+scoreFunctions = {"TransRate": transRate, "LogME": logME}
 
-transScoreMatrix = np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
-logMEScoreMatrix = np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
+layerScores = {name: [] for name in scoreFunctions.keys()}
+scoreMatrices = {name: np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
+                 for name in scoreFunctions.keys()}
 
 for i in range(len(imageActivationPaths)):
     with open(imageActivationPaths[i], "rb") as file:
@@ -111,69 +111,50 @@ for i in range(len(imageActivationPaths)):
         with open(textActivationPaths[t], "rb") as file:
             textActivations = pickle.load(file)
 
-        scores = compare(imageActivations, textActivations)
+        scores = compare(imageActivations, textActivations, scoreFunctions)
 
         del textActivations
 
         torch.cuda.empty_cache()
 
-        transRateLayerScores.append(scores["TransRate"])
-        logMELayerScores.append(scores["LogME"])
-
-        transScoreMatrix[i, t] = scores["TransRate"]
-        logMEScoreMatrix[i, t] = scores["LogME"]
-
         plt.suptitle(f"{imageModelNames[i]} -> {textModelNames[t]}")
 
-        plt.subplot(1, 2, 1)
-        plt.title(f"TransRate Scores")
-        plt.bar(np.arange(len(scores["TransRate"])) + 1, scores["TransRate"])
-        plt.ylabel("TransRate")
-        plt.xlabel("Layer")
-        plt.grid()
+        for n, name in enumerate(scoreFunctions.keys()):
+            layerScores[name].append(scores[name])
+            scoreMatrices[name][i, t] = scores[name]
 
-        plt.subplot(1, 2, 2)
-        plt.title(f"LogME Scores")
-        plt.bar(np.arange(len(scores["TransRate"])) + 1, scores["LogME"])
-        plt.ylabel("LogME")
-        plt.xlabel("Layer")
-        plt.grid()
+            plt.subplot(1, len(scoreFunctions), n + 1)
+            plt.title(f"{name} Scores")
+            plt.bar(np.arange(len(scores[name])) + 1, scores[name])
+            plt.ylabel(name)
+            plt.xlabel("Layer")
+            plt.grid()
 
         plt.show()
 
     del imageActivations
     torch.cuda.empty_cache()
 
-transMatrix = [[max(transScoreMatrix[i, t])
-                for t in range(len(transScoreMatrix[i]))]
-               for i in range(len(transScoreMatrix))]
-logMEMatrix = [[max(logMEScoreMatrix[i, t])
-                for t in range(len(logMEScoreMatrix[i]))]
-               for i in range(len(logMEScoreMatrix))]
 
-transMatrix = np.array(transMatrix)
-logMEMatrix = np.array(logMEMatrix)
+fig, axes = plt.subplots(1, len(scoreFunctions))
 
-fig, (ax1, ax2) = plt.subplots(1, 2)
-ax1.set_title("Model Pre-training TransRate Scores")
-ax2.set_title("Model Pre-training LogME Scores")
-im1 = ax1.imshow(transMatrix, cmap="viridis")
-im2 = ax2.imshow(logMEMatrix, cmap="viridis")
-fig.colorbar(im1, ax=ax1)
-fig.colorbar(im2, ax=ax2)
-ax1.set_xticks(range(len(textModelNames)))
-ax1.set_xticklabels(textModelNames)
-ax1.set_yticks(range(len(imageModelNames)))
-ax1.set_yticklabels(imageModelNames)
+for n, name in enumerate(scoreFunctions.keys()):
+    matrix = scoreMatrices[name]
+    bestMatrix = [[max(matrix[i, t])
+                    for t in range(len(matrix[i]))]
+                   for i in range(len(matrix))]
+    bestMatrix = np.array(bestMatrix)
+    im1 = axes[n].imshow(bestMatrix, cmap="viridis")
+    fig.colorbar(im1, ax=axes[n])
+    axes[n].set_title(f"Pre-training {name} Scores")
 
-ax2.set_xticks(range(len(textModelNames)))
-ax2.set_xticklabels(textModelNames)
-ax2.set_yticks(range(len(imageModelNames)))
-ax2.set_yticklabels(imageModelNames)
+    axes[n].set_xlabel("Layer")
+    axes[n].set_ylabel(f"{name} Scores")
 
-ax1.set_xlabel("Text Model")
-ax2.set_xlabel("Text Model")
-ax1.set_ylabel("Image Model")
+    axes[n].set_xticks(range(len(textModelNames)))
+    axes[n].set_xticklabels(textModelNames)
+    axes[n].set_yticks(range(len(imageModelNames)))
+    axes[n].set_yticklabels(imageModelNames)
 
 plt.show()
 
