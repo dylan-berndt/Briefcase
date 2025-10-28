@@ -7,7 +7,7 @@ import numpy as np
 
 def regressionTransform(z, y, clusters, decompositionRate, clusteringMetric):
     _, dimension = y.shape
-    y = y.numpy()
+    y = y.cpu().numpy()
 
     pca = PCA(dimension // decompositionRate)
     transformed = pca.fit_transform(y)
@@ -15,13 +15,13 @@ def regressionTransform(z, y, clusters, decompositionRate, clusteringMetric):
     clustering = AgglomerativeClustering(clusters, linkage="average", metric=clusteringMetric)
     clusters = clustering.fit_predict(normalize(transformed))
 
-    return z, torch.tensor(clusters, dtype=torch.long).cpu()
+    return z, torch.tensor(clusters, dtype=torch.long)
 
 
 # https://arxiv.org/abs/2106.09362
 def codingRate(z, eps=1e-4):
     n, d = z.shape
-    _, rate = torch.linalg.slogdet((torch.eye(d).cpu() + 1 / (n * eps) * z.transpose(0, 1) @ z))
+    _, rate = torch.linalg.slogdet((torch.eye(d) + 1 / (n * eps) * z.transpose(0, 1) @ z))
     return 0.5 * rate
 
 
@@ -34,7 +34,7 @@ def transRate(z, y, clusters=48, decompositionRate=4, clusteringMetric="cosine",
     k = int(y.max() + 1)
     for i in range(k):
         rzy += codingRate(z[(y == i).flatten()], eps)
-    return rz - rzy / k
+    return (rz - rzy / k).item()
 
 
 # https://github.com/OpenGVLab/Multitask-Model-Selector
@@ -46,7 +46,7 @@ def each_evidence(y_, f, fh, v, s, vh, N, D):
     alpha = 1.0
     beta = 1.0
     lam = alpha / beta
-    tmp = (vh @ (f @ np.ascontiguousarray(y_)))
+    tmp = (vh @ (f @ y_.contiguous()))
     for _ in range(11):
         # should converge after at most 10 steps
         # typically converge after two or three steps
@@ -59,23 +59,23 @@ def each_evidence(y_, f, fh, v, s, vh, N, D):
         beta_de = ((y_ - fh @ m) ** 2).sum()
         beta = (N - gamma) / (beta_de + epsilon)
         new_lam = alpha / beta
-        if np.abs(new_lam - lam) / lam < 0.01:
+        if torch.abs(new_lam - lam) / lam < 0.01:
             break
         lam = new_lam
-    evidence = D / 2.0 * np.log(alpha) \
-               + N / 2.0 * np.log(beta) \
-               - 0.5 * np.sum(np.log(alpha + beta * s)) \
+    evidence = D / 2.0 * torch.log(alpha) \
+               + N / 2.0 * torch.log(beta) \
+               - 0.5 * torch.sum(torch.log(alpha + beta * s)) \
                - beta / 2.0 * (beta_de + epsilon) \
                - alpha / 2.0 * (alpha_de + epsilon) \
-               - N / 2.0 * np.log(2 * np.pi)
+               - N / 2.0 * torch.log(2 * np.pi)
     return evidence / N, alpha, beta, m
 
 
 def truncated_svd(x):
-    u, s, vh = np.linalg.svd(x.transpose() @ x)
-    s = np.sqrt(s)
-    u_times_sigma = x @ vh.transpose()
-    k = np.sum((s > 1e-10) * 1)  # rank of f
+    u, s, vh = torch.linalg.svd(x.transpose(0, 1) @ x)
+    s = torch.sqrt(s)
+    u_times_sigma = x @ vh.transpose(0, 1)
+    k = torch.sum((s > 1e-10) * 1)  # rank of f
     s = s.reshape(-1, 1)
     s = s[:k]
     vh = vh[:k]
@@ -84,13 +84,10 @@ def truncated_svd(x):
 
 
 def logME(z, y):
-    z = z.numpy()
-    y = y.numpy()
-
     fh = z
-    f = z.transpose()
+    f = z.transpose(0, 1)
     D, N = f.shape
-    v, s, vh = np.linalg.svd(f @ fh, full_matrices=True)
+    v, s, vh = torch.linalg.svd(f @ fh, full_matrices=True)
 
     alphas = []
     betas = []
@@ -105,6 +102,6 @@ def logME(z, y):
         alphas.append(alpha)
         betas.append(beta)
         ms.append(m)
-    ms = np.stack(ms)
-    return np.mean(evidences)
+    ms = torch.stack(ms)
+    return torch.mean(evidences).item()
 

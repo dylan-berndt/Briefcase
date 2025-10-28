@@ -18,8 +18,8 @@ def compare(testImageActivations, testTextActivations, testFunctions):
             imageActivations2.append(testImageActivations[l][key])
             textActivations2.append(testTextActivations[key])
 
-        imageActivations2 = torch.stack(imageActivations2, dim=0).cpu()
-        textActivations2 = torch.stack(textActivations2, dim=0).cpu()
+        imageActivations2 = torch.stack(imageActivations2, dim=0)
+        textActivations2 = torch.stack(textActivations2, dim=0)
 
         if len(imageActivations2.shape) > 2:
             imageActivations2 = imageActivations2.mean(dim=(2, 3))
