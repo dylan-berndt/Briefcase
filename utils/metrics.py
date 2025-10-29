@@ -38,17 +38,18 @@ def discretizeClustering(z, y, clusters, decompositionRate, clusteringMetric):
 # https://arxiv.org/abs/2106.09362
 def codingRate(z, eps=1e-4):
     n, d = z.shape
-    _, rate = torch.linalg.slogdet((torch.eye(d) + 1 / (n * eps) * z.transpose(0, 1) @ z))
+    _, rate = torch.linalg.slogdet((torch.eye(d) + 1 / (n * eps) * z.t() @ z))
     return 0.5 * rate
 
 
-def transRate(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
+def transRate(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4, fixed=True):
     z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
     # z, y = discretizeTransRate(z, y)
 
-    pca = PCA(fixedDimension)
-    transformed = pca.fit_transform(z.cpu().numpy())
-    z = torch.tensor(transformed, type=torch.float32)
+    if fixed:
+        pca = PCA(fixedDimension)
+        transformed = pca.fit_transform(z.cpu().numpy())
+        z = torch.tensor(transformed, dtype=torch.float32)
 
     z = z - torch.mean(z, dim=0, keepdim=True)
     rz = codingRate(z, eps)
@@ -94,9 +95,9 @@ def each_evidence(y_, f, fh, v, s, vh, N, D):
 
 
 def truncated_svd(x):
-    u, s, vh = torch.linalg.svd(x.transpose(0, 1) @ x)
+    u, s, vh = torch.linalg.svd(x.t() @ x)
     s = torch.sqrt(s)
-    u_times_sigma = x @ vh.transpose(0, 1)
+    u_times_sigma = x @ vh.t()
     k = torch.sum((s > 1e-10) * 1)  # rank of f
     s = s.reshape(-1, 1)
     s = s[:k]
@@ -107,7 +108,7 @@ def truncated_svd(x):
 
 def logME(z, y):
     fh = z
-    f = z.transpose(0, 1)
+    f = z.t()
     D, N = f.shape
     v, s, vh = torch.linalg.svd(f @ fh, full_matrices=True)
 
@@ -137,3 +138,87 @@ def linearMSE(z, y):
     regressor.fit(z, y)
 
     return -np.mean(np.power(y - regressor.predict(z), 2))
+
+
+# https://arxiv.org/pdf/2110.06893
+def regularizedCovariance(A, f):
+    ef = (f.t() @ f) / f.shape[0]
+    return (1 - A) * ef + (A * torch.eye(f.shape[1]))
+
+
+def computeAlpha(f):
+    n, d = f.shape
+    ef = (f.t() @ f) / f.shape[0]
+
+    # TODO: Speed up and verification
+    term1 = 0
+    for i in range(n):
+        fi = f[i].unsqueeze(1)
+        diff = fi @ fi.t() - ef
+        term1 += torch.sum(diff * diff)
+    term1 = term1 / (n ** 2)
+
+    efc = ef - torch.trace(ef) / d * torch.eye(d)
+    term2 = torch.sum(efc * efc)
+
+    a = (term1 / term2).item()
+
+    return min(a, 1)
+
+
+def hAlphaScore(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
+    z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
+
+    pca = PCA(fixedDimension)
+    transformed = pca.fit_transform(z.cpu().numpy())
+    # TODO: Double-check normalization
+    z = normalize(transformed)
+    z = torch.tensor(z, dtype=torch.float32)
+
+    n, d = z.shape
+    C = int(torch.amax(y) + 1)
+
+    unique, counts = torch.unique(y, sorted=True, return_counts=True)
+    R = torch.zeros(d, C)
+    for c, cls in enumerate(unique):
+        # TODO: Make sure this is correct also
+        mask = y == cls
+        mf = z[mask].mean(0)
+        R[:, c] = torch.sqrt(counts[c]) * mf
+    
+    A = computeAlpha(z)
+
+    if n < d:
+        s = 1
+        w = n * A * s * np.eye(n) + (1 - A) * (z @ z.t())
+        g = z @ R
+        # TODO: Double check the process here, maybe split for legibility
+        hAlpha = ((1 - A) / (n * s * A)) @ (torch.norm(R) - ((1 - A) * (g.t() @ (torch.linalg.inv(w) @ g))))
+        return hAlpha
+    
+    efa = regularizedCovariance(A, z)
+    hAlpha = ((1 - A) / n) * torch.trace((torch.linalg.inv(efa) @ R) @ R.t())
+    return hAlpha
+
+
+if __name__ == "__main__":
+    samples = 2048
+    dimensions = [64, 128, 256, 512]
+    tests = 1
+
+    for dim1 in dimensions:
+        for dim2 in dimensions:
+            t1, t2, l, m, h = 0, 0, 0, 0, 0
+            for i in range(tests):
+                x1 = torch.randn([samples, dim1])
+                y1 = torch.randn([samples, dim2])
+
+                t1 += transRate(x1, y1) / tests
+                t2 += transRate(x1, y1, fixed=False) / tests
+                l += logME(x1, y1) / tests
+                m += linearMSE(x1, y1) / tests
+                h += hAlphaScore(x1, y1) / tests
+
+            # print(f"Dimensions: {dimension} || TransRate: {t:.2f} | LogME: {l:.2f} | LinMSE: {m:.2f} | H-Alpha: {h:.2f}")
+
+            print(f"Dimensions: {dim1}, {dim2} || TransRate (Fixed): {t1:.2f} | TransRate (Standard): {t2:.2f} | LogME: {l:.4f} | LinMSE: {m:.2f} | H-Alpha: {h:.2f}")
