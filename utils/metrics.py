@@ -42,9 +42,13 @@ def codingRate(z, eps=1e-4):
     return 0.5 * rate
 
 
-def transRate(z, y, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
+def transRate(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
     z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
     # z, y = discretizeTransRate(z, y)
+
+    pca = PCA(fixedDimension)
+    transformed = pca.fit_transform(z.cpu().numpy())
+    z = torch.tensor(transformed, type=torch.float32)
 
     z = z - torch.mean(z, dim=0, keepdim=True)
     rz = codingRate(z, eps)
