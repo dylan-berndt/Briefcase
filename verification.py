@@ -6,6 +6,24 @@ from utils import *
 import pickle
 
 
+class Random:
+    def __init__(self, dimensions):
+        self.numLayers = 1
+        self.dimensions = dimensions
+
+    def activations(self, x):
+        return [torch.randn([x.shape[0], self.dimensions])]
+
+
+class Zeroes:
+    def __init__(self, dimensions):
+        self.numLayers = 1
+        self.dimensions = dimensions
+
+    def activations(self, x):
+        return [torch.zeros([x.shape[0], self.dimensions])]
+
+
 def compare(testImageActivations, testTextActivations, testFunctions):
     testScores = {name: [] for name in testFunctions.keys()}
 
@@ -30,7 +48,7 @@ def compare(testImageActivations, testTextActivations, testFunctions):
     return testScores
 
 
-checkpoints = ["upper", "lower", "masked", "CLIP"]
+checkpoints = ["upper", "lower", "masked", "CLIP", "Random", "Zeroes"]
 textModels = [BertModel, CLIPTextModel]
 textModelNames = ["bert-base-uncased", "openai/clip-vit-base-patch32"]
 
@@ -48,6 +66,10 @@ if not os.path.exists(os.path.join("style", "activations")):
 for checkpoint in checkpoints:
     if checkpoint == "CLIP":
         imageModel = CLIPEmbedder(None)
+    elif checkpoint == "Random":
+        imageModel = Random(768)
+    elif checkpoint == "Zeroes":
+        imageModel = Zeroes(768)
     else:
         imageModel, imageConfig = UNet.load(os.path.join("checkpoints", checkpoint))
 
@@ -55,7 +77,7 @@ for checkpoint in checkpoints:
         dataset.method = imageConfig.dataset.method
 
     # Get all images, upper or lower
-    if checkpoint == "CLIP":
+    if checkpoint == "CLIP" or checkpoint == "Random" or checkpoint == "Zeroes":
         dataset.method = "masked"
 
     path = os.path.join("style", "activations", f"{checkpoint} image.pkl")
@@ -98,7 +120,7 @@ textActivationPaths = glob(os.path.join("style", "activations", "* text.pkl"))
 imageModelNames = [os.path.basename(name).removesuffix(" image.pkl") for name in imageActivationPaths]
 textModelNames = [os.path.basename(name).removesuffix(" text.pkl") for name in textActivationPaths]
 
-scoreFunctions = {"TransRate": transRate, "LogME": logME}
+scoreFunctions = {"TransRate": transRate, "LogME": logME, "LinMSE": linearMSE}
 
 layerScores = {name: [] for name in scoreFunctions.keys()}
 scoreMatrices = {name: np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
@@ -155,6 +177,13 @@ for n, name in enumerate(scoreFunctions.keys()):
     axes[n].set_xticklabels(textModelNames)
     axes[n].set_yticks(range(len(imageModelNames)))
     axes[n].set_yticklabels(imageModelNames)
+
+    table = {"name": imageModelNames}
+    for t, textName in enumerate(textModelNames):
+        table[textName] = bestMatrix[:, t]
+
+    df = pd.DataFrame(table)
+    df.to_csv(os.path.join("style", "activations", f"{name}.csv"))
 
 plt.show()
 

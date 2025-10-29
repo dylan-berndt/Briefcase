@@ -2,10 +2,27 @@ import torch
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN, OPTICS, AgglomerativeClustering
 from sklearn.preprocessing import normalize
+from sklearn.linear_model import Ridge
 import numpy as np
 
 
-def regressionTransform(z, y, clusters, decompositionRate, clusteringMetric):
+def discretizeTransRate(z, y, numBins=10):
+    yScalar = y.mean(axis=1)
+
+    n = y.shape[0]
+    idx = torch.argsort(yScalar)
+    bins = torch.zeros(n, dtype=torch.long)
+
+    binSize = n // numBins
+    for c in range(numBins):
+        start = c * binSize
+        end = (c + 1) * binSize if c < numBins - 1 else n
+        bins[idx[start:end]] = c
+
+    return z, bins
+
+
+def discretizeClustering(z, y, clusters, decompositionRate, clusteringMetric):
     _, dimension = y.shape
     y = y.cpu().numpy()
 
@@ -25,10 +42,11 @@ def codingRate(z, eps=1e-4):
     return 0.5 * rate
 
 
-def transRate(z, y, clusters=48, decompositionRate=4, clusteringMetric="cosine", eps=1e-4):
-    z, y = regressionTransform(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
+def transRate(z, y, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
+    z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
+    # z, y = discretizeTransRate(z, y)
 
-    z = z - torch.mean(z, axis=0, keepdim=True)
+    z = z - torch.mean(z, dim=0, keepdim=True)
     rz = codingRate(z, eps)
     rzy = 0
     k = int(y.max() + 1)
@@ -67,7 +85,7 @@ def each_evidence(y_, f, fh, v, s, vh, N, D):
                - 0.5 * torch.sum(torch.log(alpha + beta * s)) \
                - beta / 2.0 * (beta_de + epsilon) \
                - alpha / 2.0 * (alpha_de + epsilon) \
-               - N / 2.0 * torch.log(2 * np.pi)
+               - N / 2.0 * np.log(2 * np.pi)
     return evidence / N, alpha, beta, m
 
 
@@ -103,5 +121,15 @@ def logME(z, y):
         betas.append(beta)
         ms.append(m)
     ms = torch.stack(ms)
-    return torch.mean(evidences).item()
+    return torch.mean(torch.stack(evidences)).item()
 
+
+# https://arxiv.org/pdf/2312.00656v2
+def linearMSE(z, y):
+    z = z.cpu().numpy()
+    y = y.cpu().numpy()
+
+    regressor = Ridge()
+    regressor.fit(z, y)
+
+    return -np.mean(np.power(y - regressor.predict(z), 2))
