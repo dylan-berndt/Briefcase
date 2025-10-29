@@ -42,7 +42,7 @@ def codingRate(z, eps=1e-4):
     return 0.5 * rate
 
 
-def transRate(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4, fixed=True):
+def transRate(z, y, fixedDimension=24, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4, fixed=True):
     z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
     # z, y = discretizeTransRate(z, y)
 
@@ -166,8 +166,9 @@ def computeAlpha(f):
     return min(a, 1)
 
 
-def hAlphaScore(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
+def hAlphaScore(z, y, fixedDimension=24, clusters=24, decompositionRate=4, clusteringMetric="euclidean", eps=1e-4):
     z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
+    z += eps
 
     pca = PCA(fixedDimension)
     transformed = pca.fit_transform(z.cpu().numpy())
@@ -185,7 +186,7 @@ def hAlphaScore(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clust
         mask = y == cls
         mf = z[mask].mean(0)
         R[:, c] = torch.sqrt(counts[c]) * mf
-    
+
     A = computeAlpha(z)
 
     if n < d:
@@ -194,17 +195,17 @@ def hAlphaScore(z, y, fixedDimension=64, clusters=24, decompositionRate=4, clust
         g = z @ R
         # TODO: Double check the process here, maybe split for legibility
         hAlpha = ((1 - A) / (n * s * A)) @ (torch.norm(R) - ((1 - A) * (g.t() @ (torch.linalg.inv(w) @ g))))
-        return hAlpha
+        return hAlpha.item()
     
     efa = regularizedCovariance(A, z)
     hAlpha = ((1 - A) / n) * torch.trace((torch.linalg.inv(efa) @ R) @ R.t())
-    return hAlpha
+    return hAlpha.item()
 
 
 if __name__ == "__main__":
     samples = 2048
     dimensions = [64, 128, 256, 512]
-    tests = 1
+    tests = 100
 
     for dim1 in dimensions:
         for dim2 in dimensions:

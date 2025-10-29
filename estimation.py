@@ -120,7 +120,7 @@ textActivationPaths = glob(os.path.join("style", "activations", "* text.pkl"))
 imageModelNames = [os.path.basename(name).removesuffix(" image.pkl") for name in imageActivationPaths]
 textModelNames = [os.path.basename(name).removesuffix(" text.pkl") for name in textActivationPaths]
 
-scoreFunctions = {"TransRate": transRate, "LogME": logME, "LinMSE": linearMSE}
+scoreFunctions = {"TransRate": transRate, "LogME": logME, "LinMSE": linearMSE, "H-Alpha": hAlphaScore}
 
 layerScores = {name: [] for name in scoreFunctions.keys()}
 scoreMatrices = {name: np.zeros([len(imageActivationPaths), len(textActivationPaths)], dtype=list)
