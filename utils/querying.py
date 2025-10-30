@@ -180,6 +180,28 @@ class QueryData(FontData):
                                        return_tensors="pt")
 
         return inputs, outputs, characters, tokens
+    
+    @staticmethod
+    def split(dataset, trainSplit=0.8, shuffle=True, seed=1234):
+        torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
+
+        fontIDs = list(dataset.fonts.keys())
+        trainIDs = np.array(fontIDs)[np.random.choice(len(fontIDs), int(len(fontIDs) * trainSplit), replace=False)]
+        trainIndexMask = np.isin(dataset.names[dataset.index], trainIDs)
+        trainIndex = np.arange(len(dataset))[trainIndexMask]
+        testIndex = np.arange(len(dataset))[~trainIndexMask]
+
+        train = torch.utils.data.Subset(dataset, trainIndex)
+        test = torch.utils.data.Subset(dataset, testIndex)
+
+        train = DataLoader(train, batch_size=dataset.config.batchSize, collate_fn=dataset.collate, 
+                           generator=torch.Generator(device), shuffle=shuffle)
+        test = DataLoader(test, batch_size=dataset.config.batchSize, collate_fn=dataset.collate, 
+                          generator=torch.Generator(device), shuffle=shuffle)
+
+        return train, test
 
 
 class CLIPEmbedder(nn.Module):
