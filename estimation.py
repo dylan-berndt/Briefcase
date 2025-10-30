@@ -54,7 +54,7 @@ textModelNames = ["bert-base-uncased", "openai/clip-vit-base-patch32"]
 
 testCharacters = [chr(c) for c in latin]
 
-imageModel, imageConfig = UNet.load(os.path.join("checkpoints", "upper"))
+imageModel, imageConfig = UNet.load(os.path.join("checkpoints", "pretrain", "upper"))
 
 imageConfig.dataset.directory = "google"
 dataset = QueryData(imageConfig.dataset)
@@ -71,7 +71,7 @@ for checkpoint in checkpoints:
     elif checkpoint == "Zeroes":
         imageModel = Zeroes(768)
     else:
-        imageModel, imageConfig = UNet.load(os.path.join("checkpoints", checkpoint))
+        imageModel, imageConfig = UNet.load(os.path.join("checkpoints", "pretrain", checkpoint))
 
     if "method" in imageConfig.dataset:
         dataset.method = imageConfig.dataset.method

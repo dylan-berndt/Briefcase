@@ -72,7 +72,7 @@ if __name__ == "__main__":
     # Inconsistencies between VSCode and Pycharm
     cwd = ".." if os.getcwd().endswith("style") else ""
 
-    model, config = UNet.load(os.path.join(cwd, "checkpoints", "latest"))
+    model, config = UNet.load(os.path.join(cwd, "checkpoints", "pretrain", "latest"))
 
     config.dataset.directory = os.path.join(cwd, "data")
     dataset = FontData(config.dataset, training=False)

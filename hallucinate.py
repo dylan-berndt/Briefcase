@@ -3,7 +3,7 @@ import numpy as np
 from itertools import product
 from PIL import Image
 
-testPath = os.path.join("checkpoints", "latest")
+testPath = os.path.join("checkpoints", "pretrain", "latest")
 modelPath = os.path.join(testPath, "checkpoint.pt")
 configPath = os.path.join(testPath, "config.json")
 
