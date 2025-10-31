@@ -44,6 +44,7 @@ class UNet(nn.Module):
         )
 
         self.numLayers = config.layers * 2
+        self.outputType = "image"
 
     def forward(self, x):
         x = self.input(x)
@@ -64,6 +65,8 @@ class UNet(nn.Module):
         c = torch.mean(self.classifier(xMid.permute(0, 3, 2, 1)), dim=(1, 2))
         z = self.out(z)
 
+        if self.outputType == "pooled":
+            return c
         return z, c
     
     def activations(self, x):

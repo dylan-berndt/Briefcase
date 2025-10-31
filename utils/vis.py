@@ -41,6 +41,8 @@ class Server:
         self.socket.listen(1)
         self.client = None
 
+        self.exit = False
+
         self.accept()
 
     def accept(self):
@@ -120,6 +122,9 @@ class DataGUI:
                 self.server.receive()
             except (ValueError, BlockingIOError):
                 pass
+            except ConnectionResetError:
+                self.running = False
+                self.root.after(0, self.root.destroy)
             time.sleep(0.01)
 
     def createPlot(self, name, row, col):
@@ -201,7 +206,10 @@ class DataGUI:
 
 
 if __name__ == "__main__":
-    server = Server()
-    gui = DataGUI(server)
-    gui.run()
+    while True:
+        server = Server(port=12000)
+        gui = DataGUI(server)
+        gui.run()
+        server.socket.close()
+        del server
 

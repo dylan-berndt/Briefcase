@@ -9,7 +9,7 @@ from .model import *
 from .data import *
 import random
 import pandas as pd
-from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel
+from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
 
 from bs4 import BeautifulSoup
 import spacy
@@ -182,7 +182,7 @@ class QueryData(FontData):
         return inputs, outputs, characters, tokens
     
     @staticmethod
-    def split(dataset, trainSplit=0.8, shuffle=True, seed=1234):
+    def split(dataset, trainSplit=0.8, shuffle=True, seed=1234, batchSize=128):
         torch.manual_seed(seed)
         random.seed(seed)
         np.random.seed(seed)
@@ -196,9 +196,9 @@ class QueryData(FontData):
         train = torch.utils.data.Subset(dataset, trainIndex)
         test = torch.utils.data.Subset(dataset, testIndex)
 
-        train = DataLoader(train, batch_size=dataset.config.batchSize, collate_fn=dataset.collate, 
+        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate,
                            generator=torch.Generator(device), shuffle=shuffle)
-        test = DataLoader(test, batch_size=dataset.config.batchSize, collate_fn=dataset.collate, 
+        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate,
                           generator=torch.Generator(device), shuffle=shuffle)
 
         return train, test
@@ -213,6 +213,10 @@ class CLIPEmbedder(nn.Module):
         # self.processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
         self.numLayers = 1
+
+        self.outputDimension = config.CLIPProjection if config is not None else None
+        if self.outputDimension is not None:
+            self.head = nn.Linear(768, self.outputDimension)
 
     def preprocess(self, x):
         x = x * 255.0
@@ -230,6 +234,8 @@ class CLIPEmbedder(nn.Module):
         x = x.repeat(1, 3, 1, 1)
         x = self.preprocess(x)
         x = self.model(x)
+        if self.outputDimension is not None:
+            return self.head(x.pooler_output)
         return x
 
     def activations(self, x):
