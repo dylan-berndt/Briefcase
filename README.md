@@ -1,8 +1,8 @@
 # Briefcase
 
 Suite of neural networks used as pretraining for font and query contrastive learning. 
-Suite of neural networks designed originally to produce uppercase versions of lowercase glpyhs, taking inspiration from [Tom7's lowercasing work](http://tom7.org/lowercase/). This iteration uses a U-Net architecture operating on pre-rendered bitmap glyphs of the fonts. 
-Initial iterations have used ~3,000 fonts, with strong accuracy.
+Started as an experiment to produce uppercase versions of lowercase glpyhs, taking inspiration from [Tom7's lowercasing work](http://tom7.org/lowercase/). This iteration uses a U-Net architecture operating on pre-rendered bitmap glyphs of the fonts. 
+Initial iterations have used ~3,000 fonts, with strong accuracy on the pretraining tasks, and showing reasonable transferability.
 
 # Getting Started
 
