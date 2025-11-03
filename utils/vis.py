@@ -119,6 +119,7 @@ class DataGUI:
     def dataCollection(self):
         while self.running:
             try:
+                self.server.client.sendall(bytes("ping", encoding='utf-8'))
                 self.server.receive()
             except (ValueError, BlockingIOError):
                 pass
@@ -207,7 +208,7 @@ class DataGUI:
 
 if __name__ == "__main__":
     while True:
-        server = Server(port=12000)
+        server = Server(port=12945)
         gui = DataGUI(server)
         gui.run()
         server.socket.close()

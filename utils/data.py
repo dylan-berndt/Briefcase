@@ -8,7 +8,7 @@ from glob import glob
 import matplotlib.pyplot as plt
 
 from scipy.ndimage import distance_transform_edt as dist
-from PIL import Image, ImageFont
+from PIL import Image, ImageFont, ImageDraw
 from fontTools.ttLib import TTFont
 import cv2
 from concurrent.futures import ThreadPoolExecutor

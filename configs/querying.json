@@ -1,6 +1,6 @@
 {
-    "textLearningRate": 1e-5,
-    "imageLearningRate": 1e-4,
-    "batchSize": 64,
+    "textLearningRate": 1e-4,
+    "imageLearningRate": 1e-3,
+    "batchSize": 32,
     "epochs": 40
 }

@@ -37,14 +37,18 @@ class UNet(nn.Module):
         self.out = nn.Linear(config.filters, 1)
 
         width = config.filters * config.expansion ** config.layers
-        self.classifier = nn.Sequential(
-            nn.Linear(width, width),
-            nn.ReLU(),
-            nn.Linear(width, len(characters))
-        )
+        if "textProjection" not in config:
+            self.classifier = nn.Sequential(
+                nn.Linear(width, width),
+                nn.ReLU(),
+                nn.Linear(width, len(characters))
+            )
+            self.outputType = "image"
+        else:
+            self.classifier = nn.Linear(width, config.textProjection)
+            self.outputType = "pooled"
 
         self.numLayers = config.layers * 2
-        self.outputType = "image"
 
     def forward(self, x):
         x = self.input(x)
@@ -89,8 +93,8 @@ class UNet(nn.Module):
         return activations
     
     @staticmethod
-    def load(path):
-        modelPath = os.path.join(path, "checkpoint.pt")
+    def load(path, name="checkpoint"):
+        modelPath = os.path.join(path, f"{name}.pt")
         configPath = os.path.join(path, "config.json")
 
         loadedConfig = Config().load(configPath)
