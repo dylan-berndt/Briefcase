@@ -37,11 +37,16 @@ class UNet(nn.Module):
         self.out = nn.Linear(config.filters, 1)
 
         width = config.filters * config.expansion ** config.layers
-        self.classifier = nn.Sequential(
-            nn.Linear(width, width),
-            nn.ReLU(),
-            nn.Linear(width, len(characters))
-        )
+        if "textProjection" not in config:
+            self.classifier = nn.Sequential(
+                nn.Linear(width, width),
+                nn.ReLU(),
+                nn.Linear(width, len(characters))
+            )
+            self.outputType = "image"
+        else:
+            self.classifier = nn.Linear(width, config.textProjection)
+            self.outputType = "pooled"
 
         self.numLayers = config.layers * 2
 
@@ -64,6 +69,8 @@ class UNet(nn.Module):
         c = torch.mean(self.classifier(xMid.permute(0, 3, 2, 1)), dim=(1, 2))
         z = self.out(z)
 
+        if self.outputType == "pooled":
+            return c
         return z, c
     
     def activations(self, x):
@@ -86,8 +93,8 @@ class UNet(nn.Module):
         return activations
     
     @staticmethod
-    def load(path):
-        modelPath = os.path.join(path, "checkpoint.pt")
+    def load(path, name="checkpoint"):
+        modelPath = os.path.join(path, f"{name}.pt")
         configPath = os.path.join(path, "config.json")
 
         loadedConfig = Config().load(configPath)

@@ -12,6 +12,7 @@
 
 /style/results/clustering
 
+/checkpoints/finetune/**/*
 
 /venv
 

@@ -9,7 +9,7 @@ from .model import *
 from .data import *
 import random
 import pandas as pd
-from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel
+from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
 
 from bs4 import BeautifulSoup
 import spacy
@@ -43,7 +43,7 @@ def getAdjectives(filePath):
 
 class Description:
     tokenizer = None
-    maxDescriptors = 12
+    maxDescriptors = 7
 
     def __init__(self, name, adjectives, tags=None):
         tags = tags if tags is not None else {}
@@ -155,6 +155,7 @@ class QueryData(FontData):
         viable = np.isin(names, list(self.descriptions.keys()))
         print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
         self.index = np.arange(len(self.pairs))[viable]
+        self.fontNum = {name: i for i, name in enumerate(self.fontMap.keys())}
 
     def setTokenizer(self, name):
         Description.tokenizer = AutoTokenizer.from_pretrained(name)
@@ -166,6 +167,7 @@ class QueryData(FontData):
         description = self.descriptions[fontName].sample()
 
         data["description"] = description
+        data["fontID"] = self.fontNum[data["name"]]
 
         return data
     
@@ -173,16 +175,17 @@ class QueryData(FontData):
     def collate(samples):
         inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
         outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
-        characters = torch.stack([sample["class"] for sample in samples], dim=0)
+        # characters = torch.stack([sample["class"] for sample in samples], dim=0)
+        names = torch.tensor([sample["fontID"] for sample in samples], dtype=torch.long)
 
         tokens = Description.tokenizer([sample["description"] for sample in samples],
                                        padding="longest", truncation=True,
                                        return_tensors="pt")
 
-        return inputs, outputs, characters, tokens
+        return inputs, outputs, names, tokens
     
     @staticmethod
-    def split(dataset, trainSplit=0.8, shuffle=True, seed=1234):
+    def split(dataset, trainSplit=0.8, shuffle=True, seed=1234, batchSize=128):
         torch.manual_seed(seed)
         random.seed(seed)
         np.random.seed(seed)
@@ -196,9 +199,9 @@ class QueryData(FontData):
         train = torch.utils.data.Subset(dataset, trainIndex)
         test = torch.utils.data.Subset(dataset, testIndex)
 
-        train = DataLoader(train, batch_size=dataset.config.batchSize, collate_fn=dataset.collate, 
+        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate,
                            generator=torch.Generator(device), shuffle=shuffle)
-        test = DataLoader(test, batch_size=dataset.config.batchSize, collate_fn=dataset.collate, 
+        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate,
                           generator=torch.Generator(device), shuffle=shuffle)
 
         return train, test
@@ -213,6 +216,10 @@ class CLIPEmbedder(nn.Module):
         # self.processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
         self.numLayers = 1
+
+        self.outputDimension = config.CLIPProjection if config is not None else None
+        if self.outputDimension is not None:
+            self.head = nn.Linear(768, self.outputDimension)
 
     def preprocess(self, x):
         x = x * 255.0
@@ -230,6 +237,8 @@ class CLIPEmbedder(nn.Module):
         x = x.repeat(1, 3, 1, 1)
         x = self.preprocess(x)
         x = self.model(x)
+        if self.outputDimension is not None:
+            return self.head(x.pooler_output)
         return x
 
     def activations(self, x):
