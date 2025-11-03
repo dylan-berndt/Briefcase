@@ -6,6 +6,12 @@ from sklearn.linear_model import Ridge
 import numpy as np
 
 
+def randomGaussianProjection(data, components):
+    dim = data.shape[-1]
+    matrix = torch.randn(dim, components) / components
+    return data @ matrix.t()
+
+
 def discretizeTransRate(z, y, numBins=10):
     yScalar = y.mean(axis=1)
 
@@ -47,8 +53,7 @@ def transRate(z, y, fixedDimension=24, clusters=24, decompositionRate=4, cluster
     # z, y = discretizeTransRate(z, y)
 
     if fixed:
-        pca = PCA(fixedDimension)
-        transformed = pca.fit_transform(z.cpu().numpy())
+        transformed = randomGaussianProjection(z, fixedDimension).cpu().numpy()
         z = torch.tensor(transformed, dtype=torch.float32)
 
     z = z - torch.mean(z, dim=0, keepdim=True)
@@ -170,8 +175,8 @@ def hAlphaScore(z, y, fixedDimension=24, clusters=24, decompositionRate=4, clust
     z, y = discretizeClustering(z, y, clusters, decompositionRate=decompositionRate, clusteringMetric=clusteringMetric)
     z += eps
 
-    pca = PCA(fixedDimension)
-    transformed = pca.fit_transform(z.cpu().numpy())
+    transformed = randomGaussianProjection(z, fixedDimension).cpu().numpy()
+
     # TODO: Double-check normalization
     z = normalize(transformed)
     z = torch.tensor(z, dtype=torch.float32)

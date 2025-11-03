@@ -96,7 +96,7 @@ class UNet(nn.Module):
         # Doofus. I saved the whole module, not just the state dict.
         sys.modules["model"] = utils.model
         sys.modules["config"] = utils.config
-        loaded = torch.load(modelPath, weights_only=False)
+        loaded = torch.load(modelPath, weights_only=False, map_location="cuda" if torch.cuda.is_available() else "cpu")
         if hasattr(loaded, "state_dict"):
             loaded = loaded.state_dict()
         loadedModel.load_state_dict(loaded)
