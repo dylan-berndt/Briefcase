@@ -3,9 +3,9 @@ import pygame
 import math
 
 
-testDir = os.path.join("checkpoints", "finetune", "latest", "upper bert-base-uncased")
-textModel = BertModel.from_pretrained(os.path.join(testDir, "text"))
-Description.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+testDir = os.path.join("checkpoints", "finetune", "best")
+textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"))
+Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
 imageModel, conf = UNet.load(testDir, name="image")
 conf.dataset.directory = "google"

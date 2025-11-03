@@ -24,6 +24,7 @@ class Client:
         self.socket.connect((host, port))
 
     def send(self, name, data):
+        self.socket.recv(4096)
         collated = f" | {name}||{data}"
         self.socket.sendall(bytes(collated, encoding='utf-8'))
 
