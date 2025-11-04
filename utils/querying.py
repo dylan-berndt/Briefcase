@@ -217,7 +217,7 @@ class CLIPEmbedder(nn.Module):
         self.model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
         self.numLayers = 1
 
-        self.outputDimension = config.CLIPProjection if config is not None else None
+        self.outputDimension = config.textProjection if config is not None else None
         if self.outputDimension is not None:
             self.head = nn.Linear(768, self.outputDimension)
 

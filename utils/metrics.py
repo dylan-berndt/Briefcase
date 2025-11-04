@@ -9,7 +9,7 @@ import numpy as np
 def randomGaussianProjection(data, components):
     dim = data.shape[-1]
     matrix = torch.randn(dim, components) / components
-    return data @ matrix.t()
+    return data @ matrix
 
 
 def discretizeTransRate(z, y, numBins=10):

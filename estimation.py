@@ -1,9 +1,14 @@
 # Script for verifying different models transferability scores
 # Need to train several different kinds of models, get several different kinds of metrics
 
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32,expandable_segments:True"
+os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
 
 from utils import *
 import pickle
+import gc
+
 
 
 class Random:
@@ -136,7 +141,7 @@ for i in range(len(imageActivationPaths)):
         scores = compare(imageActivations, textActivations, scoreFunctions)
 
         del textActivations
-
+        gc.collect()
         torch.cuda.empty_cache()
 
         plt.suptitle(f"{imageModelNames[i]} -> {textModelNames[t]}")
@@ -155,6 +160,7 @@ for i in range(len(imageActivationPaths)):
         plt.show()
 
     del imageActivations
+    gc.collect()
     torch.cuda.empty_cache()
 
 
