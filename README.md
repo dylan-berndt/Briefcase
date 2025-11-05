@@ -22,26 +22,26 @@ I also compare to two poor models, including one which outputs random gaussian n
 You can perform this yourself in estimation.py, but here are the results from the models I pretrained. 
 
 ### [LogME](https://arxiv.org/abs/2102.11005)
-|             | Lowercase    | Uppercase | Masked Autoencoder | CLIP (Image) | Random | Zeroes  |
-| :------:    | :------:     | :------:  | :------:           | :--:         | :----: | :----:  |
-| CLIP (Text) | -0.621       | -0.619    | -0.641             | -0.647       | -1.118 | null    |
-| BERT        | 1.601        | 1.605     | 1.602              | 1.570        | -0.628 | null    |
+|             | Lowercase    | Uppercase                    | Masked Autoencoder | CLIP (Image) | Random | Zeroes  |
+| :------:    | :------:     | :------:                     | :------:           | :--:         | :----: | :----:  |
+| CLIP (Text) | -0.621       | <mark>***-0.619***</mark>    | -0.641             | -0.647       | -1.118 | null    |
+| BERT        | 1.601        | <mark>***1.605***</mark>     | 1.602              | 1.570        | -0.628 | null    |
 
 ### [TransRate](https://arxiv.org/pdf/2106.09362)
-|             | Lowercase    | Uppercase | Masked Autoencoder | CLIP (Image) | Random | Zeroes  |
-| :------:    | :------:     | :------:  | :------:           | :--:         | :----: | :----:  |
-| CLIP (Text) | 14.02        | 14.20     | 11.96              | 15.94        | 9.477  | 0.0     |
-| BERT        | 21.49        | 23.58     | 20.64              | 26.45        | 23.20  | 0.0     |
+|             | Lowercase    | Uppercase | Masked Autoencoder | CLIP (Image)                    | Random                    | Zeroes  |
+| :------:    | :------:     | :------:  | :------:           | :--:                            | :----:                    | :----:  |
+| CLIP (Text) | 4.679        | 5.308     | 5.832              | <mark>***9.220***</mark>        | 5.933                     | 0.0     |
+| BERT        | 6.327        | 9.193     | 7.798              | 15.86                           | <mark>***17.89***</mark>  | 0.0     |
 
 ### [H-Alpha](https://arxiv.org/pdf/2110.06893)
-|             | Lowercase    | Uppercase | Masked Autoencoder | CLIP (Image) | Random | Zeroes  |
-| :------:    | :------:     | :------:  | :------:           | :--:         | :----: | :----:  |
-| CLIP (Text) | 1.671        | 1.750     | 1.582              | 1.463        | 0.0    | 0.506   |
-| BERT        | 1.048        | 1.007     | 0.887              | 0.689        | 0.0    | 0.506   |
+|             | Lowercase                       | Uppercase                    | Masked Autoencoder | CLIP (Image) | Random | Zeroes  |
+| :------:    | :------:                        | :------:                     | :------:           | :--:         | :----: | :----:  |
+| CLIP (Text) | 1.671                           | <mark>***1.750***</mark>     | 1.582              | 1.463        | 0.0    | 0.506   |
+| BERT        | <mark>***1.048***</mark>        | 1.007                        | 0.887              | 0.689        | 0.0    | 0.506   |
 
 ### Notes: 
 * Scores shown select the best layer from applicable models, CLIP only features the pooled output
-* Contrastive tasks are not regression tasks, these are not definitive
+* Contrastive tasks are not regression tasks, these are exploratory
 * H-Alpha and TransRate require classification-style labels. Several methods were attempted for labeling, including clustering. All returned similar results
 
 ## Finetuning
@@ -58,11 +58,11 @@ Note: Glyph classifier was added to force differentiation between characters.
 
 # Pretraining Results
 
-<img width="883" height="369" alt="Screenshot 2025-09-26 132213" src="https://github.com/user-attachments/assets/41ad392c-1978-4d32-8840-bb07e252d5d5" />
-<img width="872" height="379" alt="Screenshot 2025-09-26 132333" src="https://github.com/user-attachments/assets/204f9eba-3d1b-4828-8f59-7c1addfae54e" />
-<img width="871" height="366" alt="Screenshot 2025-09-26 134328" src="https://github.com/user-attachments/assets/9d9abb34-ac40-4fe8-a929-2233f4494362" />
-<img width="877" height="369" alt="Screenshot 2025-09-26 132421" src="https://github.com/user-attachments/assets/a28901c1-bc3b-41bd-bc85-deebe8df575f" />
-<img width="875" height="373" alt="Screenshot 2025-09-26 132253" src="https://github.com/user-attachments/assets/f5cb64a8-51b2-44fb-902e-c43da8b34dc5" />
+<img width="430" height="175" alt="Screenshot 2025-11-04 223007" src="https://github.com/user-attachments/assets/8e7cac0f-e237-4b59-a4bc-4e49dcf5dd7f" />
+<img width="430" height="175" alt="Screenshot 2025-11-04 223028" src="https://github.com/user-attachments/assets/3d3acb3f-80af-4b14-84f5-3636c725a331" />
+<img width="430" height="175" alt="Screenshot 2025-11-04 223107" src="https://github.com/user-attachments/assets/80f15e49-0a8d-451e-9e57-3113257c07fb" />
+<img width="430" height="175" alt="Screenshot 2025-11-04 223120" src="https://github.com/user-attachments/assets/8087ce41-31bd-42ac-a462-eb00763e7a29" />
+<img width="430" height="175" alt="Screenshot 2025-11-04 223135" src="https://github.com/user-attachments/assets/c454bd3e-ad1e-452e-bd4a-281853fc3fe2" />
 
 
 # Future Work
