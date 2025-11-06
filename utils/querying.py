@@ -9,7 +9,7 @@ from .model import *
 from .data import *
 import random
 import pandas as pd
-from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
+# from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
 
 from bs4 import BeautifulSoup
 import spacy
