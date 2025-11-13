@@ -190,6 +190,7 @@ class QueryData(FontData):
         random.seed(seed)
         np.random.seed(seed)
 
+        # TODO: Fix for "masked", reupdate index
         fontIDs = list(dataset.fonts.keys())
         trainIDs = np.array(fontIDs)[np.random.choice(len(fontIDs), int(len(fontIDs) * trainSplit), replace=False)]
         trainIndexMask = np.isin(dataset.names[dataset.index], trainIDs)

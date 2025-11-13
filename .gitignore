@@ -19,3 +19,5 @@
 
 /.idea
 **/__pycache__
+
+/site/backend/fonts
