@@ -9,7 +9,7 @@ from .model import *
 from .data import *
 import random
 import pandas as pd
-# from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
+from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
 
 from bs4 import BeautifulSoup
 import spacy
@@ -190,10 +190,14 @@ class QueryData(FontData):
         random.seed(seed)
         np.random.seed(seed)
 
-        # TODO: Fix for "masked", reupdate index
         fontIDs = list(dataset.fonts.keys())
         trainIDs = np.array(fontIDs)[np.random.choice(len(fontIDs), int(len(fontIDs) * trainSplit), replace=False)]
         trainIndexMask = np.isin(dataset.names[dataset.index], trainIDs)
+
+        # Pretty sure this flattens correctly
+        if len(trainIndexMask) != len(dataset):
+            trainIndexMask = np.stack([trainIndexMask, trainIndexMask], axis=1).flatten()
+
         trainIndex = np.arange(len(dataset))[trainIndexMask]
         testIndex = np.arange(len(dataset))[~trainIndexMask]
 
