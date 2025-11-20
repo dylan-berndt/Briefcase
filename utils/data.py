@@ -11,7 +11,7 @@ from scipy.ndimage import distance_transform_edt as dist
 from PIL import Image, ImageFont, ImageDraw
 from fontTools.ttLib import TTFont
 import cv2
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 latin = list(range(ord('a'), ord('z') + 1))
 greek = list(range(0x03B1, 0x03C9 + 1))

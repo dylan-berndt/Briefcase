@@ -229,7 +229,7 @@ def rochesterImageFactory(config):
         padding = int(config.fontSize * 0.25)
         full[padding:-padding, padding:-padding] = fixed
 
-        name = os.path.basename(imagePath).removesuffix(".png").split("_")[0]
+        name = os.path.basename(imagePath).removesuffix(".png")
 
         return name, full
 
@@ -260,22 +260,28 @@ class MyFontsData(QueryData):
         imageFunc = rochesterImageFactory(config)
 
         images = {}
-        imagePaths = glob(os.path.join(config.directory, "fontimage"))
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-            for i, results in enumerate(executor.map(imageFunc, imagePaths)):
+        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+            futures = {executor.submit(imageFunc, p): p for p in imagePaths}
+            for i, future in enumerate(as_completed(futures)):
+                results = future.result()
                 name, image = results
                 images[name] = image
 
-                print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
+                if i % 100 == 0:
+                    print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
 
         self.descriptions = {}
-        descriptionPaths = glob(os.path.join(config.directory, "taglabel"))
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-            for i, results in enumerate(executor.map(loadRochesterDescription, descriptionPaths)):
+        descriptionPaths = glob(os.path.join(config.directory, "taglabel", "*"))
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+            futures = {executor.submit(loadRochesterDescription, p): p for p in descriptionPaths}
+            for i, future in enumerate(as_completed(futures)):
+                results = future.result()
                 name, description = results
                 self.descriptions[name] = description
 
-                print(f"\rDescriptions loaded: {i + 1}/{len(descriptionPaths)}", end="")
+                if i % 100 == 0:
+                    print(f"\rDescriptions loaded: {i + 1}/{len(descriptionPaths)}", end="")
 
         pairs = []
         letters = []

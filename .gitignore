@@ -7,6 +7,9 @@
 /windows/bitmaps
 /windows/sdf
 /windows/fonts
+/dataset
+
+dataset.tar.gz
 
 **/*.pkl
 
