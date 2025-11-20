@@ -11,9 +11,10 @@ function App() {
 	const pangrams = [
 		"The quick brown fox jumps over the lazy dog", 
 		"A mad boxer shot a quick glove jab to the jaw of his dizzy opponent",
+		"Mr. Jock asphyxiates, Numbered Dayz' fortune teller Vasquez was right",
 		"Whenever the black fox jumped, the squirrel gazed suspiciously",
 		"Jived zombies tackled the very quick fox",
-		"Mr. Jock, TV quiz PhD, bags few lynx"
+		"Mr. Jock, TV quiz PhD, bags few lynx",
 	]
 
 	// TODO: Check that inputs are valid
@@ -59,7 +60,7 @@ function App() {
 						loadFontFace(face);
 						return <a href={result.url}>
 							<div>
-								<p>{result.name}</p>
+								<p>{result.name} | Score: {result.score}</p>
 								<p style={{"fontFamily": result.name}}>
 									ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
 									abcdefghijklmnopqrstuvwxyz<br></br>
