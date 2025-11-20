@@ -8,15 +8,28 @@ function App() {
 
 	const [query, setQuery] = useState("");
 
+	const pangrams = [
+		"The quick brown fox jumps over the lazy dog", 
+		"A mad boxer shot a quick glove jab to the jaw of his dizzy opponent",
+		"Whenever the black fox jumped, the squirrel gazed suspiciously",
+		"Jived zombies tackled the very quick fox",
+		"Mr. Jock, TV quiz PhD, bags few lynx"
+	]
+
 	// TODO: Check that inputs are valid
 	function getResults(enteredQuery) {
-		fetch('/api/font/query/' + enteredQuery)
+		fetch('/api/font/query?query=' + enteredQuery)
 		.then(response => response.json())
 		.then(json => {
 			setResults(json)
 			updateResultsFound(true);
 		})
 		.catch(error => setIssue(error))
+	}
+
+	async function loadFontFace(face) {
+		const loadedFont = await face.load();
+		document.fonts.add(loadedFont);
 	}
 
 	return (
@@ -41,8 +54,19 @@ function App() {
 
 			{!resultsFound ? <></> : 
 				<div className="Results">
-					{results.map((result) => {
-						return <p></p>
+					{results.map((result, index) => {
+						const face = FontFace(result.name, `url(${result.file})`);
+						loadFontFace(face);
+						return <a href={result.url}>
+							<div>
+								<p>{result.name}</p>
+								<p style={{"fontFamily": result.name}}>
+									ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
+									abcdefghijklmnopqrstuvwxyz<br></br>
+									{pangrams[index % pangrams.length]}
+								</p>
+							</div>
+						</a>
 					})}
 				</div>
 			}
