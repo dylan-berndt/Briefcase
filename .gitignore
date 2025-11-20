@@ -13,6 +13,8 @@ dataset.tar.gz
 
 **/*.pkl
 
+**/*password.txt
+
 /style/results/clustering
 
 /checkpoints/finetune/*
