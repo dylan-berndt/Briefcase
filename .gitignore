@@ -10,6 +10,8 @@
 
 **/*.pkl
 
+**/*password.txt
+
 /style/results/clustering
 
 /checkpoints/finetune/*
