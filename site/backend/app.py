@@ -3,7 +3,6 @@ from flask import Flask, jsonify, request, abort
 import json
 import os
 
-from dotenv import load_dotenv
 import hashlib
 import secrets
 
@@ -12,8 +11,11 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils import *
 
-testDir = os.path.join("..", "checkpoints", "finetune", "best")
-textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"))
+torch.set_default_device("cpu")
+
+testDir = os.path.join("..", "..", "checkpoints", "finetune", "best")
+# print(os.path.exists(testDir))
+textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"), local_files_only=True)
 Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
 imageModel, conf = UNet.load(testDir, name="image")
@@ -29,7 +31,7 @@ with open("vectors.json", "r") as file:
     fontData = json.load(file)
     fontNames = np.array([key for key in fontData])
     fontVectors = torch.stack([torch.tensor(fontData[key]["vector"], dtype=torch.float32) for key in fontData], dim=0)
-    fontPaid = np.array([fontData[key]["paid"] for key in fontData], dtype=np.bool)
+    fontPaid = np.array([fontData[key]["paid"] for key in fontData], dtype=bool)
 
 app = Flask(__name__)
 
@@ -66,7 +68,7 @@ def checkPassword():
 
 @app.route('/api/font/query', methods=['GET'])
 def findFonts():
-    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", False)
+    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", True)
     query = "a " + query + " font"
     tokens = Description.tokenizer([query], padding=False, return_tensors="pt")
     with torch.no_grad():
@@ -78,25 +80,27 @@ def findFonts():
         vectors = vectors[~fontPaid]
         names = names[~fontPaid]
 
-    scores = torch.cosine_similarity(vectors, output)
+    scores = torch.cosine_similarity(vectors, output.unsqueeze(1))
+    scores = torch.mean(scores, dim=1)
     top20 = torch.argsort(scores, descending=True)[:20]
     topScores = scores[top20]
     names = names[top20.numpy()]
 
     results = [{"name": names[i], "score": topScores[i], "file": fontData[names[i]]["file"], "url": fontData[names[i]]["url"]} for i in range(20)]
 
-    return jsonify(results), 200
+    return jsonify({"results": results}), 200
 
 
-@app.route('/api/font/update', methods=['POST'])
+@app.route('/api/font/update', methods=['GET'])
 def updateRegistry():
     checkPassword()
     
     # TODO: Run image model for each new font added and append information to vectors.json
+    return jsonify("Successful"), 200
 
 
-@app.route('/api/font/add', methods=['POST'])
-def addFontToRegistry(name, url, file):
+@app.route('/api/font/add', methods=['GET'])
+def addFontToRegistry():
     checkPassword()
 
     name, url, file = request.args.get("name", ""), request.args.get("url", ""), request.args.get("file", "")
@@ -122,7 +126,7 @@ def addFontToRegistry(name, url, file):
     # TODO: Add fonts to some kind of registry to be ran later
 
 
-@app.route('/api/font/change/', methods=['POST'])
+@app.route('/api/font/change/', methods=['GET'])
 def changeAdminPassword():
     checkPassword()
 
@@ -136,5 +140,7 @@ def changeAdminPassword():
         file.write(f"{salt}${hashword}")
 
 
+if __name__ == '__main__':
+    app.run(port=5000)
 
 

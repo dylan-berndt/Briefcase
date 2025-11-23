@@ -3,7 +3,7 @@ import pygame
 import math
 
 
-testDir = os.path.join("checkpoints", "finetune", "best")
+testDir = os.path.join("checkpoints", "finetune", "2025-11-23 01-35", "upper openai-clip-vit-base-patch32")
 textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"))
 Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 

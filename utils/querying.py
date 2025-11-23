@@ -11,6 +11,9 @@ import cv2
 import random
 import pandas as pd
 from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
+from collections import defaultdict
+
+from multiprocessing import Pool
 
 from bs4 import BeautifulSoup
 import spacy
@@ -216,24 +219,26 @@ class QueryData(FontData):
         return train, test
 
 
-def rochesterImageFactory(config):
-    def loadRochesterImage(imagePath):
+class Loader:
+    def __init__(self, fontSize):
+        self.fontSize = fontSize
+
+    def loadRochesterImage(self, imagePath):
         image = Image.open(imagePath).convert("RGBA")
         array = np.array(image)
 
-        alpha = array[:array.shape[1], :, 3]
-        fixed = cv2.resize(alpha, [config.fontSize, config.fontSize])
+        alpha = 1 - (array[:, :image.size[1], 0] / 255)
+        # alpha = array[:array.shape[1], :]
+        fixed = cv2.resize(alpha, [self.fontSize, self.fontSize])
 
-        imageSize = int(config.fontSize * 1.5)
-        full = np.zeros([imageSize, imageSize])
-        padding = int(config.fontSize * 0.25)
+        imageSize = int(self.fontSize * 1.5)
+        full = np.zeros([imageSize, imageSize], dtype=np.float32)
+        padding = int(self.fontSize * 0.25)
         full[padding:-padding, padding:-padding] = fixed
 
         name = os.path.basename(imagePath).removesuffix(".png")
 
         return name, full
-
-    return loadRochesterImage
 
 
 def loadRochesterDescription(descriptionPath):
@@ -247,33 +252,30 @@ def loadRochesterDescription(descriptionPath):
 
 # Designed for the MyFonts dataset from Rochester. Does not include actual font files :(
 class MyFontsData(QueryData):
-    def __init__(self, config, training=False, tokenizer="bert-base-uncased"):
+    def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None):
         self.setTokenizer(tokenizer)
 
         self.config = config
         self.method = self.config.method if "method" in self.config else "upper"
 
-        self.fonts = {}
-        self.fontMap = {}
-        self.names = []
-
-        imageFunc = rochesterImageFactory(config)
+        imageFunc = Loader(config.fontSize).loadRochesterImage
 
         images = {}
-        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
-            futures = {executor.submit(imageFunc, p): p for p in imagePaths}
-            for i, future in enumerate(as_completed(futures)):
-                results = future.result()
-                name, image = results
-                images[name] = image
 
+        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+        if limit is not None:
+            imagePaths = imagePaths[:limit]
+        with Pool(processes=2) as pool:
+            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                images[name] = array
                 if i % 100 == 0:
                     print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
 
+        print()
+
         self.descriptions = {}
         descriptionPaths = glob(os.path.join(config.directory, "taglabel", "*"))
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
             futures = {executor.submit(loadRochesterDescription, p): p for p in descriptionPaths}
             for i, future in enumerate(as_completed(futures)):
                 results = future.result()
@@ -282,6 +284,8 @@ class MyFontsData(QueryData):
 
                 if i % 100 == 0:
                     print(f"\rDescriptions loaded: {i + 1}/{len(descriptionPaths)}", end="")
+
+        print()
 
         pairs = []
         letters = []
@@ -304,10 +308,13 @@ class MyFontsData(QueryData):
         self.pairs = np.array(pairs)
         self.letters = np.array(letters)
 
-        self.index = np.arange(len(self.pairs))
+        viable = np.isin(names, list(self.descriptions.keys()))
+        print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
+        self.index = np.arange(len(self.pairs))[viable]
 
         self.fontMap = {key: key for key in self.descriptions}
         self.fontNum = {key: i for i, key in enumerate(self.descriptions)}
+        self.fonts = {key: None for key in self.descriptions}
 
         # self.fonts Name -> Loaded Font 
     

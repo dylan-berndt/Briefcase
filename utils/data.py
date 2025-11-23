@@ -197,7 +197,7 @@ class FontData(Dataset):
         pass
 
     def __len__(self):
-        if self.method == "masked":
+        if self.method == "masked" or self.method == "none":
             return len(self.index) * 2
 
         return len(self.index)
@@ -225,23 +225,29 @@ class FontData(Dataset):
         item = self.index[i // 2]
         lower, upper = self.pairs[item]
         image = lower if (i % 2 == 0) else upper
-        maskedImage = image.copy()
 
-        patchSize = maskedImage.shape[0] // 4
-        x = np.random.randint(0, maskedImage.shape[0] - patchSize + 1)
-        y = np.random.randint(0, maskedImage.shape[1] - patchSize + 1)
+        if self.method == "masked":
+            maskedImage = image.copy()
 
+            patchSize = maskedImage.shape[0] // 4
+            x = np.random.randint(0, maskedImage.shape[0] - patchSize + 1)
+            y = np.random.randint(0, maskedImage.shape[1] - patchSize + 1)
 
-        maskedImage[x: x + patchSize, y: y + patchSize] = 0
+            maskedImage[x: x + patchSize, y: y + patchSize] = 0
 
-        noiseMask = np.random.randint(0, 100, size=maskedImage.shape) < 40
-        maskedImage[noiseMask] = 0
+            noiseMask = np.random.randint(0, 100, size=maskedImage.shape) < 40
+            maskedImage[noiseMask] = 0
 
-        maskedImage = torch.tensor(maskedImage, dtype=torch.float32).unsqueeze(-1)
+            maskedImage = torch.tensor(maskedImage, dtype=torch.float32).unsqueeze(-1)
+
         image = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
 
         letter = self.letters[item] if (i % 2 == 0) else self.letters[item].upper()
         character = torch.tensor(characters.index(letter), dtype=torch.long)
+
+        if self.method == "none":
+            return {"inputs": image, "outputs": image, "class": character,
+                    "name": self.names[item], "letter": letter}
 
         return {"inputs": maskedImage, "outputs": image, "class": character,
                 "name": self.names[item], "letter": letter}
@@ -255,7 +261,7 @@ class FontData(Dataset):
         return inputs, outputs, characters
 
     def __getitem__(self, item):
-        if self.method == "masked":
+        if self.method == "masked" or self.method == "none":
             return self.getMasked(item)
         
         return self.getPair(item)

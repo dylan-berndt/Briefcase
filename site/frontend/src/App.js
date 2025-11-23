@@ -22,7 +22,7 @@ function App() {
 		fetch('/api/font/query?query=' + enteredQuery)
 		.then(response => response.json())
 		.then(json => {
-			setResults(json)
+			setResults(json.results)
 			updateResultsFound(true);
 		})
 		.catch(error => setIssue(error))
@@ -43,7 +43,7 @@ function App() {
 				<p style={{ fontSize: "3vmin" }}>
 					Please enter a description to search for a font
 				</p>
-				{resultsIssue === "" ? <></> : <p>{resultsIssue}</p>}
+				{resultsIssue === "" ? <></> : <p>{resultsIssue.toString()}</p>}
 
 				<input type="text" name="description" 
 				style={{ fontSize: "3vmin", minWidth: "70vmin", minHeight: "4vmin" }}
