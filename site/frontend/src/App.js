@@ -2,6 +2,8 @@ import './App.css';
 import React, { useState } from 'react';
 
 function App() {
+	const [token, setToken] = useState("");
+
 	const [resultsFound, updateResultsFound] = useState(false);
 	const [resultsIssue, setIssue] = useState("");
 	const [results, setResults] = useState([]);
@@ -11,7 +13,7 @@ function App() {
 	const pangrams = [
 		"The quick brown fox jumps over the lazy dog", 
 		"A mad boxer shot a quick glove jab to the jaw of his dizzy opponent",
-		"Mr. Jock asphyxiates, Numbered Dayz' fortune teller Vasquez was right",
+		"Mr. Jock asphyxiates; Numbered Dayz' fortune teller Vasquez was right",
 		"Whenever the black fox jumped, the squirrel gazed suspiciously",
 		"Jived zombies tackled the very quick fox",
 		"Mr. Jock, TV quiz PhD, bags few lynx",

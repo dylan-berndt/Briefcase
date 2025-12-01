@@ -5,6 +5,9 @@ import os
 
 import hashlib
 import secrets
+from urllib.parse import urlparse
+
+import sqlite3
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -23,17 +26,32 @@ imageModel, conf = UNet.load(testDir, name="image")
 textModel.eval()
 imageModel.eval()
 
-freeDomains = ["https://www.dafont.com", "https://fonts.google.com", "https://www.fontsquirrel.com"]
-paidDomains = ["https://myfonts.com"]
-
-# SQL? What's that?
-with open("vectors.json", "r") as file:
-    fontData = json.load(file)
-    fontNames = np.array([key for key in fontData])
-    fontVectors = torch.stack([torch.tensor(fontData[key]["vector"], dtype=torch.float32) for key in fontData], dim=0)
-    fontPaid = np.array([fontData[key]["paid"] for key in fontData], dtype=bool)
+freeDomains = ["www.dafont.com", "fonts.google.com", "www.fontsquirrel.com"]
+paidDomains = ["www.myfonts.com"]
 
 app = Flask(__name__)
+
+# TODO: vec not blob
+conn = sqlite3.connect("fontsearch.db")
+cursor = conn.cursor()
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS fonts (
+               id INTEGER PRIMARY KEY,
+               name TEXT NOT NULL,
+               location TEXT NOT NULL,
+               embedding BLOB,
+               paid INTEGER DEFAULT 0
+    )
+''')
+
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS registry (
+               id INTEGER PRIMARY KEY,
+               name TEXT NOT NULL,
+               location TEXT NOT NULL,
+               paid INTEGER DEFAULT 0
+    )
+''')
 
 
 def hashPassword(password, salt=None, iterations=260000):
@@ -43,6 +61,7 @@ def hashPassword(password, salt=None, iterations=260000):
     return salt, hashData.hex()
 
 
+# TODO: Probably change this, use JWT
 with open("password.txt", "r") as file:
     data = file.read()
 if data == "":
@@ -95,8 +114,18 @@ def findFonts():
 def updateRegistry():
     checkPassword()
     
-    # TODO: Run image model for each new font added and append information to vectors.json
+    # TODO: Get each row from registry
+    # TODO: Load font from location
+    # TODO: Open font and serialize to images
+    # TODO: Run images through model, average embedding
+    # TODO: Store embedding in fonts table
     return jsonify("Successful"), 200
+
+
+def checkDomain(url, domain):
+    url = urlparse(url)
+    urlDomain = url.netloc
+    return urlDomain == domain
 
 
 @app.route('/api/font/add', methods=['GET'])
@@ -111,11 +140,11 @@ def addFontToRegistry():
     fileGood = False
     paid = False
     for site in paidDomains + freeDomains:
-        if url.startswith(site):
+        if checkDomain(url, site):
             urlGood = True
             if site in paidDomains:
                 paid = True
-        if file.startswith(site):
+        if checkDomain(file, site):
             fileGood = True
             if site in paidDomains:
                 paid = True
@@ -123,7 +152,10 @@ def addFontToRegistry():
     if not urlGood or not fileGood:
         abort(400)
     
-    # TODO: Add fonts to some kind of registry to be ran later
+    cursor.execute(f'''
+        INSERT INTO registry (name, location, paid) VALUES ({name}, {url}, {paid})
+    ''')
+    conn.commit()
 
 
 @app.route('/api/font/change/', methods=['GET'])
