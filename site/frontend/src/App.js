@@ -37,42 +37,47 @@ function App() {
 
 	return (
 		<div className="App">
-			<header className="App-header">
-				<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
-					FontiFinder <br></br>
-				</p>
-				<div style={{ height: "6vmin" }}></div>
-				<p style={{ fontSize: "3vmin" }}>
-					Please enter a description to search for a font
-				</p>
-				{resultsIssue === "" ? <></> : <p>{resultsIssue.toString()}</p>}
+			<div className="Shadow">
+				<header className="Bar"></header>
+				<div className="Center">
+					<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
+						Font Search <br></br>
+					</p>
+					<div style={{ height: "6vmin" }}></div>
+					<p style={{ fontSize: "3vmin" }}>
+						Please enter a description to search for a font
+					</p>
+					{resultsIssue === "" ? <></> : <p>{resultsIssue.toString()}</p>}
 
-				<input type="text" name="description" 
-				style={{ fontSize: "3vmin", minWidth: "70vmin", minHeight: "4vmin" }}
-				onChange={e => setQuery(e.target.value)}
-				onKeyDown={e => {
-					if (e.key === "Enter") getResults(query);
-				}}></input>
-			</header>
+					<input type="text" name="description" 
+					style={{ fontSize: "3vmin", minWidth: "70vmin", minHeight: "4vmin" }}
+					onChange={e => setQuery(e.target.value)}
+					onKeyDown={e => {
+						if (e.key === "Enter") getResults(query);
+					}}></input>
 
-			{!resultsFound ? <></> : 
-				<div className="Results">
-					{results.map((result, index) => {
-						const face = FontFace(result.name, `url(${result.file})`);
-						loadFontFace(face);
-						return <a href={result.url}>
-							<div>
-								<p>{result.name} | Score: {result.score}</p>
-								<p style={{"fontFamily": result.name}}>
-									ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
-									abcdefghijklmnopqrstuvwxyz<br></br>
-									{pangrams[index % pangrams.length]}
-								</p>
-							</div>
-						</a>
-					})}
+					{!resultsFound ? <></> : 
+						<div className="Results">
+							{results.map((result, index) => {
+								const face = FontFace(result.name, `url(${result.file})`);
+								loadFontFace(face);
+								return <a href={result.url}>
+									<div>
+										<p>{result.name} | Score: {result.score}</p>
+										<p style={{"fontFamily": result.name}}>
+											ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
+											abcdefghijklmnopqrstuvwxyz<br></br>
+											{pangrams[index % pangrams.length]}
+										</p>
+									</div>
+								</a>
+							})}
+						</div>
+					}
 				</div>
-			}
+			</div>
+
+			
 		</div>
 	);
 }

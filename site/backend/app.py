@@ -1,12 +1,16 @@
 from flask import Flask, jsonify, request, abort
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import json
 import os
 from io import BytesIO
+from functools import wraps
 
-import hashlib
-import secrets
 from urllib.parse import urlparse
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+import uuid
 import requests
 
 import sqlite3
@@ -16,6 +20,8 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from utils import *
+
+from datetime import datetime, timezone, timedelta
 
 torch.set_default_device("cpu")
 
@@ -33,6 +39,13 @@ freeDomains = ["www.dafont.com", "fonts.google.com", "www.fontsquirrel.com"]
 paidDomains = ["www.myfonts.com"]
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
 
 conn = sqlite3.connect("fontsearch.db")
 conn.enable_load_extension(True)
@@ -61,49 +74,126 @@ cursor.execute('''
     )
 ''')
 
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        publicID TEXT NOT NULL UNIQUE,
+        username TEXT NOT NULL UNIQUE,
+        hash TEXT NOT NULL,
+        admin INTEGER DEFAULT 0
+    )
+''')
+
 # TODO: Add user description field, slowly improve model
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS descriptions (
         FOREIGN KEY (fontID) REFERENCES fonts (id),
-        description TEXT NOT NULL
+        description TEXT NOT NULL,
+        FOREIGN KEY (userID) REFERENCES users (id),
+        created TEXT NOT NULL
     )
 ''')
 
 conn.commit()
 
 
-def hashPassword(password, salt=None, iterations=260000):
-    if salt is None:
-        salt = secrets.token_hex(16)
-    hashData = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations)
-    return salt, hashData.hex()
+@app.route('/api/font/register', methods=['POST'])
+@limiter.limit("3 per day")
+def register():
+    username, password = request.form['username'], request.form['password']
+
+    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+    users = cursor.fetchall()
+    existing = len(users) > 0
+    if existing:
+        return jsonify({'message': 'User already exists. Please login.'}), 400
+    
+    hashed = generate_password_hash(password)
+    cursor.execute("INSERT INTO users (publicID, username, hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), username, hashed))
+    conn.commit()
+
+    return jsonify({'message': 'Registered successfully'}), 200
 
 
-# TODO: Probably change this, use JWT
-with open("password.txt", "r") as file:
-    data = file.read()
-if data == "":
-    salt, hashword = hashPassword(input("Create Admin Password: "), None)
-    with open("password.txt", "w") as file:
-        file.write(f"{salt}${hashword}")
-else:
-    salt, hashword = data.split("$")
+@app.route('/api/font/login', methods=['POST'])
+@limiter.limit("5 per hour")
+def login():
+    username, password = request.form['username'], request.form['password']
+
+    cursor.execute("SELECT publicID, username, hash FROM users WHERE username = ?", (username,))
+    users = cursor.fetchall()
+    if len(users) == 0:
+        return jsonify({'message': 'User does not exist.'}), 400
+    
+    user = users[0]
+    publicID, name, hash = user
+    if not check_password_hash(hash, password):
+        return jsonify({'message': 'Incorrect password'}), 400
+    
+    token = jwt.encode({'publicID': publicID, 'expiration': datetime.now(timezone.utc) + timedelta(hours=1)}, app.config["SECRET_KEY"], algorithm="HS256")
+
+    response = Flask.make_response(Flask.redirect(Flask.url_for("index")))
+    response.set_cookie('token', token, httponly=True, secure=True, samesite="Strict")
+
+    return response
 
 
-def checkPassword():
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        password = auth.split(" ", 1)[1].strip()
-        _, hashed = hashPassword(password, salt)
-        if secrets.compare_digest(hashword, hashed):
-            return
+def loginRequired(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.cookies.get('token')
+
+        if not token:
+            return jsonify({'message': 'Not logged in'}), 401
         
-        abort(401)
+        try:
+            data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+            cursor.execute("SELECT * FROM users WHERE publicID = ?", (data['publicID'],))
+            users = cursor.fetchall()
+            user = users[0]
 
-    abort(401)
+            expiration = datetime.fromtimestamp(data['expiration'], tz=timezone.utc)
+            if expiration < datetime.now(timezone.utc):
+                return jsonify({'message': 'Not logged in'}), 401
+
+        except:
+            return jsonify({'message': 'Not logged in'}), 401
+    
+        return f(user, *args, **kwargs)
+
+    return decorated
+
+
+def adminRequired(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.cookies.get('token')
+
+        if not token:
+            return jsonify({'message': 'Not logged in'}), 401
+        
+        try:
+            data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+            cursor.execute("SELECT username, publicID, admin FROM users WHERE publicID = ?", (data['publicID'],))
+            users = cursor.fetchall()
+            user = users[0]
+
+            expiration = datetime.fromtimestamp(data['expiration'], tz=timezone.utc)
+            if expiration < datetime.now(timezone.utc):
+                return jsonify({'message': 'Not logged in'}), 401
+
+            if not user[2]:
+                return jsonify({'message': 'Not admin'}), 403
+
+        except:
+            return jsonify({'message': 'Not logged in'}), 401
+    
+        return f(user, *args, **kwargs)
+    return decorated
 
 
 @app.route('/api/font/query', methods=['GET'])
+@limiter.limit("40 per day")
 def findFonts():
     query, includePaid = request.args.get("query", ""), request.args.get("includePaid", True)
     query = "a " + query + " font"
@@ -111,25 +201,33 @@ def findFonts():
     with torch.no_grad():
         output = textModel(**tokens).pooler_output
 
-    rows = cursor.fetchall(f'''
+    cursor.execute(f'''
         SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND vss_search(embedding, ?) LIMIT 20
     ''', (includePaid, output.numpy().tolist()))
+    rows = cursor.fetchall()
 
     results = [dict(zip(["name", "score", "file", "url"], rows[i])) for i in range(len(rows))]
 
     return jsonify({"results": results}), 200
 
 
-@app.route('/api/font/update', methods=['POST'])
-def updateRegistry():
-    checkPassword()
+@app.route('/api/font/describe', methods=['POST'])
+@limiter.limit("2 per minute")
+@loginRequired
+def describeFont(user):
+    pass
 
-    registered = cursor.fetchall("SELECT * FROM registry")
+
+@app.route('/api/font/update', methods=['POST'])
+@adminRequired
+def updateRegistry():
+    cursor.execute("SELECT * FROM registry")
+    registered = cursor.fetchall()
 
     for row in registered:
         id, name, location, file, paid = row
 
-        response = requests.get(file)
+        response = requests.get(file, allow_redirects=False)
 
         if not response.ok:
             abort(500)
@@ -158,9 +256,9 @@ def checkDomain(url):
 
 
 @app.route('/api/font/add', methods=['POST'])
+@limiter.exempt
+@adminRequired
 def addFontToRegistry():
-    checkPassword()
-
     name, url, file = request.args.get("name", ""), request.args.get("url", ""), request.args.get("file", "")
     if name == "" or url == "" or file == "":
         abort(400)
@@ -181,20 +279,6 @@ def addFontToRegistry():
         INSERT INTO registry (name, location, paid) VALUES (?, ?, ?)
     ''', (name, url, paid))
     conn.commit()
-
-
-@app.route('/api/font/change/', methods=['POST'])
-def changeAdminPassword():
-    checkPassword()
-
-    newPassword = request.headers.get("Password", "")
-    if len(newPassword) < 12 or len(newPassword) > 48 or "\n" in newPassword:
-        abort(400)
-
-    global salt, hashword
-    salt, hashword = hashPassword(newPassword)
-    with open("password.txt", "w") as file:
-        file.write(f"{salt}${hashword}")
 
 
 if __name__ == '__main__':
