@@ -44,6 +44,54 @@ def loadImage(imagePath):
     return name, image
 
 
+def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
+    font = ImageFont.truetype(fontData, fontSize)
+    ascent, descent = font.getmetrics()
+    # Gross way to do this, but I don't want another package
+    standard = fontSize * (fontSize / ascent)
+    font = ImageFont.truetype(fontData, standard)
+    ttf = TTFont(fontData)
+    badBox = font.getbbox('\uFFFF')
+
+    fontName, fontStyle = font.getname()
+
+    if save is not None:
+        imagePath = os.path.join(save, "bitmaps", f"{fontName} {fontStyle} al.bmp")
+        if os.path.exists(imagePath):
+            return
+
+    for char in chars:
+        case = "l" if char == char.lower() else "u"
+        name = f"{fontName} {fontStyle} {char.lower()}{case}"
+
+        if save is not None:
+            path = os.path.join(save, "bitmaps", name + ".bmp")
+            if os.path.exists(path):
+                continue
+
+        hasGlyph = False
+        for table in ttf['cmap'].tables:
+            if ord(char) in table.cmap.keys():
+                hasGlyph = True
+
+        mask = font.getmask(char)
+        box = font.getbbox(char)
+        if mask.size == (0, 0) or not hasGlyph:
+            continue
+        im = Image.Image()._new(mask)
+
+        canvas = Image.new("L", (imageSize, imageSize), 0)
+        baseline = int(imageSize * 0.9)
+        offset = baseline - ascent
+        canvas.paste(im, ((imageSize - im.width) // 2, offset + box[1] - int(imageSize * 0.25)))
+        if save is not None:
+            canvas.save(path)
+        else:
+            yield canvas
+
+    return font, fontName, fontStyle
+
+
 class FontData(Dataset):
     def __init__(self, config: Config, training=True):
         self.config = config
@@ -68,47 +116,10 @@ class FontData(Dataset):
             if not os.path.isfile(fontPath):
                 continue
             try:
-                font = ImageFont.truetype(fontPath, config.fontSize)
-                ascent, descent = font.getmetrics()
-                # Gross way to do this, but I don't want another package
-                standard = config.fontSize * (config.fontSize / ascent)
-                font = ImageFont.truetype(fontPath, standard)
-                ttf = TTFont(fontPath)
-                badBox = font.getbbox('\uFFFF')
-
-                fontName, fontStyle = font.getname()
+                font, fontName, fontStyle = imagesFromFont(fontPath, config.fontSize, imageSize, config.directory)
                 self.fonts[f"{fontName} {fontStyle}"] = font
                 self.fontMap[f"{fontName} {fontStyle}"] = fontName
 
-                imagePath = os.path.join(config.directory, "bitmaps", f"{fontName} {fontStyle} al.bmp")
-                if os.path.exists(imagePath):
-                    continue
-
-                for char in characters:
-                    case = "l" if char == char.lower() else "u"
-                    name = f"{fontName} {fontStyle} {char.lower()}{case}"
-                    path = os.path.join(config.directory, "bitmaps", name + ".bmp")
-
-                    if os.path.exists(path):
-                        continue
-
-                    hasGlyph = False
-                    for table in ttf['cmap'].tables:
-                        if ord(char) in table.cmap.keys():
-                            hasGlyph = True
-
-                    mask = font.getmask(char)
-                    box = font.getbbox(char)
-                    if mask.size == (0, 0) or not hasGlyph:
-                        continue
-                    im = Image.Image()._new(mask)
-
-                    canvas = Image.new("L", (imageSize, imageSize), 0)
-                    baseline = int(imageSize * 0.9)
-                    offset = baseline - ascent
-                    canvas.paste(im, ((imageSize - im.width) // 2, offset + box[1] - int(imageSize * 0.25)))
-
-                    canvas.save(path)
             except Exception as e:
                 print(fontPath, e)
 
