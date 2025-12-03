@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 function Result({result, pangram}) {
 	const [showDescriptionField, setShowDescriptionField] = useState(false);
 	const [description, setDescription] = useState("");
-	const [result, setResult] = useState("");
+	const [message, setMessage] = useState("");
 
 	async function loadFontFace(face) {
 		const loadedFont = await face.load();
@@ -15,9 +15,9 @@ function Result({result, pangram}) {
 		fetch('/api/font/describe?description=' + enteredDescription)
 		.then(response => response.json())
 		.then(json => {
-			setResult(json.message)
+			setMessage(json.message)
 		})
-		.catch(error => setResult(error))
+		.catch(error => setMessage(error))
 	}
 
 	const face = FontFace(result.name, `url(${result.file})`);
@@ -42,7 +42,7 @@ function Result({result, pangram}) {
 					onKeyDown={e => {
 						if (e.key === "Enter") submitDescription(description);
 					}}></input>
-				<p>{result}</p>
+				<p>{message}</p>
 			</div>}
 		</div>
 	</a>
@@ -123,7 +123,7 @@ function App() {
 
 	const [query, setQuery] = useState("");
 
-	const [loginVisibile, setLoginVisible] = useState(false);
+	const [loginVisible, setLoginVisible] = useState(false);
 
 	const pangrams = [
 		"The quick brown fox jumps over the lazy dog", 
@@ -147,12 +147,11 @@ function App() {
 	return (
 		<div className="App">
 			<div className="Shadow">
-				<header className="Bar">
-					<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisibile)}}></button>
-					{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
-				</header>
-
 				<div className="Center">
+					<div className="Bar">
+						<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>Login</button>
+						{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
+					</div>
 					<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
 						Font Search <br></br>
 					</p>
