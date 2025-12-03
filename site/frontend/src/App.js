@@ -1,14 +1,129 @@
 import './App.css';
 import React, { useState } from 'react';
 
-function App() {
-	const [token, setToken] = useState("");
+function Result({result, pangram}) {
+	const [showDescriptionField, setShowDescriptionField] = useState(false);
+	const [description, setDescription] = useState("");
+	const [result, setResult] = useState("");
 
+	async function loadFontFace(face) {
+		const loadedFont = await face.load();
+		document.fonts.add(loadedFont);
+	}
+
+	function submitDescription(enteredDescription) {
+		fetch('/api/font/describe?description=' + enteredDescription)
+		.then(response => response.json())
+		.then(json => {
+			setResult(json.message)
+		})
+		.catch(error => setResult(error))
+	}
+
+	const face = FontFace(result.name, `url(${result.file})`);
+	loadFontFace(face);
+	return <a href={result.url}>
+		<div>
+			<div>
+				<p>{result.name} | Score: {result.score}</p>
+				<p style={{"fontFamily": result.name}}>
+					ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
+					abcdefghijklmnopqrstuvwxyz<br></br>
+					{pangram}
+				</p>
+			</div>
+			<button onClick={() => {setShowDescriptionField(!showDescriptionField)}}></button>
+			{!showDescriptionField ? <></> :
+			<div className="DescriptionField">
+				<p>Please provide a description for this font</p>
+				<input type="text" name="description" 
+					style={{ fontSize: "3vmin", minWidth: "70vmin", minHeight: "4vmin"}}
+					onChange={e => setDescription(e.target.value)}
+					onKeyDown={e => {
+						if (e.key === "Enter") submitDescription(description);
+					}}></input>
+				<p>{result}</p>
+			</div>}
+		</div>
+	</a>
+}
+
+
+function LoginPopup() {
+	const [registerToggle, setRegisterToggle] = useState(false);
+	const [loginForm, setLoginForm] = useState({
+		username: '',
+		password: ''
+	})
+	const [message, setMessage] = useState("");
+
+	const loginChange = (e) => {
+		setLoginForm({
+			...loginForm,
+			[e.target.name]: e.target.value
+		})
+	}
+
+	const submitLogin = (e) => {
+		e.preventDefault();
+		if (registerToggle) {
+			fetch('/api/font/register', {body: loginForm, method: "post"})
+			.then(response => response.json())
+			.then(data => {
+				setMessage(data.message);
+			})
+			.catch(error => setMessage(error));
+		}
+
+		fetch('/api/font/login', {body: loginForm, method: "post"})
+		.then(response => response.json())
+		.then(data => {
+			setMessage(data.message);
+		})
+		.catch(error => setMessage(error));
+	}
+
+	return <div className="LoginPopup">
+		<p>{message}</p>
+		<form onSubmit={submitLogin}>
+			<div>
+				<label htmlFor="username">Username:</label>
+				<input
+				type="text"
+				id="username"
+				name="username"
+				value={loginForm.username}
+				onChange={loginChange}
+				/>
+			</div>
+			<div>
+				<label htmlFor="email">Email:</label>
+				<input
+				type="email"
+				id="email"
+				name="email"
+				value={loginForm.email}
+				onChange={loginChange}
+				/>
+			</div>
+			<button type="submit">Submit</button>
+		</form>
+		<div>
+			<div>Login</div>
+			<div>Register</div>
+		</div>
+	</div>
+}
+
+
+function App() {
 	const [resultsFound, updateResultsFound] = useState(false);
 	const [resultsIssue, setIssue] = useState("");
 	const [results, setResults] = useState([]);
 
 	const [query, setQuery] = useState("");
+
+	const [loginVisibile, setLoginVisible] = useState(false);
 
 	const pangrams = [
 		"The quick brown fox jumps over the lazy dog", 
@@ -19,7 +134,6 @@ function App() {
 		"Mr. Jock, TV quiz PhD, bags few lynx",
 	]
 
-	// TODO: Check that inputs are valid
 	function getResults(enteredQuery) {
 		fetch('/api/font/query?query=' + enteredQuery)
 		.then(response => response.json())
@@ -30,15 +144,14 @@ function App() {
 		.catch(error => setIssue(error))
 	}
 
-	async function loadFontFace(face) {
-		const loadedFont = await face.load();
-		document.fonts.add(loadedFont);
-	}
-
 	return (
 		<div className="App">
 			<div className="Shadow">
-				<header className="Bar"></header>
+				<header className="Bar">
+					<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisibile)}}></button>
+					{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
+				</header>
+
 				<div className="Center">
 					<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
 						Font Search <br></br>
@@ -59,25 +172,12 @@ function App() {
 					{!resultsFound ? <></> : 
 						<div className="Results">
 							{results.map((result, index) => {
-								const face = FontFace(result.name, `url(${result.file})`);
-								loadFontFace(face);
-								return <a href={result.url}>
-									<div>
-										<p>{result.name} | Score: {result.score}</p>
-										<p style={{"fontFamily": result.name}}>
-											ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
-											abcdefghijklmnopqrstuvwxyz<br></br>
-											{pangrams[index % pangrams.length]}
-										</p>
-									</div>
-								</a>
+								return <Result result={result} pangram={pangrams[index % pangrams.length]}></Result>
 							})}
 						</div>
 					}
 				</div>
 			</div>
-
-			
 		</div>
 	);
 }
