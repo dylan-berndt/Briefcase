@@ -1,5 +1,105 @@
 import './App.css';
-import React, { useState } from 'react';
+import React, { useState} from 'react';
+import ShadertoyReact from 'shadertoy-react';
+
+const shaderSource = `
+#define PIXEL_SIZE 4.0f
+#define CELL_SIZE 64
+
+#define MOD 32
+
+#define SPEED 0.5f
+
+float interp(float a, float b, float t) {
+    return (b - a) * t + a;
+}
+
+float rand(vec2 co){
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec3 cellDir(ivec3 cell) {
+    float z = rand(vec2(cell.x, cell.y + cell.z));
+    float rxy = sqrt(1.0f - z * z);
+    float phi = rand(vec2(cell.z, cell.x + cell.y));
+    
+    float y = rxy * sin(phi);
+    float x = rxy * cos(phi);
+    
+    return normalize(vec3(x, y, z));
+}
+
+float perlin(vec3 position) {
+    position = position / float(CELL_SIZE);
+    ivec3 cellPos = ivec3(floor(position));
+    
+    int i = 0;
+    
+    float products[8];
+    
+    for (int z = 0; z <= 1; z++) {
+        for (int y = 0; y <= 1; y++) {
+            for (int x = 0; x <= 1; x++) {
+                ivec3 checkCell = cellPos + ivec3(x, y, z);
+                vec3 offset = position - vec3(checkCell) + vec3(0.01f);
+                checkCell = checkCell % MOD;
+                vec3 dir = cellDir(checkCell);
+                
+                float product = dot(dir, offset);
+                products[i] = product;
+                i += 1;
+            }
+        }
+    }
+
+    vec3 offset = position - vec3(cellPos);
+    
+    float xInterp[4] = float[4](
+    interp(products[0], products[1], offset.x), 
+    interp(products[2], products[3], offset.x), 
+    interp(products[4], products[5], offset.x), 
+    interp(products[6], products[7], offset.x)
+    );
+    float yInterp[2] = float[2](
+    interp(xInterp[0], xInterp[1], offset.y), 
+    interp(xInterp[2], xInterp[3], offset.y)
+    );
+    float zInterp = interp(yInterp[0], yInterp[1], offset.z);
+    
+    return zInterp > 0.0f ? zInterp * 2.0f + 0.5f : 0.0f;
+}
+
+float noise(vec3 position) {
+    return perlin(position);
+}
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    vec2 uv = floor(fragCoord / PIXEL_SIZE) * PIXEL_SIZE;
+    
+    float time = (iTime + 16.0f) * SPEED * float(CELL_SIZE);
+
+    float r = noise(vec3(uv * 1.4f, time));
+    float g = noise(vec3(uv, -time - 2.0f));
+    float b = noise(vec3(uv / 1.4f, time + 60.0f));
+    
+    vec3 col = vec3(r, g, b);
+    
+    //ivec3 cellPos = ivec3(vec3(uv, iTime * SPEED) / float(CELL_SIZE));
+    //col = cellDir(cellPos);
+
+    // Output to screen
+    fragColor = vec4(col,1.0);
+}
+`
+
+const shader2 = `
+void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
+  vec2 uv = fragCoord.xy/iResolution.xy;
+  vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));
+  fragColor = vec4(col,1.0);
+}
+`
 
 function Result({result, pangram}) {
 	const [showDescriptionField, setShowDescriptionField] = useState(false);
@@ -23,16 +123,18 @@ function Result({result, pangram}) {
 	const face = FontFace(result.name, `url(${result.file})`);
 	loadFontFace(face);
 	return <a href={result.url}>
-		<div>
-			<div>
-				<p>{result.name} | Score: {result.score}</p>
-				<p style={{"fontFamily": result.name}}>
-					ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
-					abcdefghijklmnopqrstuvwxyz<br></br>
-					{pangram}
-				</p>
+		<div className="ResultWindow">
+			<div className="FontWindow">
+				<div>
+					<p>{result.name} | Score: {result.score}</p>
+					<p style={{"fontFamily": result.name}}>
+						ABCDEFGHIJKLMNOPQRSTUVWXYZ<br></br>
+						abcdefghijklmnopqrstuvwxyz<br></br>
+						{pangram}
+					</p>
+				</div>
+				<button onClick={() => {setShowDescriptionField(!showDescriptionField)}}></button>
 			</div>
-			<button onClick={() => {setShowDescriptionField(!showDescriptionField)}}></button>
 			{!showDescriptionField ? <></> :
 			<div className="DescriptionField">
 				<p>Please provide a description for this font</p>
@@ -145,39 +247,42 @@ function App() {
 	}
 
 	return (
-		<div className="App">
-			<div className="Shadow">
-				<div className="Center">
-					<div className="Bar">
-						<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>Login</button>
-						{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
+		<>
+			<header className="Bar">
+				<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>Login</button>
+				{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
+			</header>
+			<div className="App">
+				<ShadertoyReact fs={shader2}></ShadertoyReact>
+				<div className="Shadow">
+					<div className="Center">
+						<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
+							Font Search <br></br>
+						</p>
+						<div style={{ height: "6vmin" }}></div>
+						<p style={{ fontSize: "3vmin" }}>
+							Please enter a description to search for a font
+						</p>
+						{resultsIssue === "" ? <></> : <p>{resultsIssue.toString()}</p>}
+
+						<input type="text" name="description" 
+						style={{ fontSize: "3vmin", minWidth: "70vmin", minHeight: "4vmin" }}
+						onChange={e => setQuery(e.target.value)}
+						onKeyDown={e => {
+							if (e.key === "Enter") getResults(query);
+						}}></input>
+
+						{!resultsFound ? <></> : 
+							<div className="Results">
+								{results.map((result, index) => {
+									return <Result result={result} pangram={pangrams[index % pangrams.length]}></Result>
+								})}
+							</div>
+						}
 					</div>
-					<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
-						Font Search <br></br>
-					</p>
-					<div style={{ height: "6vmin" }}></div>
-					<p style={{ fontSize: "3vmin" }}>
-						Please enter a description to search for a font
-					</p>
-					{resultsIssue === "" ? <></> : <p>{resultsIssue.toString()}</p>}
-
-					<input type="text" name="description" 
-					style={{ fontSize: "3vmin", minWidth: "70vmin", minHeight: "4vmin" }}
-					onChange={e => setQuery(e.target.value)}
-					onKeyDown={e => {
-						if (e.key === "Enter") getResults(query);
-					}}></input>
-
-					{!resultsFound ? <></> : 
-						<div className="Results">
-							{results.map((result, index) => {
-								return <Result result={result} pangram={pangrams[index % pangrams.length]}></Result>
-							})}
-						</div>
-					}
 				</div>
 			</div>
-		</div>
+		</>
 	);
 }
 

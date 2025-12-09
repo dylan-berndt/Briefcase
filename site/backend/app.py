@@ -14,10 +14,10 @@ import uuid
 import requests
 
 import sqlite3
-import sqlite_vss
+import sqlite_vec
 
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from utils import *
 
@@ -49,12 +49,12 @@ limiter = Limiter(
 
 conn = sqlite3.connect("fontsearch.db")
 conn.enable_load_extension(True)
-sqlite_vss.load(conn)
+sqlite_vec.load(conn)
 conn.enable_load_extension(False)
 cursor = conn.cursor()
 
 cursor.execute(f'''
-    CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vss0(
+    CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
         id INTEGER PRIMARY KEY,
         embedding({conf.model.textProjection}),
         name TEXT NOT NULL UNIQUE,
@@ -201,7 +201,7 @@ def findFonts():
         output = textModel(**tokens).pooler_output
 
     cursor.execute(f'''
-        SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND vss_search(embedding, ?) LIMIT 20
+        SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND embedding match ? ORDER BY distance LIMIT 20
     ''', (includePaid, output.numpy().tolist()))
     rows = cursor.fetchall()
 
