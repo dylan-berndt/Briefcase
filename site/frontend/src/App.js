@@ -227,33 +227,35 @@ function LoginPopup() {
 	}
 
 	return <div className="LoginPopup">
-		<p>{message}</p>
-		<form onSubmit={submitLogin}>
-			<div>
-				<label htmlFor="username">Username:</label>
-				<input
-				type="text"
-				id="username"
-				name="username"
-				value={loginForm.username}
-				onChange={loginChange}
-				/>
-			</div>
-			<div>
-				<label htmlFor="email">Email:</label>
-				<input
-				type="email"
-				id="email"
-				name="email"
-				value={loginForm.email}
-				onChange={loginChange}
-				/>
-			</div>
-			<button type="submit">Submit</button>
-		</form>
 		<div>
-			<div>Login</div>
-			<div>Register</div>
+			<p>{message}</p>
+			<form onSubmit={submitLogin}>
+				<div style={{}}>
+					<label htmlFor="username">Username:</label>
+					<input
+					type="text"
+					id="username"
+					name="username"
+					value={loginForm.username}
+					onChange={loginChange}
+					/>
+				</div>
+				<div>
+					<label htmlFor="password">Password:</label>
+					<input
+					type="password"
+					id="password"
+					name="password"
+					value={loginForm.password}
+					onChange={loginChange}
+					/>
+				</div>
+				<button type="submit">Submit</button>
+			</form>
+		</div>
+		<div>
+			<button style={{border: registerToggle ? "transparent": "#888888 2px solid"}} onClick={() => {setRegisterToggle(false)}}>Login</button>
+			<button style={{border: !registerToggle ? "transparent": "#888888 2px solid"}} onClick={() => {setRegisterToggle(true)}}>Register</button>
 		</div>
 	</div>
 }
