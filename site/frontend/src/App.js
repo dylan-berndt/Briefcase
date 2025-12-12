@@ -1,14 +1,18 @@
 import './App.css';
-import React, { useState} from 'react';
-import ShadertoyReact from 'shadertoy-react';
+import React, { useState, useRef } from 'react';
+import { shaderMaterial } from '@react-three/drei';
+import { extend, useFrame } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
+import * as THREE from 'three';
 
-const shaderSource = `
+
+const fragmentSource = `
 #define PIXEL_SIZE 4.0f
 #define CELL_SIZE 64
 
 #define MOD 32
 
-#define SPEED 0.5f
+#define SPEED 0.75f
 
 float interp(float a, float b, float t) {
     return (b - a) * t + a;
@@ -73,9 +77,14 @@ float noise(vec3 position) {
     return perlin(position);
 }
 
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
+uniform float iTime;
+varying vec2 vUv;
+uniform vec2 resolution;
+
+void main()
 {
-    vec2 uv = floor(fragCoord / PIXEL_SIZE) * PIXEL_SIZE;
+	vec2 v = vUv * resolution.x * 25.0f;
+    vec2 uv = floor(v / PIXEL_SIZE) * PIXEL_SIZE;
     
     float time = (iTime + 16.0f) * SPEED * float(CELL_SIZE);
 
@@ -89,17 +98,49 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     //col = cellDir(cellPos);
 
     // Output to screen
-    fragColor = vec4(col,1.0);
+    gl_FragColor = vec4(col * 1.4f,1.0);
 }
 `
 
-const shader2 = `
-void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
-  vec2 uv = fragCoord.xy/iResolution.xy;
-  vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));
-  fragColor = vec4(col,1.0);
+const vertexSource = `
+varying vec2 vUv;
+void main() {
+	vUv = uv;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `
+
+const BackgroundMaterial = shaderMaterial(
+	// Uniforms
+	{ iTime: 0.0, resolution: new THREE.Vector2(1.0, 1.0) },
+	// Vertex Shader
+	vertexSource,
+	// Fragment Shader
+	fragmentSource
+);
+
+extend({ BackgroundMaterial });
+
+function BackgroundShader({backgroundRef}) {
+	const materialRef = useRef();
+
+	useFrame((_, delta) => {
+		if (materialRef.current) {
+			materialRef.current.iTime += delta * 0.5;
+		}
+		if (backgroundRef.current) {
+			materialRef.current.resolution.x = backgroundRef.current.offsetWidth;
+			materialRef.current.resolution.y = backgroundRef.current.offsetHeight;
+		}
+	})
+
+	return (
+		<mesh scale={100}> {}
+		<planeGeometry args={[1, 1]} /> {}
+		<backgroundMaterial ref={materialRef} side={2} /> {}
+		</mesh>
+	)
+}
 
 function Result({result, pangram}) {
 	const [showDescriptionField, setShowDescriptionField] = useState(false);
@@ -227,6 +268,8 @@ function App() {
 
 	const [loginVisible, setLoginVisible] = useState(false);
 
+	const backgroundRef = useRef(null);
+
 	const pangrams = [
 		"The quick brown fox jumps over the lazy dog", 
 		"A mad boxer shot a quick glove jab to the jaw of his dizzy opponent",
@@ -253,7 +296,15 @@ function App() {
 				{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
 			</header>
 			<div className="App">
-				<ShadertoyReact fs={shader2}></ShadertoyReact>
+				<div className="Shader">
+					<Canvas
+					camera={{ position: [0, 0, 1] }} // Position the camera slightly back
+					ref={backgroundRef}
+					>
+					<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
+					<BackgroundShader backgroundRef={backgroundRef}/>
+					</Canvas>
+				</div>
 				<div className="Shadow">
 					<div className="Center">
 						<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
