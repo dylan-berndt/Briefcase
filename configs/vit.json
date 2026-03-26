@@ -1,0 +1,21 @@
+{
+    "model": {
+        "layers": 4,
+        "imageSize": 128,
+        "patchSize": 8,
+        "embedDim": 128,
+        "heads": 8
+    },
+    "dataset": {
+        "fontSize": 32,
+        "maps": "bitmaps",
+        "split": "holdout",
+        "directory": "data",
+        "method": "upper",
+        "standardFonts": ["Calibri", "Arial", "Tahoma", "Times New Roman"],
+        "stylizedFonts": ["Brush Script MT Italic", "Chiller Regular", "Goudy Stout Regular", "Jokerman Regular"]
+    },
+    "batchSize": 128,
+    "learningRate": 1e-3,
+    "epochs": 80
+}

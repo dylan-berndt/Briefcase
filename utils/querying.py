@@ -5,7 +5,7 @@
 
 import os
 
-from .model import *
+from .unet import *
 from .data import *
 import cv2
 import random

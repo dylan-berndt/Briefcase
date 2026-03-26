@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from .config import *
 from .data import characters
-import utils.model
+import utils.unet
 
 import os
 import sys
