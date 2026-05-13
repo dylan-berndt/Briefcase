@@ -27,7 +27,6 @@ characters = characters + [c.upper() for c in characters]
 characters.remove("ԵՒ")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-torch.set_default_device(device)
 
 
 # Lets us choose what kind of images to train on
@@ -287,7 +286,7 @@ class FontData(Dataset):
             testIndices = dataset.names.isin(config.standardFonts + config.stylizedFonts)
             trainIndices = ~testIndices
             return Subset(dataset, np.arange(len(dataset.names))[trainIndices]), Subset(dataset, np.arange(len(dataset.names))[testIndices])
-
+        
 
 if __name__ == "__main__":
     data = FontData(Config().load(os.path.join("configs", "config.json")).dataset)

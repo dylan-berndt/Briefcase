@@ -1,7 +1,7 @@
 {
     "model": {
         "layers": 4,
-        "imageSize": 128,
+        "imageSize": 48,
         "patchSize": 8,
         "embedDim": 128,
         "heads": 8

@@ -251,7 +251,7 @@ def loadRochesterDescription(descriptionPath):
 
 
 # Designed for the MyFonts dataset from Rochester. Does not include actual font files :(
-class MyFontsData(QueryData):
+class MyFontsQueryData(QueryData):
     def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None):
         self.setTokenizer(tokenizer)
 
@@ -317,6 +317,91 @@ class MyFontsData(QueryData):
         self.fonts = {key: None for key in self.descriptions}
 
         # self.fonts Name -> Loaded Font 
+
+
+class MyFontsImageData(FontData):
+    def __init__(self, config, training=False, limit=None):
+        self.config = config
+        imageFunc = Loader(config.fontSize).loadRochesterImage
+
+        images = {}
+
+        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+        if limit is not None:
+            imagePaths = imagePaths[:limit]
+        with Pool(processes=2) as pool:
+            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                images[name] = array
+                if i % 100 == 0:
+                    print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
+
+        print()
+
+        letters = []
+        names = []
+        pairs = []
+        for key in images:
+            letters.append(key[-2].lower())
+            names.append(key[:-3])
+            pairs.append(images[key])
+
+        self.names = np.array(names)
+        self.letters = np.array(letters)
+        self.images = np.array(pairs)
+
+        indices = np.argsort(self.names)
+
+        self.names = self.names[indices]
+        self.letters = self.letters[indices]
+        self.images = self.images[indices]
+
+        fonts, glyphsPerFont = np.unique(self.names, return_counts=True)
+        interactions = np.power(glyphsPerFont, 2)
+
+        # Ugh
+        leftIndex = []
+        rightIndex = []
+        leftTotal = 0
+        rightTotal = 0
+
+        # For every font
+        for value in glyphsPerFont:
+            # For every glyph in font
+            for v in range(value):
+                # Add the index of the first character once for every glyph
+                # it can be compared to
+                leftIndex.extend([leftTotal] * value)
+                # Add the index of each comparative glpyh
+                rightIndex.extend((np.arange(value) + rightTotal).tolist())
+                # Increment the target glyph
+                leftTotal += 1
+            # Increment to the next set of glyphs
+            rightTotal += value
+
+        self.leftIndex = leftIndex
+        self.rightIndex = rightIndex
+
+        self.index = np.arange(np.sum(interactions))
+
+    def __len__(self):
+        return len(self.index)
+    
+    def __getitem__(self, i):
+        leftIndex = self.leftIndex[i]
+        rightIndex = self.rightIndex[i]
+
+        leftImage = self.images[leftIndex]
+        rightImage = self.images[rightIndex]
+        name = self.names[leftIndex]
+
+        leftImage = torch.tensor(leftImage, dtype=torch.float32)
+        rightImage = torch.tensor(rightImage, dtype=torch.float32)
+
+        letter = self.letters[leftIndex] if (i % 2 == 0) else self.letters[leftIndex].upper()
+        character = torch.tensor(characters.index(letter), dtype=torch.long)
+
+        return {"inputs": leftImage, "outputs": rightImage, "name": name,
+                "class": character, "letter": letter}
     
 
 class CLIPEmbedder(nn.Module):
