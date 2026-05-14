@@ -18,6 +18,8 @@ from multiprocessing import Pool
 from bs4 import BeautifulSoup
 import spacy
 
+from torchvision.transforms import v2
+
 nlp = spacy.load("en_core_web_sm")
 
 
@@ -322,6 +324,13 @@ class MyFontsQueryData(QueryData):
 class MyFontsImageData(FontData):
     def __init__(self, config, training=False, limit=None):
         self.config = config
+
+        # TODO: Normalize
+        self.transforms = v2.Compose([
+            v2.RandomResizedCrop(size=(48, 48), scale=(0.7, 1.0), ratio=(1.0, 1.0)),
+            v2.RandomRotation(degrees=10)
+        ])
+
         imageFunc = Loader(config.fontSize).loadRochesterImage
 
         images = {}
@@ -383,8 +392,15 @@ class MyFontsImageData(FontData):
 
         self.index = np.arange(np.sum(interactions))
 
+        assert (len(self.leftIndex) == len(self.rightIndex)) and (len(self.rightIndex) == len(self.index))
+
     def __len__(self):
         return len(self.index)
+    
+    def _jiggle(self, image):
+        image = image.permute(0, 3, 1, 2)
+        image = self.transforms(image)
+        return image.permute(0, 2, 3, 1)
     
     def __getitem__(self, i):
         leftIndex = self.leftIndex[i]
@@ -394,8 +410,8 @@ class MyFontsImageData(FontData):
         rightImage = self.images[rightIndex]
         name = self.names[leftIndex]
 
-        leftImage = torch.tensor(leftImage, dtype=torch.float32)
-        rightImage = torch.tensor(rightImage, dtype=torch.float32)
+        leftImage = self._jiggle(torch.tensor(leftImage, dtype=torch.float32))
+        rightImage = self._jiggle(torch.tensor(rightImage, dtype=torch.float32))
 
         letter = self.letters[leftIndex] if (i % 2 == 0) else self.letters[leftIndex].upper()
         character = torch.tensor(characters.index(letter), dtype=torch.long)

@@ -52,7 +52,7 @@ class UNet(nn.Module):
 
     def forward(self, x):
         x = self.input(x)
-        x = torch.permute(x, [0, 3, 2, 1])
+        x = torch.permute(x, [0, 3, 1, 2])
 
         skips = []
         for l in range(self.config.layers):
@@ -65,8 +65,8 @@ class UNet(nn.Module):
             y = skips[self.config.layers - l - 1]
             x, z = up(x, y)
 
-        z = torch.permute(z, [0, 3, 2, 1])
-        c = torch.mean(self.classifier(xMid.permute(0, 3, 2, 1)), dim=(1, 2))
+        z = torch.permute(z, [0, 2, 3, 1])
+        c = torch.mean(self.classifier(xMid.permute(0, 2, 3, 1)), dim=(1, 2))
         z = self.out(z)
 
         if self.outputType == "pooled":
@@ -75,7 +75,7 @@ class UNet(nn.Module):
     
     def activations(self, x):
         x = self.input(x)
-        x = torch.permute(x, [0, 3, 2, 1])
+        x = torch.permute(x, [0, 3, 1, 2])
 
         activations = []
 
@@ -101,8 +101,8 @@ class UNet(nn.Module):
         loadedModel = UNet(loadedConfig.model)
 
         # Doofus. I saved the whole module, not just the state dict.
-        sys.modules["model"] = utils.model
-        sys.modules["config"] = utils.config
+        # sys.modules["model"] = utils.model
+        # sys.modules["config"] = utils.config
         loaded = torch.load(modelPath, weights_only=False, map_location="cuda" if torch.cuda.is_available() else "cpu")
         if hasattr(loaded, "state_dict"):
             loaded = loaded.state_dict()

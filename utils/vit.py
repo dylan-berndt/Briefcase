@@ -45,7 +45,7 @@ class ViT(nn.Module):
 
         self.patches = config.imageSize // config.patchSize, config.imageSize // config.patchSize
 
-        self.transpose = nn.ConvTranspose2d(config.embedDim, 1, kernel_size=self.patches, stride=self.patches)
+        self.transpose = nn.ConvTranspose2d(config.embedDim, 1, kernel_size=config.patchSize, stride=config.patchSize)
 
         if "textProjection" not in config:
             self.classifier = nn.Sequential(
@@ -61,7 +61,8 @@ class ViT(nn.Module):
         self.numLayers = config.layers * 2
 
     def forward(self, x):
-        x = self.patches(x)
+        x = x.permute(0, 3, 1, 2)
+        x = self.patching(x)
         print(x.shape)
         x = torch.cat([self.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
         x = self.transformer(x)
