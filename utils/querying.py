@@ -374,24 +374,45 @@ class MyFontsQueryData(QueryData):
 
 class MyFontsImageData(FontData):
     def __init__(self, config, training=False, limit=None):
-        self.config = config
-
         # TODO: Normalize
         self.transforms = v2.Compose([
             v2.RandomResizedCrop(size=(48, 48), scale=(0.7, 1.0), ratio=(1.0, 1.0)),
             v2.RandomRotation(degrees=10)
         ])
 
-        imageFunc = Loader(config.fontSize).loadRochesterImage
+        self.config = config
+        self.method = self.config.method if "method" in self.config else "upper"
+
+        if not os.path.exists(os.path.join(config.directory, "smallimage")):
+            os.mkdir(os.path.join(config.directory, "smallimage"))
+
+        if len(glob(os.path.join(config.directory, "smallimage", "*.bmp"))) == 0:
+            imageFunc = Loader(config.fontSize).loadRochesterImage
+            imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+            with Pool(processes=2) as pool:
+                for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                    img = Image.fromarray((array * 255).astype(np.uint8)).convert('L')
+                    fontName = name.split("_")[0]
+                    letter = name[-1].lower()
+                    case = "u" if name[-1] == name[-2] else "l"
+                    imageName = f"{fontName} {letter}{case}.bmp"
+                    img.save(os.path.join(config.directory, "smallimage", imageName))
+                    if i % 100 == 0:
+                        print(f"\rImages converted: {i + 1}/{len(imagePaths)}", end="")
+
+        print()
 
         images = {}
-
-        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+        imagePaths = glob(os.path.join(config.directory, "smallimage", "*.bmp"))
         if limit is not None:
             imagePaths = imagePaths[:limit]
-        with Pool(processes=2) as pool:
-            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
-                images[name] = array
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
+            futures = {executor.submit(loadImage, p): p for p in imagePaths}
+            for i, future in enumerate(as_completed(futures)):
+                results = future.result()
+                name, image = results
+                images[name] = image
+
                 if i % 100 == 0:
                     print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
 
@@ -441,6 +462,8 @@ class MyFontsImageData(FontData):
         self.leftIndex = leftIndex
         self.rightIndex = rightIndex
 
+        print(len(self.rightIndex), len(self.leftIndex))
+
         self.index = np.arange(np.sum(interactions))
 
         assert (len(self.leftIndex) == len(self.rightIndex)) and (len(self.rightIndex) == len(self.index))
@@ -449,9 +472,9 @@ class MyFontsImageData(FontData):
         return len(self.index)
     
     def _jiggle(self, image):
-        image = image.permute(0, 3, 1, 2)
+        image = image.unsqueeze(-1).permute(2, 0, 1)
         image = self.transforms(image)
-        return image.permute(0, 2, 3, 1)
+        return image.permute(1, 2, 0)
     
     def __getitem__(self, i):
         leftIndex = self.leftIndex[i]

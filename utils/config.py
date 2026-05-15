@@ -2,19 +2,12 @@ import json
 
 
 class Config:
-    def __init__(self, **kwargs):
-        object.__setattr__(self, "_values", kwargs)
-
+    def __init__(self):
+        object.__setattr__(self, "_values", {})
         self._location = None
 
     def keys(self):
         return self._values.keys()
-
-    def __str__(self):
-        output = ""
-        for key, value in self._values.items():
-            output += str(key) + " " + str(value) + "\n"
-        return output
 
     def __getitem__(self, key):
         if "." in key:
@@ -56,6 +49,9 @@ class Config:
     
     def overwrite(self):
         self.save(self._location)
+
+    def serialize(self):
+        return self._serialize(self)
 
     def save(self, path):
         with open(path, "w+") as file:

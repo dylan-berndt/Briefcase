@@ -1,21 +1,31 @@
 {
     "model": {
-        "layers": 4,
+        "layers": 8,
         "imageSize": 48,
         "patchSize": 8,
-        "embedDim": 128,
+        "embedDim": 256,
         "heads": 8
     },
     "dataset": {
         "fontSize": 32,
         "maps": "bitmaps",
         "split": "holdout",
-        "directory": "data",
+        "directory": "dataset",
         "method": "upper",
-        "standardFonts": ["Calibri", "Arial", "Tahoma", "Times New Roman"],
-        "stylizedFonts": ["Brush Script MT Italic", "Chiller Regular", "Goudy Stout Regular", "Jokerman Regular"]
+        "standardFonts": [
+            "Calibri",
+            "Arial",
+            "Tahoma",
+            "Times New Roman"
+        ],
+        "stylizedFonts": [
+            "Brush Script MT Italic",
+            "Chiller Regular",
+            "Goudy Stout Regular",
+            "Jokerman Regular"
+        ]
     },
     "batchSize": 128,
-    "learningRate": 1e-3,
+    "learningRate": 1e-4,
     "epochs": 80
 }

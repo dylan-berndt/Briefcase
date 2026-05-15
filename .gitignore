@@ -30,3 +30,5 @@ dataset.tar.gz
 /site/backend/fonts
 
 **/password.txt
+
+wandb
