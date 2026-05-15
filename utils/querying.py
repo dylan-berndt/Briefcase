@@ -18,6 +18,8 @@ from multiprocessing import Pool
 from bs4 import BeautifulSoup
 import spacy
 
+import math
+
 nlp = spacy.load("en_core_web_sm")
 
 
@@ -67,8 +69,6 @@ class Description:
         chosenDescriptors = random.sample(descriptors, min(len(descriptors), numDescriptors))
 
         joined = ", ".join(chosenDescriptors) + " font"
-        if random.uniform(0, 1) > 0.2:
-            joined = joined + " named " + self.name
 
         return "a " + joined
 
@@ -182,14 +182,14 @@ class QueryData(FontData):
     def collate(samples):
         inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
         outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
-        # characters = torch.stack([sample["class"] for sample in samples], dim=0)
+        characters = torch.stack([sample["class"] for sample in samples], dim=0)
         names = torch.tensor([sample["fontID"] for sample in samples], dtype=torch.long)
 
         tokens = Description.tokenizer([sample["description"] for sample in samples],
                                        padding="longest", truncation=True,
                                        return_tensors="pt")
 
-        return inputs, outputs, names, tokens
+        return inputs, outputs, names, tokens, characters
     
     @staticmethod
     def split(dataset, trainSplit=0.8, shuffle=True, seed=1234, batchSize=128):
@@ -227,14 +227,29 @@ class Loader:
         image = Image.open(imagePath).convert("RGBA")
         array = np.array(image)
 
-        alpha = 1 - (array[:, :image.size[1], 0] / 255)
-        # alpha = array[:array.shape[1], :]
-        fixed = cv2.resize(alpha, [self.fontSize, self.fontSize])
+        array = 1 - (array[:, :, 0] / 255)
+        charWidth = np.argmax(np.arange(array.shape[1]) * np.max(array, axis=0))
+        alpha = array[:, :charWidth]
+
+        # Height / Width
+        ratio = alpha.shape[0] / alpha.shape[1]
+        width, height = int(self.fontSize / ratio), self.fontSize
+
+        fixed = cv2.resize(alpha, [height, width])
 
         imageSize = int(self.fontSize * 1.5)
+        overflow = math.ceil((fixed.shape[1] - imageSize) / 2)
+        if overflow > 0:
+            fixed = fixed[:, overflow: overflow + imageSize]
+        overflow = math.ceil((fixed.shape[0] - imageSize) / 2)
+        if overflow > 0:
+            fixed = fixed[overflow: overflow + imageSize]
+
         full = np.zeros([imageSize, imageSize], dtype=np.float32)
-        padding = int(self.fontSize * 0.25)
-        full[padding:-padding, padding:-padding] = fixed
+
+        hPad = (imageSize - fixed.shape[0]) // 2
+        wPad = (imageSize - fixed.shape[1]) // 2
+        full[hPad:hPad + fixed.shape[0], wPad:wPad + fixed.shape[1]] = fixed
 
         name = os.path.basename(imagePath).removesuffix(".png")
 
@@ -258,16 +273,36 @@ class MyFontsData(QueryData):
         self.config = config
         self.method = self.config.method if "method" in self.config else "upper"
 
-        imageFunc = Loader(config.fontSize).loadRochesterImage
+        if not os.path.exists(os.path.join(config.directory, "smallimage")):
+            os.mkdir(os.path.join(config.directory, "smallimage"))
+
+        if len(glob(os.path.join(config.directory, "smallimage", "*.bmp"))) == 0:
+            imageFunc = Loader(config.fontSize).loadRochesterImage
+            imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+            with Pool(processes=2) as pool:
+                for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                    img = Image.fromarray((array * 255).astype(np.uint8)).convert('L')
+                    fontName = name.split("_")[0]
+                    letter = name[-1].lower()
+                    case = "u" if name[-1] == name[-2] else "l"
+                    imageName = f"{fontName} {letter}{case}.bmp"
+                    img.save(os.path.join(config.directory, "smallimage", imageName))
+                    if i % 100 == 0:
+                        print(f"\rImages converted: {i + 1}/{len(imagePaths)}", end="")
+
+        print()
 
         images = {}
-
-        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+        imagePaths = glob(os.path.join(config.directory, "smallimage", "*.bmp"))
         if limit is not None:
             imagePaths = imagePaths[:limit]
-        with Pool(processes=2) as pool:
-            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
-                images[name] = array
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
+            futures = {executor.submit(loadImage, p): p for p in imagePaths}
+            for i, future in enumerate(as_completed(futures)):
+                results = future.result()
+                name, image = results
+                images[name] = image
+
                 if i % 100 == 0:
                     print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
 
@@ -290,17 +325,23 @@ class MyFontsData(QueryData):
         pairs = []
         letters = []
         names = []
+        mse = []
         for key in images:
-            case = "u" if key[-1] == key[-2] else "l"
+            case = key[-1]
             if case == "l":
                 continue
-            other = key[:-2] + key[-1].lower()
+            other = key[:-1] + "l"
 
             if other not in images:
                 continue
 
+            if key[-2] not in characters:
+                continue
+
+            mse.append(np.mean(np.power(images[other] - images[key], 2)))
+
             pairs.append((images[other], images[key]))
-            letters.append(key[-2].lower())
+            letters.append(key[-2])
 
             names.append(key[:-3])
 
@@ -308,7 +349,17 @@ class MyFontsData(QueryData):
         self.pairs = np.array(pairs)
         self.letters = np.array(letters)
 
-        viable = np.isin(names, list(self.descriptions.keys()))
+        mse = np.array(mse)
+
+        if training:
+            mask = mse > np.percentile(mse, 40)
+
+            # Manually excluding "too similar" pairs
+            self.names = self.names[mask]
+            self.pairs = self.pairs[mask]
+            self.letters = self.letters[mask]
+
+        viable = np.isin(self.names, list(self.descriptions.keys()))
         print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
         self.index = np.arange(len(self.pairs))[viable]
 

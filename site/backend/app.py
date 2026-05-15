@@ -234,7 +234,7 @@ def updateRegistry():
 
         data = BytesIO(response.content)
 
-        images = list(imagesFromFont(data, conf.fontSize, int(conf.fontSize * 1.5), chars=latin))
+        font, fontName, fontStyle, images = imagesFromFont(data, conf.fontSize, int(conf.fontSize * 1.5), chars=latin)
         images = torch.stack([torch.tensor(np.array(image) / 255, dtype=torch.float32).unsqueeze(-1) for image in images], dim=0)
         
         embeddings = imageModel(images)

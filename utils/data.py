@@ -58,8 +58,9 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
     if save is not None:
         imagePath = os.path.join(save, "bitmaps", f"{fontName} {fontStyle} al.bmp")
         if os.path.exists(imagePath):
-            return
+            return font, fontName, fontStyle, []
 
+    canvases = []
     for char in chars:
         case = "l" if char == char.lower() else "u"
         name = f"{fontName} {fontStyle} {char.lower()}{case}"
@@ -87,9 +88,9 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
         if save is not None:
             canvas.save(path)
         else:
-            yield canvas
+            canvases.append(canvas)
 
-    return font, fontName, fontStyle
+    return font, fontName, fontStyle, canvases
 
 
 class FontData(Dataset):
@@ -116,7 +117,7 @@ class FontData(Dataset):
             if not os.path.isfile(fontPath):
                 continue
             try:
-                font, fontName, fontStyle = imagesFromFont(fontPath, config.fontSize, imageSize, config.directory)
+                font, fontName, fontStyle, _ = imagesFromFont(fontPath, config.fontSize, imageSize, config.directory)
                 self.fonts[f"{fontName} {fontStyle}"] = font
                 self.fontMap[f"{fontName} {fontStyle}"] = fontName
 

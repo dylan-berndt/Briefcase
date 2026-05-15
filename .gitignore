@@ -26,3 +26,5 @@ dataset.tar.gz
 **/__pycache__
 
 /site/backend/fonts
+
+**/password.txt
