@@ -470,6 +470,20 @@ class MyFontsImageData(FontData):
         return {"inputs": leftImage, "outputs": rightImage, "name": name,
                 "class": character, "letter": letter}
     
+    @staticmethod
+    def split(dataset, config):
+        fonts = np.unique(dataset.names)
+        np.random.shuffle(fonts)
+        trainFonts = set(fonts[:int(len(fonts) * 0.8)])
+        
+        trainMask = np.isin(dataset.names, list(trainFonts))
+        testMask = ~trainMask
+        
+        trainIndices = np.where(trainMask[dataset.leftIndex] & trainMask[dataset.rightIndex])[0]
+        testIndices = np.where(testMask[dataset.leftIndex] & testMask[dataset.rightIndex])[0]
+        
+        return torch.utils.data.Subset(dataset, trainIndices), torch.utils.data.Subset(dataset, testIndices)
+
 
 class CLIPEmbedder(nn.Module):
     def __init__(self, config):
