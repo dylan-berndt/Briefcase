@@ -14,10 +14,10 @@ import uuid
 import requests
 
 import sqlite3
-import sqlite_vss
+import sqlite_vec
 
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from utils import *
 
@@ -49,15 +49,15 @@ limiter = Limiter(
 
 conn = sqlite3.connect("fontsearch.db")
 conn.enable_load_extension(True)
-sqlite_vss.load(conn)
+sqlite_vec.load(conn)
 conn.enable_load_extension(False)
 cursor = conn.cursor()
 
 cursor.execute(f'''
-    CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vss0(
+    CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
         id INTEGER PRIMARY KEY,
         embedding({conf.model.textProjection}),
-        name TEXT NOT NULL,
+        name TEXT NOT NULL UNIQUE,
         location TEXT NOT NULL,
         file TEXT NOT NULL,
         paid INTEGER DEFAULT 0
@@ -84,7 +84,6 @@ cursor.execute('''
     )
 ''')
 
-# TODO: Add user description field, slowly improve model
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS descriptions (
         FOREIGN KEY (fontID) REFERENCES fonts (id),
@@ -132,7 +131,7 @@ def login():
     
     token = jwt.encode({'publicID': publicID, 'expiration': datetime.now(timezone.utc) + timedelta(hours=1)}, app.config["SECRET_KEY"], algorithm="HS256")
 
-    response = Flask.make_response(Flask.redirect(Flask.url_for("index")))
+    response = Flask.make_response(jsonify({'message': 'Logged in successfully'}), 200)
     response.set_cookie('token', token, httponly=True, secure=True, samesite="Strict")
 
     return response
@@ -202,7 +201,7 @@ def findFonts():
         output = textModel(**tokens).pooler_output
 
     cursor.execute(f'''
-        SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND vss_search(embedding, ?) LIMIT 20
+        SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND embedding match ? ORDER BY distance LIMIT 20
     ''', (includePaid, output.numpy().tolist()))
     rows = cursor.fetchall()
 
@@ -215,7 +214,25 @@ def findFonts():
 @limiter.limit("2 per minute")
 @loginRequired
 def describeFont(user):
-    pass
+    fontName = request.args.get("fontName", "")
+    cursor.execute('''
+        SELECT id FROM fonts WHERE name = ?
+    ''', (fontName,))
+    rows = cursor.fetchall()
+
+    if len(rows) == 0:
+        return jsonify({'message': 'Font not found'}), 401
+    
+    description = request.args.get("description", "")
+    if not description:
+        return jsonify({'message': 'Invalid description'}), 401
+    
+    cursor.execute('''
+        INSERT INTO descriptions (fontID, description, userID, created) VALUES (?, ?, ?, ?)
+    ''', (rows[0][0], description, user[0], datetime.now(timezone.utc)))
+    conn.commit()
+
+    return jsonify({'message': 'Successful'}), 200
 
 
 @app.route('/api/font/update', methods=['POST'])
@@ -246,7 +263,7 @@ def updateRegistry():
         cursor.execute(f"DELETE FROM registry WHERE id = {id}")
         conn.commit()
     
-    return jsonify("Successful"), 200
+    return jsonify({'message': 'Successful'}), 200
 
 
 def checkDomain(url):

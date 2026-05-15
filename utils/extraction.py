@@ -2,7 +2,7 @@
 # The script should extract all the activations from the model for each testing scenario
 # Can be reused in transferability estimation
 
-from .model import *
+from .unet import *
 from .data import *
 from .querying import *
 
