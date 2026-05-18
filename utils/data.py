@@ -92,97 +92,105 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
     return font, fontName, fontStyle, canvases
 
 
+def loadFontSet(directory, fontSize, maps):
+    if not os.path.exists(os.path.join(directory, "bitmaps")):
+        os.mkdir(os.path.join(directory, "bitmaps"))
+
+    if not os.path.exists(os.path.join(directory, "sdf")):
+        os.mkdir(os.path.join(directory, "sdf"))
+
+        # Just a bit of padding
+    imageSize = int(fontSize * 1.5)
+    ttfPaths = glob(os.path.join(directory, "fonts", "**", "*.ttf"), recursive=True)
+    otfPaths = glob(os.path.join(directory, "fonts", "**", "*.otf"), recursive=True)
+    fontPaths = ttfPaths + otfPaths
+
+    fonts = {}
+    fontMap = {}
+
+    for f, fontPath in enumerate(fontPaths):
+        if not os.path.isfile(fontPath):
+            continue
+        try:
+            font, fontName, fontStyle, _ = imagesFromFont(fontPath, fontSize, imageSize, directory)
+            fonts[f"{fontName} {fontStyle}"] = font
+            fontMap[f"{fontName} {fontStyle}"] = fontName
+
+        except Exception as e:
+            print(fontPath, e)
+
+        print(f"\rFonts serialized: {f + 1}/{len(fontPaths)}", end="")
+
+    # Creating SDFs from all the bitmaps
+    if maps == "sdf":
+        imagePaths = glob(os.path.join(directory, "bitmaps", "*"))
+        for i, imagePath in enumerate(imagePaths):
+            try:
+                path = os.path.join(directory, "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
+                if os.path.exists(path):
+                    continue
+
+                img = np.fromfile(imagePath, dtype=np.float32)
+
+                # Magic for sdf generation
+                bits = img > (np.max(img) - np.min(img)) / 2
+                sdf = dist(bits) - dist(~bits)
+
+                np.save(path, sdf / imageSize)
+            except Image.UnidentifiedImageError:
+                print(imagePath, "Unidentified")
+
+            print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
+
+    images = {}
+    imagePaths = glob(os.path.join(directory, maps, "*"))
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
+        for i, result in enumerate(executor.map(loadImage, imagePaths)):
+            name, image = result
+            images[name] = image
+
+            if i % 100 == 0:
+                print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
+
+    pairs = []
+    mse = []
+    letters = []
+    names = []
+    for key in images:
+        case = key[-1]
+        if case == "l":
+            continue
+        other = key[:-1] + "l"
+
+        if other not in images:
+            continue
+
+        if key[-2] not in characters:
+            continue
+
+        mse.append(np.mean(np.power(images[other] - images[key], 2)))
+
+        pairs.append((images[other], images[key]))
+        letters.append(key[-2])
+
+        names.append(key[:-3])
+
+    names = np.array(names)
+    pairs = np.array(pairs)
+    mse = np.array(mse)
+    letters = np.array(letters)
+
+    return {"names": names, "letters": letters, "pairs": pairs, "mse": mse}
+
+
 class FontData(Dataset):
     def __init__(self, config: Config, training=True):
         self.config = config
         self.method = self.config.method if "method" in self.config else "upper"
 
-        if not os.path.exists(os.path.join(config.directory, "bitmaps")):
-            os.mkdir(os.path.join(config.directory, "bitmaps"))
+        data = loadFontSet(config.directory, config.fontSize, config.maps)
 
-        if not os.path.exists(os.path.join(config.directory, "sdf")):
-            os.mkdir(os.path.join(config.directory, "sdf"))
-
-         # Just a bit of padding
-        imageSize = int(config.fontSize * 1.5)
-        ttfPaths = glob(os.path.join(config.directory, "fonts", "**", "*.ttf"), recursive=True)
-        otfPaths = glob(os.path.join(config.directory, "fonts", "**", "*.otf"), recursive=True)
-        fontPaths = ttfPaths + otfPaths
-
-        self.fonts = {}
-        self.fontMap = {}
-
-        for f, fontPath in enumerate(fontPaths):
-            if not os.path.isfile(fontPath):
-                continue
-            try:
-                font, fontName, fontStyle, _ = imagesFromFont(fontPath, config.fontSize, imageSize, config.directory)
-                self.fonts[f"{fontName} {fontStyle}"] = font
-                self.fontMap[f"{fontName} {fontStyle}"] = fontName
-
-            except Exception as e:
-                print(fontPath, e)
-
-            print(f"\rFonts serialized: {f + 1}/{len(fontPaths)}", end="")
-
-        # Creating SDFs from all the bitmaps
-        if config.maps == "sdf":
-            imagePaths = glob(os.path.join(config.directory, "bitmaps", "*"))
-            for i, imagePath in enumerate(imagePaths):
-                try:
-                    path = os.path.join(config.directory, "sdf", os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
-                    if os.path.exists(path):
-                        continue
-
-                    img = np.fromfile(imagePath, dtype=np.float32)
-
-                    # Magic for sdf generation
-                    bits = img > (np.max(img) - np.min(img)) / 2
-                    sdf = dist(bits) - dist(~bits)
-
-                    np.save(path, sdf / imageSize)
-                except Image.UnidentifiedImageError:
-                    print(imagePath, "Unidentified")
-
-                print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
-
-        images = {}
-        imagePaths = glob(os.path.join(config.directory, config.maps, "*"))
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-            for i, result in enumerate(executor.map(loadImage, imagePaths)):
-                name, image = result
-                images[name] = image
-
-                if i % 100 == 0:
-                    print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
-
-        pairs = []
-        mse = []
-        letters = []
-        names = []
-        for key in images:
-            case = key[-1]
-            if case == "l":
-                continue
-            other = key[:-1] + "l"
-
-            if other not in images:
-                continue
-
-            if key[-2] not in characters:
-                continue
-
-            mse.append(np.mean(np.power(images[other] - images[key], 2)))
-
-            pairs.append((images[other], images[key]))
-            letters.append(key[-2])
-
-            names.append(key[:-3])
-
-        names = np.array(names)
-        pairs = np.array(pairs)
-        mse = np.array(mse)
-        letters = np.array(letters)
+        names, letters, pairs, mse = data["names"], data["letters"], data["pairs"], data["mse"]
 
         # plt.hist(mse, bins=10)
         # plt.grid()

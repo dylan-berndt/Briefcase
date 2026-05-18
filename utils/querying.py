@@ -372,42 +372,63 @@ class MyFontsQueryData(QueryData):
         # self.fonts Name -> Loaded Font 
 
 
-class MyFontsImageData(FontData):
+def loadMyFontsImages(directory, fontSize, limit):
+    imageFunc = Loader(fontSize).loadRochesterImage
+
+    images = {}
+
+    imagePaths = glob(os.path.join(directory, "fontimage", "*.png"))
+    if limit is not None:
+        imagePaths = imagePaths[:limit]
+    with Pool(processes=2) as pool:
+        for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+            images[name] = array
+            if i % 100 == 0:
+                print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
+
+    print()
+
+    letters = []
+    names = []
+    pairs = []
+    for key in images:
+        letters.append(key[-2].lower())
+        names.append(key[:-3])
+        pairs.append(images[key])
+
+    return {"names": np.array(names), "letters": np.array(letters), "pairs": np.array(pairs)}
+
+
+class PairedImageData(FontData):
     def __init__(self, config, training=False, limit=None):
         self.config = config
 
+        imageSize = int(config.fontSize * 1.5)
+
         # TODO: Normalize
         self.transforms = v2.Compose([
-            v2.RandomResizedCrop(size=(48, 48), scale=(0.7, 1.0), ratio=(1.0, 1.0)),
-            v2.RandomRotation(degrees=10)
+            v2.RandomResizedCrop(size=(imageSize, imageSize), scale=(0.7, 1.0), ratio=(1.0, 1.0)),
+            v2.RandomRotation(degrees=25)
         ])
 
-        imageFunc = Loader(config.fontSize).loadRochesterImage
+        if "directories" in config:
+            names = []
+            letters = []
+            pairs = []
+            if "myFonts" in config.directories:
+                data = loadMyFontsImages(config.directories.myFonts, config.fontSize, limit)
+                names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
+            if "daFont" in config.directories:
+                data = loadFontSet(config.directories.dafont, config.fontSize, config.maps)
+                names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
+            names = np.concat(names, axis=0); letters = np.concat(letters, axis=0); pairs = np.concat(pairs, axis=0)
+        else:
+            data = loadMyFontsImages(config.directory, config.fontSize, limit)
+            names, letters, pairs = data["names"], data["letters"], data["pairs"]
 
-        images = {}
-
-        imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
-        if limit is not None:
-            imagePaths = imagePaths[:limit]
-        with Pool(processes=2) as pool:
-            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
-                images[name] = array
-                if i % 100 == 0:
-                    print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
-
-        print()
-
-        letters = []
-        names = []
-        pairs = []
-        for key in images:
-            letters.append(key[-2].lower())
-            names.append(key[:-3])
-            pairs.append(images[key])
-
-        self.names = np.array(names)
-        self.letters = np.array(letters)
-        self.images = np.array(pairs)
+        self.names = names
+        self.letters = letters
+        self.pairs = pairs
 
         indices = np.argsort(self.names)
 

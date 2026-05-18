@@ -1,16 +1,19 @@
 {
     "model": {
         "layers": 4,
-        "imageSize": 48,
+        "imageSize": 96,
         "patchSize": 8,
         "embedDim": 128,
         "heads": 8
     },
     "dataset": {
-        "fontSize": 32,
+        "fontSize": 64,
         "maps": "bitmaps",
         "split": "holdout",
         "directory": "data",
+        "directories": {
+            "myFonts": "data"
+        },
         "method": "upper",
         "standardFonts": ["Calibri", "Arial", "Tahoma", "Times New Roman"],
         "stylizedFonts": ["Brush Script MT Italic", "Chiller Regular", "Goudy Stout Regular", "Jokerman Regular"]
