@@ -11,7 +11,8 @@
         "maps": "bitmaps",
         "split": "holdout",
         "directories": {
-            "myFonts": "dataset"
+            "myFonts": "dataset",
+            "standard": ["google", "data", "dafont"]
         },
         "directory": "dataset",
         "method": "upper",

@@ -93,6 +93,8 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
 
 
 def loadFontSet(directory, fontSize, maps):
+    print(f"\nLoading font images from {directory} {'=' * 20}")
+
     if not os.path.exists(os.path.join(directory, "bitmaps")):
         os.mkdir(os.path.join(directory, "bitmaps"))
 

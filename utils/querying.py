@@ -373,6 +373,8 @@ class MyFontsQueryData(QueryData):
 
 
 def loadMyFontsImages(directory, fontSize, limit):
+    print(f"\nLoading MyFonts images from {directory} {'=' * 20}")
+
     if not os.path.exists(os.path.join(directory, "smallimage")):
         os.mkdir(os.path.join(directory, "smallimage"))
 
@@ -425,12 +427,12 @@ class PairedImageData(FontData):
 
         imageSize = int(config.fontSize * 1.5)
 
-        # TODO: Normalize
         self.transforms = v2.Compose([
             v2.RandomResizedCrop(size=(imageSize, imageSize), scale=(0.7, 1.0), ratio=(1.0, 1.0)),
             v2.RandomRotation(degrees=25)
         ])
 
+        # TODO: Normalize each set of images
         if "directories" in config:
             names = []
             letters = []
@@ -438,9 +440,10 @@ class PairedImageData(FontData):
             if "myFonts" in config.directories:
                 data = loadMyFontsImages(config.directories.myFonts, config.fontSize, limit)
                 names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
-            if "daFont" in config.directories:
-                data = loadFontSet(config.directories.dafont, config.fontSize, config.maps)
-                names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
+            if "standard" in config.directories:
+                for directory in config.directories.standard:
+                    data = loadFontSet(directory, config.fontSize, config.maps)
+                    names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
             names = np.concat(names, axis=0); letters = np.concat(letters, axis=0); pairs = np.concat(pairs, axis=0)
         else:
             data = loadMyFontsImages(config.directory, config.fontSize, limit)
