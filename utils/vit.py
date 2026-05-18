@@ -63,7 +63,6 @@ class ViT(nn.Module):
     def forward(self, x):
         x = x.permute(0, 3, 1, 2)
         x = self.patching(x)
-        print(x.shape)
         x = torch.cat([self.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
         x = self.transformer(x)
 
@@ -75,7 +74,6 @@ class ViT(nn.Module):
         x = x.permute(0, 3, 1, 2)
 
         x = self.transpose(x)
-        print(x.shape)
 
         return x, c
 
