@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Backend code
 COPY site/backend ./backend
+COPY utils ./backend/utils
 
 # Inject React build into Flask static folder
 COPY --from=frontend-build /frontend/build ./backend/static
