@@ -28,7 +28,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ toLower(github.repository) }}:latest
+          tags: ghcr.io/dylan-berndt/briefcase:latest
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
