@@ -24,7 +24,7 @@ from utils import *
 
 from datetime import datetime, timezone, timedelta
 
-testDir = os.path.join("..", "..", "checkpoints", "finetune", "best")
+testDir = os.path.join("checkpoints", "finetune", "best")
 # print(os.path.exists(testDir))
 textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"), local_files_only=True)
 Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
