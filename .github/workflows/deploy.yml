@@ -40,5 +40,6 @@ jobs:
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
             cd /opt/fontSearch
+            docker system prune -a -f
             docker compose pull
             docker compose up -d
