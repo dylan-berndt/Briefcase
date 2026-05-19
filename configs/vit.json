@@ -1,18 +1,19 @@
 {
     "model": {
         "layers": 8,
-        "imageSize": 96,
+        "imageSize": 48,
         "patchSize": 8,
         "embedDim": 256,
         "heads": 8
     },
     "dataset": {
-        "fontSize": 64,
+        "fontSize": 32,
         "maps": "bitmaps",
         "split": "holdout",
         "directories": {
-            "myFonts": "dataset",
-            "standard": ["google", "data", "dafont"]
+            "standard": [
+                "google"
+            ]
         },
         "directory": "dataset",
         "method": "upper",

@@ -92,6 +92,72 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
     return font, fontName, fontStyle, canvases
 
 
+# TODO: Combine this and loadFontSet
+def collectFontSetPaths(directory, fontSize, maps):
+    print(f"\nCollecting font paths from {directory} {'=' * 20}")
+
+    if not os.path.exists(os.path.join(directory, "bitmaps")):
+        os.mkdir(os.path.join(directory, "bitmaps"))
+    if not os.path.exists(os.path.join(directory, "sdf")):
+        os.mkdir(os.path.join(directory, "sdf"))
+
+    imageSize = int(fontSize * 1.5)
+    ttfPaths = glob(os.path.join(directory, "fonts", "**", "*.ttf"), recursive=True)
+    otfPaths = glob(os.path.join(directory, "fonts", "**", "*.otf"), recursive=True)
+
+    for f, fontPath in enumerate(ttfPaths + otfPaths):
+        if not os.path.isfile(fontPath):
+            continue
+        try:
+            imagesFromFont(fontPath, fontSize, imageSize, directory)
+        except Exception as e:
+            print(fontPath, e)
+        print(f"\rFonts serialized: {f + 1}/{len(ttfPaths + otfPaths)}", end="")
+
+    print()
+
+    if maps == "sdf":
+        imagePaths = glob(os.path.join(directory, "bitmaps", "*"))
+        for i, imagePath in enumerate(imagePaths):
+            try:
+                sdfPath = os.path.join(directory, "sdf",
+                              os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
+                if os.path.exists(sdfPath):
+                    continue
+                img = np.fromfile(imagePath, dtype=np.float32)
+                bits = img > (np.max(img) - np.min(img)) / 2
+                sdf = dist(bits) - dist(~bits)
+                np.save(sdfPath, sdf / imageSize)
+            except Image.UnidentifiedImageError:
+                print(imagePath, "Unidentified")
+            print(f"\rSDFs generated: {i + 1}/{len(imagePaths)}", end="")
+
+    print()
+
+    ext = ".npy" if maps == "sdf" else ".bmp"
+
+    # Build a set of available filenames for quick sibling lookup
+    allPaths = glob(os.path.join(directory, maps, "*"))
+    available = {os.path.basename(p): p for p in allPaths}
+
+    names, letters, paths = [], [], []
+    for basename, path in available.items():
+        stem = basename.removesuffix(ext)
+        char = stem[-2]
+
+        if "ԵՒ" in stem:
+            continue
+
+        if char not in characters:
+            continue
+
+        names.append(stem[:-3])
+        letters.append(char)
+        paths.append(path)
+
+    return {"names": np.array(names), "letters": np.array(letters), "paths": np.array(paths)}
+
+
 def loadFontSet(directory, fontSize, maps):
     print(f"\nLoading font images from {directory} {'=' * 20}")
 

@@ -8,6 +8,7 @@
 /windows/sdf
 /windows/fonts
 /dataset
+/dafont
 
 dataset.tar.gz
 
@@ -20,6 +21,8 @@ dataset.tar.gz
 /style/results/clustering
 
 /checkpoints/finetune/*
+/checkpoints/pretrain/*
+!/checkpoints/pretrain/best
 !/checkpoints/finetune/best
 
 /venv
