@@ -22,10 +22,8 @@ from torchvision.transforms import v2
 
 import math
 
-nlp = spacy.load("en_core_web_sm")
 
-
-def getAdjectives(filePath):
+def getAdjectives(filePath, nlp):
     with open(filePath, "r", encoding="utf-8") as file:
         data = file.read()
         soup = BeautifulSoup(data, 'html.parser')
@@ -81,33 +79,36 @@ class Description:
         return len(tokens["input_ids"][0])
     
 
-def loadFolderDescription(walk):
-    root, dirs, files = walk
-    if not any([file.endswith("METADATA.pb") for file in files]):
-        return None
+def folderFactory(nlp):
+    def loadFolderDescription(walk):
+        root, dirs, files = walk
+        if not any([file.endswith("METADATA.pb") for file in files]):
+            return None
+        
+        fontNames = []
+        fontStyles = []
+        caption = None
+        
+        for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
+            if file.endswith(".html"):
+                caption = getAdjectives(file, nlp)
+
+        otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
+        ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
+        for filePath in (otf + ttf):
+            try:
+                font = ImageFont.truetype(filePath, 32)
+                fontName, fontStyle = font.getname()
+                fontNames.append(fontName)
+                fontStyles.append(fontStyle)
+
+            except Exception as e:
+                print(filePath, e)
+                continue
+
+        return fontNames, fontStyles, caption
     
-    fontNames = []
-    fontStyles = []
-    caption = None
-    
-    for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
-        if file.endswith(".html"):
-            caption = getAdjectives(file)
-
-    otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
-    ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
-    for filePath in (otf + ttf):
-        try:
-            font = ImageFont.truetype(filePath, 32)
-            fontName, fontStyle = font.getname()
-            fontNames.append(fontName)
-            fontStyles.append(fontStyle)
-
-        except Exception as e:
-            print(filePath, e)
-            continue
-
-    return fontNames, fontStyles, caption
+    return loadFolderDescription
 
 
 # This is very specifically tailored to the Google Fonts repository
@@ -119,11 +120,13 @@ class QueryData(FontData):
 
         self.descriptions = {}
 
+        nlp = spacy.load("en_core_web_sm")
+
         walks = os.walk(os.path.join(config.directory, "fonts"))
         roots = [root for root, dirs, files in walks]
         walks = os.walk(os.path.join(config.directory, "fonts"))
         with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-            for i, result in enumerate(executor.map(loadFolderDescription, walks)):
+            for i, result in enumerate(executor.map(folderFactory(nlp), walks)):
                 if result is None:
                     continue
 
@@ -233,9 +236,15 @@ class Loader:
         charWidth = np.argmax(np.arange(array.shape[1]) * np.max(array, axis=0))
         alpha = array[:, :charWidth]
 
+        if alpha.shape[0] == 0 or alpha.shape[1] == 0:
+            return None, None
+
         # Height / Width
         ratio = alpha.shape[0] / alpha.shape[1]
         width, height = int(self.fontSize / ratio), self.fontSize
+
+        if height <= 0 or width <= 0:
+            return None, None
 
         fixed = cv2.resize(alpha, [height, width])
 
@@ -283,6 +292,9 @@ class MyFontsQueryData(QueryData):
             imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
             with Pool(processes=2) as pool:
                 for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                    if name == None:
+                        continue
+
                     img = Image.fromarray((array * 255).astype(np.uint8)).convert('L')
                     fontName = name.split("_")[0]
                     letter = name[-1].lower()
@@ -372,7 +384,7 @@ class MyFontsQueryData(QueryData):
         # self.fonts Name -> Loaded Font 
 
 
-def loadMyFontsImages(directory, fontSize, limit):
+def loadMyFontsImagePaths(directory, fontSize):
     print(f"\nLoading MyFonts images from {directory} {'=' * 20}")
 
     if not os.path.exists(os.path.join(directory, "smallimage")):
@@ -383,6 +395,9 @@ def loadMyFontsImages(directory, fontSize, limit):
         imagePaths = glob(os.path.join(directory, "fontimage", "*.png"))
         with Pool(processes=2) as pool:
             for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                if name == None:
+                    continue
+
                 img = Image.fromarray((array * 255).astype(np.uint8)).convert('L')
                 fontName = name.split("_")[0]
                 letter = name[-1].lower()
@@ -394,31 +409,15 @@ def loadMyFontsImages(directory, fontSize, limit):
 
     print()
 
-    images = {}
     imagePaths = glob(os.path.join(directory, "smallimage", "*.bmp"))
-    if limit is not None:
-        imagePaths = imagePaths[:limit]
-    with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-        futures = {executor.submit(loadImage, p): p for p in imagePaths}
-        for i, future in enumerate(as_completed(futures)):
-            results = future.result()
-            name, image = results
-            images[name] = image
+    names, letters, paths = [], [], []
+    for p in imagePaths:
+        name = os.path.basename(p).removesuffix(".bmp")
+        names.append(name[:-3])
+        letters.append(name[-2])
+        paths.append(p)
 
-            if i % 100 == 0:
-                print(f"\rImages loaded: {i + 1}/{len(imagePaths)}", end="")
-
-    print()
-
-    letters = []
-    names = []
-    pairs = []
-    for key in images:
-        letters.append(key[-2].lower())
-        names.append(key[:-3])
-        pairs.append(images[key])
-
-    return {"names": np.array(names), "letters": np.array(letters), "pairs": np.array(pairs)}
+    return {"names": np.array(names), "letters": np.array(letters), "paths": np.array(paths)}
 
 
 class PairedImageData(FontData):
@@ -436,28 +435,29 @@ class PairedImageData(FontData):
         if "directories" in config:
             names = []
             letters = []
-            pairs = []
+            paths = []
             if "myFonts" in config.directories:
-                data = loadMyFontsImages(config.directories.myFonts, config.fontSize, limit)
-                names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
+                data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize)
+                names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
-                    data = loadFontSet(directory, config.fontSize, config.maps)
-                    names.append(data["names"]); letters.append(data["letters"]); pairs.append(data["pairs"])
-            names = np.concat(names, axis=0); letters = np.concat(letters, axis=0); pairs = np.concat(pairs, axis=0)
+                    data = collectFontSetPaths(directory, config.fontSize, config.maps)
+                    names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
+
+            names = np.concatenate(names, axis=0); letters = np.concatenate(letters, axis=0); paths = np.concatenate(paths, axis=0)
         else:
-            data = loadMyFontsImages(config.directory, config.fontSize, limit)
-            names, letters, pairs = data["names"], data["letters"], data["pairs"]
+            data = loadMyFontsImagePaths(config.directory, config.fontSize)
+            names, letters, paths = data["names"], data["letters"], data["paths"]
 
         self.names = names
         self.letters = letters
-        self.pairs = pairs
+        self.paths = paths
 
         indices = np.argsort(self.names)
 
         self.names = self.names[indices]
         self.letters = self.letters[indices]
-        self.images = self.images[indices]
+        self.paths = self.paths[indices]
 
         fonts, glyphsPerFont = np.unique(self.names, return_counts=True)
         interactions = np.power(glyphsPerFont, 2)
@@ -503,15 +503,32 @@ class PairedImageData(FontData):
         leftIndex = self.leftIndex[i]
         rightIndex = self.rightIndex[i]
 
-        leftImage = self.images[leftIndex]
-        rightImage = self.images[rightIndex]
+        leftImagePath = self.paths[leftIndex]
+        rightImagePath = self.paths[rightIndex]
+
+        _, leftImage = loadImage(leftImagePath)
+        _, rightImage = loadImage(rightImagePath)
+
+        if leftImage is None:
+            imageSize = int(self.config.fontSize * 1.5)
+            leftImage = np.zeros((imageSize, imageSize), dtype=np.float32)
+
+        if rightImage is None:
+            imageSize = int(self.config.fontSize * 1.5)
+            rightImage = np.zeros((imageSize, imageSize), dtype=np.float32)
+
         name = self.names[leftIndex]
 
         leftImage = self._jiggle(torch.tensor(leftImage, dtype=torch.float32))
         rightImage = self._jiggle(torch.tensor(rightImage, dtype=torch.float32))
 
         letter = self.letters[leftIndex] if (i % 2 == 0) else self.letters[leftIndex].upper()
-        character = torch.tensor(characters.index(letter), dtype=torch.long)
+        # Bastard: "ԵՒ" 
+        if letter in characters:
+            num = characters.index(letter)
+        else:
+            num = -1
+        character = torch.tensor(num, dtype=torch.long)
 
         return {"inputs": leftImage, "outputs": rightImage, "name": name,
                 "class": character, "letter": letter}

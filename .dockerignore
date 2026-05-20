@@ -1,0 +1,13 @@
+checkpoints/**
+!checkpoints/finetune/
+!checkpoints/finetune/best
+
+**/node_modules/**
+node_modules
+
+__pycache__
+*.pyc
+.git
+
+.env
+*.log
