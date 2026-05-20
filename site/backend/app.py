@@ -259,7 +259,7 @@ def findFonts(cursor):
     cursor.execute('''
         SELECT m.name, f.distance, m.location, m.file
         FROM fonts f
-        JOIN fontsMeta m ON m.id = f.rowid
+        JOIN fontsMeta m ON m.id = f.id
         WHERE embedding MATCH ?
         AND (? OR NOT m.paid)
         ORDER BY distance
@@ -324,7 +324,7 @@ def updateRegistry(cursor, user):
         cursor.execute("INSERT INTO fontsMeta (name, location, file, paid) VALUES (?, ?, ?, ?)",
                        (name, location, file, paid))
         fontID = cursor.lastrowid
-        cursor.execute("INSERT INTO fonts (rowid, embedding) VALUES (?, ?)",
+        cursor.execute("INSERT INTO fonts (id, embedding) VALUES (?, ?)",
                        (fontID, embedding))
         cursor.execute(f"DELETE FROM registry WHERE id = ?", (id,))
     
