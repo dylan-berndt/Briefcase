@@ -2,8 +2,8 @@ import json
 
 
 class Config:
-    def __init__(self):
-        object.__setattr__(self, "_values", {})
+    def __init__(self, **kwargs):
+        object.__setattr__(self, "_values", kwargs)
         self._location = None
 
     def keys(self):
