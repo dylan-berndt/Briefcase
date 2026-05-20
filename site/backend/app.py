@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, abort
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask import g, send_from_directory
+from flask import g, send_from_directory, make_response
 
 import json
 import os
@@ -237,7 +237,7 @@ def login(cursor):
     
     token = jwt.encode({'publicID': publicID, 'exp': datetime.now(timezone.utc) + timedelta(hours=1)}, app.config["SECRET_KEY"], algorithm="HS256")
 
-    response = Flask.make_response(jsonify({'message': 'Logged in successfully'}), 200)
+    response = make_response(jsonify({'message': 'Logged in successfully'}), 200)
     response.set_cookie('token', token, httponly=True, secure=True, samesite="Strict")
 
     return response
@@ -258,12 +258,14 @@ def findFonts(cursor):
 
     cursor.execute('''
         SELECT m.name, f.distance, m.location, m.file
-        FROM fonts f
+        FROM (
+            SELECT id, distance FROM fonts
+            WHERE embedding MATCH ?
+            ORDER BY distance
+            LIMIT 20
+        )
         JOIN fontsMeta m ON m.id = f.id
-        WHERE embedding MATCH ?
-        AND (? OR NOT m.paid)
-        ORDER BY distance
-        LIMIT 20
+        WHERE (? OR NOT m.paid)
     ''', (embeddingSerialized, includePaid))
     rows = cursor.fetchall()
 
