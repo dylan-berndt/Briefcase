@@ -37,7 +37,7 @@ imageModel.eval()
 freeDomains = ["www.dafont.com", "fonts.google.com", "www.fontsquirrel.com"]
 paidDomains = ["www.myfonts.com"]
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 limiter = Limiter(
     get_remote_address,
@@ -356,7 +356,8 @@ def addFontToRegistry(cursor, user):
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
-    if path != "" and os.path.exists(f"static/{path}"):
+    fullPath = os.path.join("static", path)
+    if path != "" and os.path.exists(fullPath):
         return send_from_directory("static", path)
     return send_from_directory("static", "index.html")
 

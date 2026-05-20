@@ -240,7 +240,7 @@ function LoginPopup() {
 					onChange={loginChange}
 					/>
 				</div>
-				<div>
+				<div style={{marginBottom: "2vh"}}>
 					<label htmlFor="password">Password:</label>
 					<input
 					type="password"
@@ -293,10 +293,6 @@ function App() {
 
 	return (
 		<>
-			<header className="Bar">
-				<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>Login</button>
-				{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
-			</header>
 			<div className="App">
 				<div className="Shader">
 					<Canvas
@@ -308,12 +304,16 @@ function App() {
 					</Canvas>
 				</div>
 				<div className="Shadow">
+					<header className="Bar">
+						<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>Login</button>
+						{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
+					</header>
 					<div className="Center">
 						<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }}>
 							Font Search <br></br>
 						</p>
 						<div style={{ height: "6vmin" }}></div>
-						<p style={{ fontSize: "3vmin" }}>
+						<p style={{ fontSize: "3vmin", marginBottom: "4vh" }}>
 							Please enter a description to search for a font
 						</p>
 						{resultsIssue === "" ? <></> : <p>{resultsIssue.toString()}</p>}

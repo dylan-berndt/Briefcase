@@ -1,85 +1,354 @@
-.App {
-  text-align: center;
+@import url('https://fonts.googleapis.com/css2?family=Aldrich&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
 
-  /* background-image: url("assets/logan-voss-nGrIkzJdVlg-unsplash.jpg");
-  background-size: 40vmax;
-  background-repeat: repeat; */
-
-  width: 100%;
-  height: 100%;
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-.Shadow {
-  box-shadow: 0 0 4vmin rgba(0, 0, 0, 1.0);
-  width: 80vw;
-  margin-left: 10vw;
-  height: 100%;
+:root {
+  --col-bg: #111214;
+  --col-surface: #18191d;
+  --col-surface-2: #1f2026;
+  --col-border: rgba(255, 255, 255, 0.07);
+  --col-border-hover: rgba(255, 255, 255, 0.14);
+  --col-text: #e8e6e0;
+  --col-text-muted: #7a7870;
+  --col-accent: #c8b89a;
+  --col-accent-dim: rgba(200, 184, 154, 0.12);
+  --font-sans: 'Aldrich', sans-serif;
+  --font-mono: 'Aldrich', monospace;
+  --ui-width: 70vw;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--col-bg);
+  color: var(--col-text);
+}
+
+/* ── Layout ── */
+
+.App {
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
 }
 
 .Shader {
   width: 100%;
   height: 100%;
-  z-index: -1;
+  z-index: 0;
   position: fixed;
+  top: 0;
+  left: 0;
+}
+
+.Shadow {
+  position: relative;
+  z-index: 1;
+  width: var(--ui-width);
+  margin: 0 auto;
+  min-height: 100vh;
+  box-shadow: 0 0 4vmin rgba(0, 0, 0, 1.0);
 }
 
 .Center {
-  background-color: #1d1e20;
+  background-color: var(--col-surface);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
-  width: 100%;
-
-  box-shadow: inset 0 0 6vmin rgba(0, 0, 0, 1.0);
+  padding: 120px 48px 64px;
+  gap: 0;
 }
 
+/* ── Top bar ── */
+
 .Bar {
-  height: 10vh;
-  position: fixed;
-  width: 80vw;
-  margin-left: 10vw;
+  position: absolute;
+  top: 0;
+  z-index: 100;
+  width: var(--ui-width);
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  background: rgba(24, 25, 29, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--col-border);
 }
 
 .Bar button {
-  background-color: #1d1e20;
-  color: white;
-  font-size: 1vw;
-  border: none;
-  width: 6vw;
-  margin-left: calc(70vw - 3vw);
-  margin-top: 2vh;
-  background-color: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--col-text-muted);
+  background: transparent;
+  border: 1px solid var(--col-border);
+  border-radius: 4px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
 }
+
+.Bar button:hover {
+  color: var(--col-text);
+  border-color: var(--col-border-hover);
+}
+
+/* ── Heading ── */
+
+.Center > p:first-child {
+  font-family: var(--font-mono);
+  font-size: clamp(28px, 5vmin, 48px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--col-text);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.Center > p:nth-child(2) {
+  font-size: clamp(12px, 1.8vmin, 14px);
+  color: var(--col-text-muted);
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  margin-bottom: 32px;
+}
+
+/* ── Search input ── */
+
+.Center input[type="text"] {
+  font-family: var(--font-sans);
+  font-size: clamp(14px, 2vmin, 16px);
+  background: var(--col-surface-2);
+  color: var(--col-text);
+  border: 1px solid var(--col-border);
+  border-radius: 6px;
+  padding: 12px 18px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+  caret-color: var(--col-accent);
+}
+
+.Center input[type="text"]::placeholder {
+  color: var(--col-text-muted);
+}
+
+.Center input[type="text"]:focus {
+  border-color: var(--col-accent);
+}
+
+/* ── Results ── */
+
+.Results {
+  width: 100%;
+  margin-top: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ResultWindow {
+  background: var(--col-surface-2);
+  border: 1px solid var(--col-border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+  text-decoration: none;
+  color: inherit;
+}
+
+.ResultWindow:hover {
+  border-color: var(--col-border-hover);
+}
+
+a:has(.ResultWindow) {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+.FontWindow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 24px;
+  gap: 16px;
+}
+
+.FontWindow > div > p:first-child {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--col-text-muted);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.FontWindow > div > p:last-child {
+  font-size: clamp(14px, 2.2vmin, 18px);
+  line-height: 1.7;
+  color: var(--col-text);
+}
+
+.FontWindow button {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--col-text-muted);
+  background: transparent;
+  border: 1px solid var(--col-border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.FontWindow button:hover {
+  color: var(--col-text);
+  border-color: var(--col-border-hover);
+}
+
+.DescriptionField {
+  border-top: 1px solid var(--col-border);
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--col-surface);
+}
+
+.DescriptionField p {
+  font-size: 12px;
+  color: var(--col-text-muted);
+  letter-spacing: 0.03em;
+}
+
+.DescriptionField input {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  background: var(--col-surface-2);
+  color: var(--col-text);
+  border: 1px solid var(--col-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.DescriptionField input:focus {
+  border-color: var(--col-accent);
+}
+
+/* ── Login popup ── */
 
 .LoginPopup {
-  background-color: transparent;
-  margin-right: 0;
-  margin: 0;
-  width: 20vw;
-  margin-left: 60vw;
-  margin-top: 3vh;
-}
-
-.LoginPopup div {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  width: 280px;
+  background: var(--col-surface);
+  border: 1px solid var(--col-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 20px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
 }
 
+.LoginPopup > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-.LoginPopup input {
-  margin-left: 1vw;
+.LoginPopup p {
+  font-size: 12px;
+  color: var(--col-text-muted);
+  text-align: center;
+}
+
+.LoginPopup div > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .LoginPopup label {
-  color: white;
-  font-size: 1vw;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--col-text-muted);
 }
 
-.LoginPopup button {
+.LoginPopup input {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--col-surface-2);
+  color: var(--col-text);
+  border: 1px solid var(--col-border);
+  border-radius: 4px;
+  padding: 7px 10px;
+  width: 100%;
+  outline: none;
   margin-left: 0;
-  color: white;
+  transition: border-color 0.2s;
+}
+
+.LoginPopup input:focus {
+  border-color: var(--col-accent);
+}
+
+.LoginPopup button[type="submit"] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--col-accent-dim);
+  color: var(--col-accent);
+  border: 1px solid rgba(200, 184, 154, 0.25);
+  border-radius: 4px;
+  padding: 8px 0;
+  width: 100%;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.LoginPopup button[type="submit"]:hover {
+  background: rgba(200, 184, 154, 0.2);
+}
+
+.LoginPopup > div:last-child {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.LoginPopup > div:last-child button {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--col-text-muted);
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.2s;
+  margin-left: 0;
+}
+
+.LoginPopup > div:last-child button:hover {
+  color: var(--col-text);
 }
