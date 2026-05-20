@@ -59,7 +59,13 @@ def initializeDB():
     cursor.execute(f'''
         CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
             id INTEGER PRIMARY KEY,
-            embedding({conf.model.textProjection}),
+            embedding float[{conf.model.textProjection}]
+        )
+    ''')
+
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS fontsMeta (
+            id INTEGER NOT NULL REFERENCES fonts(id),
             name TEXT NOT NULL UNIQUE,
             location TEXT NOT NULL,
             file TEXT NOT NULL,
@@ -89,9 +95,9 @@ def initializeDB():
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS descriptions (
-            FOREIGN KEY (fontID) REFERENCES fonts (id),
+            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
             description TEXT NOT NULL,
-            FOREIGN KEY (userID) REFERENCES users (id),
+            userID INTEGER NOT NULL REFERENCES users(id),
             created TEXT NOT NULL
         )
     ''')
@@ -247,9 +253,18 @@ def findFonts(cursor):
     with torch.no_grad():
         output = textModel(**tokens).pooler_output
 
-    cursor.execute(f'''
-        SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND embedding match ? ORDER BY distance LIMIT 20
-    ''', (includePaid, output.numpy().tolist()))
+    embedding = output.numpy().flatten()
+    embeddingSerialized = sqlite_vec.serialize_float32(embedding)
+
+    cursor.execute('''
+        SELECT m.name, f.distance, m.location, m.file
+        FROM fonts f
+        JOIN fontsMeta m ON m.id = f.rowid
+        WHERE embedding MATCH ?
+        AND (? OR NOT m.paid)
+        ORDER BY distance
+        LIMIT 20
+    ''', (embeddingSerialized, includePaid))
     rows = cursor.fetchall()
 
     results = [dict(zip(["name", "score", "file", "url"], rows[i])) for i in range(len(rows))]
@@ -285,7 +300,7 @@ def describeFont(cursor, user):
 @app.route('/api/font/update', methods=['POST'])
 @dbRequired
 @adminRequired
-def updateRegistry(cursor):
+def updateRegistry(cursor, user):
     cursor.execute("SELECT * FROM registry")
     registered = cursor.fetchall()
 
@@ -304,10 +319,13 @@ def updateRegistry(cursor):
         
         embeddings = imageModel(images)
         embeddings = torch.linalg.norm(embeddings, axis=1)
-        embedding = torch.mean(embeddings, dim=0).numpy().tolist()
+        embedding = sqlite_vec.serialize_float32(torch.mean(embeddings, dim=0).numpy())
 
-        cursor.execute(f"INSERT INTO fonts (embedding, name, location, file, paid) VALUES (?, ?, ?, ?, ?)",
-                       (embedding, name, location, file, paid))
+        cursor.execute("INSERT INTO fontsMeta (name, location, file, paid) VALUES (?, ?, ?, ?)",
+                       (name, location, file, paid))
+        fontID = cursor.lastrowid
+        cursor.execute("INSERT INTO fonts (rowid, embedding) VALUES (?, ?)",
+                       (fontID, embedding))
         cursor.execute(f"DELETE FROM registry WHERE id = ?", (id,))
     
     return jsonify({'message': 'Successful'}), 200
