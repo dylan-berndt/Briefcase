@@ -12,7 +12,8 @@
         "split": "holdout",
         "directories": {
             "standard": [
-                "google"
+                "google",
+                "dafont"
             ]
         },
         "directory": "dataset",

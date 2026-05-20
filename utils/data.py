@@ -32,13 +32,16 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Lets us choose what kind of images to train on
 def loadImage(imagePath):
     suffix = imagePath.split(".")[-1]
-    if suffix == "npy":
-        name, image = os.path.basename(imagePath).removesuffix(".npy"), np.load(imagePath)
-    else:
-        img = np.fromfile(imagePath, dtype=np.uint8)
-        img = cv2.imdecode(img, cv2.IMREAD_GRAYSCALE)
-        img = img.astype(np.float32) / 255.0
-        name, image = os.path.basename(imagePath).removesuffix(".bmp"), img
+    try:
+        if suffix == "npy":
+            name, image = os.path.basename(imagePath).removesuffix(".npy"), np.load(imagePath)
+        else:
+            img = np.fromfile(imagePath, dtype=np.uint8)
+            img = cv2.imdecode(img, cv2.IMREAD_GRAYSCALE)
+            img = img.astype(np.float32) / 255.0
+            name, image = os.path.basename(imagePath).removesuffix(".bmp"), img
+    except Exception as e:
+        return None, None
 
     return name, image
 

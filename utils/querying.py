@@ -509,6 +509,14 @@ class PairedImageData(FontData):
         _, leftImage = loadImage(leftImagePath)
         _, rightImage = loadImage(rightImagePath)
 
+        if leftImage is None:
+            imageSize = int(self.config.fontSize * 1.5)
+            leftImage = np.zeros((imageSize, imageSize), dtype=np.float32)
+
+        if rightImage is None:
+            imageSize = int(self.config.fontSize * 1.5)
+            rightImage = np.zeros((imageSize, imageSize), dtype=np.float32)
+
         name = self.names[leftIndex]
 
         leftImage = self._jiggle(torch.tensor(leftImage, dtype=torch.float32))
