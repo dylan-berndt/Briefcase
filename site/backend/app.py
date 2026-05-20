@@ -50,56 +50,55 @@ DATABASE = os.getenv("SQLITE_PATH", "/data/fontsearch.db")
 
 
 def initializeDB():
-    if not os.path.exists(DATABASE):
-        conn = sqlite3.connect(DATABASE)
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(DATABASE)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+    cursor = conn.cursor()
 
-        cursor.execute(f'''
-            CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
-                id INTEGER PRIMARY KEY,
-                embedding({conf.model.textProjection}),
-                name TEXT NOT NULL UNIQUE,
-                location TEXT NOT NULL,
-                file TEXT NOT NULL,
-                paid INTEGER DEFAULT 0
-            )
-        ''')
+    cursor.execute(f'''
+        CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
+            id INTEGER PRIMARY KEY,
+            embedding({conf.model.textProjection}),
+            name TEXT NOT NULL UNIQUE,
+            location TEXT NOT NULL,
+            file TEXT NOT NULL,
+            paid INTEGER DEFAULT 0
+        )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS registry (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                location TEXT NOT NULL,
-                file TEXT NOT NULL,
-                paid INTEGER DEFAULT 0
-            )
-        ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS registry (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            location TEXT NOT NULL,
+            file TEXT NOT NULL,
+            paid INTEGER DEFAULT 0
+        )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                publicID TEXT NOT NULL UNIQUE,
-                username TEXT NOT NULL UNIQUE,
-                hash TEXT NOT NULL,
-                admin INTEGER DEFAULT 0
-            )
-        ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            publicID TEXT NOT NULL UNIQUE,
+            username TEXT NOT NULL UNIQUE,
+            hash TEXT NOT NULL,
+            admin INTEGER DEFAULT 0
+        )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS descriptions (
-                FOREIGN KEY (fontID) REFERENCES fonts (id),
-                description TEXT NOT NULL,
-                FOREIGN KEY (userID) REFERENCES users (id),
-                created TEXT NOT NULL
-            )
-        ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS descriptions (
+            FOREIGN KEY (fontID) REFERENCES fonts (id),
+            description TEXT NOT NULL,
+            FOREIGN KEY (userID) REFERENCES users (id),
+            created TEXT NOT NULL
+        )
+    ''')
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 def dbRequired(f):
@@ -362,8 +361,10 @@ def serve(path):
     return send_from_directory("static", "index.html")
 
 
+initializeDB()
+
+
 if __name__ == '__main__':
-    initializeDB()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=8000)
 
 

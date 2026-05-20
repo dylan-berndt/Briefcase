@@ -210,20 +210,20 @@ function LoginPopup() {
 	const submitLogin = (e) => {
 		e.preventDefault();
 		if (registerToggle) {
-			fetch('/api/font/register', {body: loginForm, method: "post"})
+			fetch('/api/font/register', {body: new URLSearchParams(loginForm), method: "post"})
 			.then(response => response.json())
 			.then(data => {
 				setMessage(data.message);
 			})
-			.catch(error => setMessage(error));
+			.catch(error => setMessage(error.message || String(error)));
 		}
 
-		fetch('/api/font/login', {body: loginForm, method: "post"})
+		fetch('/api/font/login', {body: new URLSearchParams(loginForm), method: "post"})
 		.then(response => response.json())
 		.then(data => {
 			setMessage(data.message);
 		})
-		.catch(error => setMessage(error));
+		.catch(error => setMessage(error.message || String(error)));
 	}
 
 	return <div className="LoginPopup">
