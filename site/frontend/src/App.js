@@ -296,7 +296,7 @@ function App() {
 
 	function approveResult(fontName, setToggle, setResultError, revoke) {
 		fetch('/api/font/approve?fontName=' + fontName + "&query=" + query + "&revoke=" + revoke.toString())
-		.then(response.response.json())
+		.then(response => response.json())
 		.then(json => {
 			setToggle(!revoke);
 		})
