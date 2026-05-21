@@ -7,6 +7,7 @@ import os
 
 from .unet import *
 from .data import *
+from .vit import *
 import cv2
 import random
 import pandas as pd
@@ -216,10 +217,8 @@ class QueryData(FontData):
         train = torch.utils.data.Subset(dataset, trainIndex)
         test = torch.utils.data.Subset(dataset, testIndex)
 
-        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate,
-                           generator=torch.Generator(device), shuffle=shuffle)
-        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate,
-                          generator=torch.Generator(device), shuffle=shuffle)
+        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate, shuffle=shuffle)
+        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate, shuffle=shuffle)
 
         return train, test
 
@@ -382,6 +381,11 @@ class MyFontsQueryData(QueryData):
         self.fonts = {key: None for key in self.descriptions}
 
         # self.fonts Name -> Loaded Font 
+
+    def _jiggle(self, image):
+        image = image.unsqueeze(-1).permute(2, 0, 1)
+        image = self.transforms(image)
+        return image.permute(1, 2, 0)
 
 
 def loadMyFontsImagePaths(directory, fontSize):
@@ -547,7 +551,7 @@ class PairedImageData(FontData):
         
         return torch.utils.data.Subset(dataset, trainIndices), torch.utils.data.Subset(dataset, testIndices)
 
-
+    
 class CLIPEmbedder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -558,9 +562,15 @@ class CLIPEmbedder(nn.Module):
         self.model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
         self.numLayers = 1
 
+        # self.model.requires_grad_(False)
+
         self.outputDimension = config.textProjection if config is not None else None
         if self.outputDimension is not None:
-            self.head = nn.Linear(768, self.outputDimension)
+            self.head = nn.Sequential(
+                nn.LazyLinear(self.outputDimension),
+                nn.ReLU(),
+                nn.LazyLinear(self.outputDimension)
+            )
 
     def preprocess(self, x):
         x = x * 255.0

@@ -55,7 +55,9 @@ class ViT(nn.Module):
             )
             self.outputType = "image"
         else:
+            # self.requires_grad_(False)
             self.classifier = nn.Linear(config.embedDim, config.textProjection)
+            # self.classifier.requires_grad_(True)
             self.outputType = "pooled"
 
         self.numLayers = config.layers * 2
@@ -76,6 +78,22 @@ class ViT(nn.Module):
         x = self.transpose(x)
 
         return x, c
+    
+    @staticmethod
+    def load(path, name="checkpoint"):
+        modelPath = os.path.join(path, f"{name}.pt")
+        configPath = os.path.join(path, "config.json")
+
+        loadedConfig = Config().load(configPath)
+        loadedModel = ViT(loadedConfig.model)
+
+        loaded = torch.load(modelPath, weights_only=False, map_location="cuda" if torch.cuda.is_available() else "cpu")
+        if hasattr(loaded, "state_dict"):
+            loaded = loaded.state_dict()
+        loadedModel.load_state_dict(loaded)
+        loadedModel.eval()
+
+        return loadedModel, loadedConfig
 
     
     def activations(self, x):

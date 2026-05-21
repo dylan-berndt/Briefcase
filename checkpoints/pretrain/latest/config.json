@@ -10,6 +10,12 @@
         "fontSize": 32,
         "maps": "bitmaps",
         "split": "holdout",
+        "directories": {
+            "standard": [
+                "google",
+                "dafont"
+            ]
+        },
         "directory": "dataset",
         "method": "upper",
         "standardFonts": [
