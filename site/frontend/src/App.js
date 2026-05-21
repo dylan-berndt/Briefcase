@@ -142,10 +142,12 @@ function BackgroundShader({backgroundRef}) {
 	)
 }
 
-function Result({result, pangram}) {
+function Result({result, pangram, approveResult}) {
 	const [showDescriptionField, setShowDescriptionField] = useState(false);
 	const [description, setDescription] = useState("");
 	const [message, setMessage] = useState("");
+
+	const [approvedToggle, setApprovedToggle] = useState(false);
 
 	async function loadFontFace(face) {
 		const loadedFont = await face.load();
@@ -175,6 +177,7 @@ function Result({result, pangram}) {
 					</p>
 				</div>
 				<button onClick={() => {setShowDescriptionField(!showDescriptionField)}}></button>
+				<button onClick={() => {approveResult(result.name, setApprovedToggle, setMessage, approvedToggle)}}></button>
 			</div>
 			{!showDescriptionField ? <></> :
 			<div className="DescriptionField">
@@ -291,6 +294,15 @@ function App() {
 		.catch(error => setIssue(error))
 	}
 
+	function approveResult(fontName, setToggle, setResultError, revoke) {
+		fetch('/api/font/approve?fontName=' + fontName + "&query=" + query + "&revoke=" + revoke.toString())
+		.then(response.response.json())
+		.then(json => {
+			setToggle(!revoke);
+		})
+		.catch(error => setResultError(error.message || String(error)))
+	}
+
 	return (
 		<>
 			<div className="App">
@@ -328,7 +340,7 @@ function App() {
 						{!resultsFound ? <></> : 
 							<div className="Results">
 								{results.map((result, index) => {
-									return <Result result={result} pangram={pangrams[index % pangrams.length]}></Result>
+									return <Result result={result} pangram={pangrams[index % pangrams.length]} approveResult={approveResult}></Result>
 								})}
 							</div>
 						}

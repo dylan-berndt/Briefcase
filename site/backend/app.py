@@ -42,7 +42,7 @@ app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=["2000 per day", "500 per hour"],
     storage_uri="memory://",
 )
 
@@ -97,6 +97,15 @@ def initializeDB():
         CREATE TABLE IF NOT EXISTS descriptions (
             fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
             description TEXT NOT NULL,
+            userID INTEGER NOT NULL REFERENCES users(id),
+            created TEXT NOT NULL
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS approvals (
+            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
+            query TEXT NOT NULL,
             userID INTEGER NOT NULL REFERENCES users(id),
             created TEXT NOT NULL
         )
@@ -247,7 +256,10 @@ def login(cursor):
 @limiter.limit("40 per day")
 @dbRequired
 def findFonts(cursor):
-    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", True)
+    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", "true")
+    if includePaid not in ["true", "false"]:
+        return jsonify({'message': 'Invalid query'}), 401
+    includePaid = includePaid == "true"
     query = "a " + query + " font"
     tokens = Description.tokenizer([query], padding=False, return_tensors="pt")
     with torch.no_grad():
@@ -263,7 +275,7 @@ def findFonts(cursor):
             WHERE embedding MATCH ?
             ORDER BY distance
             LIMIT 20
-        )
+        ) f
         JOIN fontsMeta m ON m.id = f.id
         WHERE (? OR NOT m.paid)
     ''', (embeddingSerialized, includePaid))
@@ -295,6 +307,41 @@ def describeFont(cursor, user):
     cursor.execute('''
         INSERT INTO descriptions (fontID, description, userID, created) VALUES (?, ?, ?, ?)
     ''', (rows[0][0], description, user[0], datetime.now(timezone.utc)))
+
+    return jsonify({'message': 'Successful'}), 200
+
+
+@app.route('/api/font/approve', methods=['POST'])
+@limiter.limit("20 per minute")
+@dbRequired
+@loginRequired
+def approveQuery(cursor, user):
+    fontName = request.args.get("fontName", "")
+    cursor.execute('''
+        SELECT id FROM fonts WHERE name = ?
+    ''', (fontName,))
+    rows = cursor.fetchall()
+
+    if len(rows) == 0:
+        return jsonify({'message': 'Font not found'}), 401
+    
+    query = request.args.get("query", "")
+    if not query:
+        return jsonify({'message': 'Invalid query'}), 401
+    
+    revoke = request.args.get("revoke", "false")
+    if revoke not in ["true", "false"]:
+        return jsonify({'message': 'Invalid query'}), 401
+    revoke = revoke != "false"
+    
+    if revoke:
+        cursor.execute('''
+            DELETE FROM approvals WHERE fontID = ?
+        ''', (rows[0][0],))
+    else:
+        cursor.execute('''
+            INSERT INTO approvals (fontID, query, userID, created) VALUES (?, ?, ?, ?)
+        ''', (rows[0][0], query, user[0], datetime.now(timezone.utc)))
 
     return jsonify({'message': 'Successful'}), 200
 
