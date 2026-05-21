@@ -1,4 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Aldrich&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Aldrich&family=Alfa+Slab+One&family=Cookie&family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Oswald:wght@200..700&family=Pixelify+Sans:wght@400..700&display=swap');
+
+.aldrich {
+  font-family: var(--font-mono);
+}
+
+.pixelify {
+  font-family: 'Pixelify Sans', monospace;
+}
+
+.google {
+  font-family: 'Google Sans Code', monospace;
+}
+
+.montserrat {
+  font-family: 'Montserrat', monospace;
+}
+
+.cookie {
+  font-family: 'Cookie', monospace;
+}
+
+.alfa {
+  font-family: 'Alfa Slab One', monospace;
+}
+
+.oswald {
+  font-family: 'Oswald', monospace;
+}
+
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -53,17 +82,6 @@ body {
   box-shadow: 0 0 4vmin rgba(0, 0, 0, 1.0);
 }
 
-.Center {
-  background-color: var(--col-surface);
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 120px 48px 64px;
-  gap: 0;
-}
-
 /* ── Top bar ── */
 
 .Bar {
@@ -72,13 +90,30 @@ body {
   z-index: 100;
   width: var(--ui-width);
   height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+
   padding: 0 24px;
   background: rgba(24, 25, 29, 0.85);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--col-border);
+}
+
+.Bar :nth-child(1) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.Bar :nth-child(1) button {
+  margin-right: 24px;
+}
+
+.Bar :nth-child(2) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .Bar button {
@@ -98,155 +133,6 @@ body {
 .Bar button:hover {
   color: var(--col-text);
   border-color: var(--col-border-hover);
-}
-
-/* ── Heading ── */
-
-.Center > p:first-child {
-  font-family: var(--font-mono);
-  font-size: clamp(28px, 5vmin, 48px);
-  font-weight: 300;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  color: var(--col-text);
-  text-align: center;
-  margin-bottom: 8px;
-}
-
-.Center > p:nth-child(2) {
-  font-size: clamp(12px, 1.8vmin, 14px);
-  color: var(--col-text-muted);
-  font-weight: 300;
-  letter-spacing: 0.04em;
-  margin-bottom: 32px;
-}
-
-/* ── Search input ── */
-
-.Center input[type="text"] {
-  font-family: var(--font-sans);
-  font-size: clamp(14px, 2vmin, 16px);
-  background: var(--col-surface-2);
-  color: var(--col-text);
-  border: 1px solid var(--col-border);
-  border-radius: 6px;
-  padding: 12px 18px;
-  width: 100%;
-  outline: none;
-  transition: border-color 0.2s;
-  caret-color: var(--col-accent);
-}
-
-.Center input[type="text"]::placeholder {
-  color: var(--col-text-muted);
-}
-
-.Center input[type="text"]:focus {
-  border-color: var(--col-accent);
-}
-
-/* ── Results ── */
-
-.Results {
-  width: 100%;
-  margin-top: 48px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.ResultWindow {
-  background: var(--col-surface-2);
-  border: 1px solid var(--col-border);
-  border-radius: 8px;
-  overflow: hidden;
-  transition: border-color 0.2s;
-  text-decoration: none;
-  color: inherit;
-}
-
-.ResultWindow:hover {
-  border-color: var(--col-border-hover);
-}
-
-a:has(.ResultWindow) {
-  text-decoration: none;
-  color: inherit;
-  display: block;
-}
-
-.FontWindow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 20px 24px;
-  gap: 16px;
-}
-
-.FontWindow > div > p:first-child {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--col-text-muted);
-  margin-bottom: 12px;
-  text-transform: uppercase;
-}
-
-.FontWindow > div > p:last-child {
-  font-size: clamp(14px, 2.2vmin, 18px);
-  line-height: 1.7;
-  color: var(--col-text);
-}
-
-.FontWindow button {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--col-text-muted);
-  background: transparent;
-  border: 1px solid var(--col-border);
-  border-radius: 4px;
-  padding: 5px 10px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.FontWindow button:hover {
-  color: var(--col-text);
-  border-color: var(--col-border-hover);
-}
-
-.DescriptionField {
-  border-top: 1px solid var(--col-border);
-  padding: 16px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--col-surface);
-}
-
-.DescriptionField p {
-  font-size: 12px;
-  color: var(--col-text-muted);
-  letter-spacing: 0.03em;
-}
-
-.DescriptionField input {
-  font-family: var(--font-sans);
-  font-size: 14px;
-  background: var(--col-surface-2);
-  color: var(--col-text);
-  border: 1px solid var(--col-border);
-  border-radius: 4px;
-  padding: 8px 12px;
-  width: 100%;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.DescriptionField input:focus {
-  border-color: var(--col-accent);
 }
 
 /* ── Login popup ── */
