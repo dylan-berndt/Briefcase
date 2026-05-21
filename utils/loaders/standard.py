@@ -1,16 +1,10 @@
-import torch
-from torch.utils.data import Dataset, DataLoader, Subset
-from .config import *
-import numpy as np
-
 import os
-from glob import glob
-import matplotlib.pyplot as plt
-
-from scipy.ndimage import distance_transform_edt as dist
+import numpy as np
+import cv2
 from PIL import Image, ImageFont, ImageDraw
 from fontTools.ttLib import TTFont
-import cv2
+from glob import glob
+from scipy.ndimage import distance_transform_edt as dist
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 latin = list(range(ord('a'), ord('z') + 1))
@@ -25,8 +19,6 @@ characters = characters + [c.upper() for c in characters]
 
 # 2 characters technically, and messes with checks for empty glyphs
 characters.remove("ԵՒ")
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # Lets us choose what kind of images to train on
@@ -254,133 +246,5 @@ def loadFontSet(directory, fontSize, maps):
     return {"names": names, "letters": letters, "pairs": pairs, "mse": mse}
 
 
-class FontData(Dataset):
-    def __init__(self, config: Config, training=True):
-        self.config = config
-        self.method = self.config.method if "method" in self.config else "upper"
-
-        data = loadFontSet(config.directory, config.fontSize, config.maps)
-
-        names, letters, pairs, mse = data["names"], data["letters"], data["pairs"], data["mse"]
-
-        # plt.hist(mse, bins=10)
-        # plt.grid()
-        # plt.show()
-
-        if training:
-            mask = mse > np.percentile(mse, 40)
-
-            # Manually excluding "too similar" pairs
-            names = names[mask]
-            pairs = pairs[mask]
-            letters = letters[mask]
-
-        self.names = names
-        self.pairs = pairs
-        self.letters = letters
-
-        self.index = np.arange(len(self.pairs))
-
-        print()
-
-    def mask(self, mask):
-        pass
-
-    def __len__(self):
-        if self.method == "masked" or self.method == "none":
-            return len(self.index) * 2
-
-        return len(self.index)
-    
-    def getPair(self, i):
-        item = self.index[i]
-        lower, upper = self.pairs[item]
-
-        lower = torch.tensor(lower, dtype=torch.float32)
-        upper = torch.tensor(upper, dtype=torch.float32)
-
-        lower = lower.unsqueeze(-1)
-        upper = upper.unsqueeze(-1)
-
-        character = torch.tensor(characters.index(self.letters[item]), dtype=torch.long)
-
-        if self.method == "lower":
-            return {"inputs": upper, "outputs": lower, "class": character,
-                    "name": self.names[item], "letter": self.letters[item]}
-        
-        return {"inputs": lower, "outputs": upper, "class": character,
-                "name": self.names[item], "letter": self.letters[item]}
-    
-    def getMasked(self, i):
-        item = self.index[i // 2]
-        lower, upper = self.pairs[item]
-        image = lower if (i % 2 == 0) else upper
-
-        if self.method == "masked":
-            maskedImage = image.copy()
-
-            patchSize = maskedImage.shape[0] // 4
-            x = np.random.randint(0, maskedImage.shape[0] - patchSize + 1)
-            y = np.random.randint(0, maskedImage.shape[1] - patchSize + 1)
-
-            maskedImage[x: x + patchSize, y: y + patchSize] = 0
-
-            noiseMask = np.random.randint(0, 100, size=maskedImage.shape) < 40
-            maskedImage[noiseMask] = 0
-
-            maskedImage = torch.tensor(maskedImage, dtype=torch.float32).unsqueeze(-1)
-
-        image = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
-
-        letter = self.letters[item] if (i % 2 == 0) else self.letters[item].upper()
-        character = torch.tensor(characters.index(letter), dtype=torch.long)
-
-        if self.method == "none":
-            return {"inputs": image, "outputs": image, "class": character,
-                    "name": self.names[item], "letter": letter}
-
-        return {"inputs": maskedImage, "outputs": image, "class": character,
-                "name": self.names[item], "letter": letter}
-    
-    @staticmethod
-    def collate(samples):
-        inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
-        outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
-        characters = torch.stack([sample["class"] for sample in samples], dim=0)
-
-        return inputs, outputs, characters
-
-    def __getitem__(self, item):
-        if self.method == "masked" or self.method == "none":
-            return self.getMasked(item)
-        
-        return self.getPair(item)
-    
-    @staticmethod
-    def split(dataset, config):
-        if config.split == "random":
-            return torch.utils.data.random_split(dataset, [0.8, 0.2])
-        
-        # Designed to holdout a specific set of fonts for testing later
-        if config.split == "holdout":
-            testIndices = dataset.names.isin(config.standardFonts + config.stylizedFonts)
-            trainIndices = ~testIndices
-            return Subset(dataset, np.arange(len(dataset.names))[trainIndices]), Subset(dataset, np.arange(len(dataset.names))[testIndices])
-        
-
-if __name__ == "__main__":
-    data = FontData(Config().load(os.path.join("configs", "config.json")).dataset)
-    left, right = data[27]
-
-    left = left.numpy()
-    right = right.numpy()
-
-    plt.subplot(1, 2, 1)
-    plt.imshow(left)
-    plt.colorbar()
-
-    plt.subplot(1, 2, 2)
-    plt.imshow(right)
-    plt.colorbar()
-
-    plt.show()
+def loadImageDataset(config):
+    pass

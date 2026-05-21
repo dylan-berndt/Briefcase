@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from .config import *
-from .data import characters
+from .pretraining import characters
 import utils.unet
 
 import os

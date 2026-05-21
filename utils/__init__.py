@@ -1,6 +1,6 @@
 from .unet import *
 from .vit import *
-from .data import *
+from .pretraining import *
 from .config import *
 from .querying import *
 from .extraction import *
