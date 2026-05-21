@@ -3,7 +3,7 @@
 # Can be reused in transferability estimation
 
 from .unet import *
-from .data import *
+from .pretraining import *
 from .querying import *
 
 

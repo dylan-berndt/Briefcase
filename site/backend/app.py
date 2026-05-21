@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, abort
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask import g, send_from_directory
+from flask import g, send_from_directory, make_response
 
 import json
 import os
@@ -37,12 +37,12 @@ imageModel.eval()
 freeDomains = ["www.dafont.com", "fonts.google.com", "www.fontsquirrel.com"]
 paidDomains = ["www.myfonts.com"]
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=["2000 per day", "500 per hour"],
     storage_uri="memory://",
 )
 
@@ -50,56 +50,70 @@ DATABASE = os.getenv("SQLITE_PATH", "/data/fontsearch.db")
 
 
 def initializeDB():
-    if not os.path.exists(DATABASE):
-        conn = sqlite3.connect(DATABASE)
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(DATABASE)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+    cursor = conn.cursor()
 
-        cursor.execute(f'''
-            CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
-                id INTEGER PRIMARY KEY,
-                embedding({conf.model.textProjection}),
-                name TEXT NOT NULL UNIQUE,
-                location TEXT NOT NULL,
-                file TEXT NOT NULL,
-                paid INTEGER DEFAULT 0
-            )
-        ''')
+    cursor.execute(f'''
+        CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
+            id INTEGER PRIMARY KEY,
+            embedding float[{conf.model.textProjection}]
+        )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS registry (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                location TEXT NOT NULL,
-                file TEXT NOT NULL,
-                paid INTEGER DEFAULT 0
-            )
-        ''')
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS fontsMeta (
+            id INTEGER NOT NULL REFERENCES fonts(id),
+            name TEXT NOT NULL UNIQUE,
+            location TEXT NOT NULL,
+            file TEXT NOT NULL,
+            paid INTEGER DEFAULT 0
+        )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                publicID TEXT NOT NULL UNIQUE,
-                username TEXT NOT NULL UNIQUE,
-                hash TEXT NOT NULL,
-                admin INTEGER DEFAULT 0
-            )
-        ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS registry (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            location TEXT NOT NULL,
+            file TEXT NOT NULL,
+            paid INTEGER DEFAULT 0
+        )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS descriptions (
-                FOREIGN KEY (fontID) REFERENCES fonts (id),
-                description TEXT NOT NULL,
-                FOREIGN KEY (userID) REFERENCES users (id),
-                created TEXT NOT NULL
-            )
-        ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            publicID TEXT NOT NULL UNIQUE,
+            username TEXT NOT NULL UNIQUE,
+            hash TEXT NOT NULL,
+            admin INTEGER DEFAULT 0
+        )
+    ''')
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS descriptions (
+            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
+            description TEXT NOT NULL,
+            userID INTEGER NOT NULL REFERENCES users(id),
+            created TEXT NOT NULL
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS approvals (
+            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
+            query TEXT NOT NULL,
+            userID INTEGER NOT NULL REFERENCES users(id),
+            created TEXT NOT NULL
+        )
+    ''')
+
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 def dbRequired(f):
@@ -232,7 +246,7 @@ def login(cursor):
     
     token = jwt.encode({'publicID': publicID, 'exp': datetime.now(timezone.utc) + timedelta(hours=1)}, app.config["SECRET_KEY"], algorithm="HS256")
 
-    response = Flask.make_response(jsonify({'message': 'Logged in successfully'}), 200)
+    response = make_response(jsonify({'message': 'Logged in successfully'}), 200)
     response.set_cookie('token', token, httponly=True, secure=True, samesite="Strict")
 
     return response
@@ -242,15 +256,29 @@ def login(cursor):
 @limiter.limit("40 per day")
 @dbRequired
 def findFonts(cursor):
-    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", True)
+    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", "true")
+    if includePaid not in ["true", "false"]:
+        return jsonify({'message': 'Invalid query'}), 401
+    includePaid = includePaid == "true"
     query = "a " + query + " font"
     tokens = Description.tokenizer([query], padding=False, return_tensors="pt")
     with torch.no_grad():
         output = textModel(**tokens).pooler_output
 
-    cursor.execute(f'''
-        SELECT name, distance, location, file FROM fonts WHERE (? OR NOT paid) AND embedding match ? ORDER BY distance LIMIT 20
-    ''', (includePaid, output.numpy().tolist()))
+    embedding = output.numpy().flatten()
+    embeddingSerialized = sqlite_vec.serialize_float32(embedding)
+
+    cursor.execute('''
+        SELECT m.name, f.distance, m.location, m.file
+        FROM (
+            SELECT id, distance FROM fonts
+            WHERE embedding MATCH ?
+            ORDER BY distance
+            LIMIT 20
+        ) f
+        JOIN fontsMeta m ON m.id = f.id
+        WHERE (? OR NOT m.paid)
+    ''', (embeddingSerialized, includePaid))
     rows = cursor.fetchall()
 
     results = [dict(zip(["name", "score", "file", "url"], rows[i])) for i in range(len(rows))]
@@ -283,10 +311,45 @@ def describeFont(cursor, user):
     return jsonify({'message': 'Successful'}), 200
 
 
+@app.route('/api/font/approve', methods=['POST'])
+@limiter.limit("20 per minute")
+@dbRequired
+@loginRequired
+def approveQuery(cursor, user):
+    fontName = request.args.get("fontName", "")
+    cursor.execute('''
+        SELECT id FROM fonts WHERE name = ?
+    ''', (fontName,))
+    rows = cursor.fetchall()
+
+    if len(rows) == 0:
+        return jsonify({'message': 'Font not found'}), 401
+    
+    query = request.args.get("query", "")
+    if not query:
+        return jsonify({'message': 'Invalid query'}), 401
+    
+    revoke = request.args.get("revoke", "false")
+    if revoke not in ["true", "false"]:
+        return jsonify({'message': 'Invalid query'}), 401
+    revoke = revoke != "false"
+    
+    if revoke:
+        cursor.execute('''
+            DELETE FROM approvals WHERE fontID = ?
+        ''', (rows[0][0],))
+    else:
+        cursor.execute('''
+            INSERT INTO approvals (fontID, query, userID, created) VALUES (?, ?, ?, ?)
+        ''', (rows[0][0], query, user[0], datetime.now(timezone.utc)))
+
+    return jsonify({'message': 'Successful'}), 200
+
+
 @app.route('/api/font/update', methods=['POST'])
 @dbRequired
 @adminRequired
-def updateRegistry(cursor):
+def updateRegistry(cursor, user):
     cursor.execute("SELECT * FROM registry")
     registered = cursor.fetchall()
 
@@ -305,10 +368,13 @@ def updateRegistry(cursor):
         
         embeddings = imageModel(images)
         embeddings = torch.linalg.norm(embeddings, axis=1)
-        embedding = torch.mean(embeddings, dim=0).numpy().tolist()
+        embedding = sqlite_vec.serialize_float32(torch.mean(embeddings, dim=0).numpy())
 
-        cursor.execute(f"INSERT INTO fonts (embedding, name, location, file, paid) VALUES (?, ?, ?, ?, ?)",
-                       (embedding, name, location, file, paid))
+        cursor.execute("INSERT INTO fontsMeta (name, location, file, paid) VALUES (?, ?, ?, ?)",
+                       (name, location, file, paid))
+        fontID = cursor.lastrowid
+        cursor.execute("INSERT INTO fonts (id, embedding) VALUES (?, ?)",
+                       (fontID, embedding))
         cursor.execute(f"DELETE FROM registry WHERE id = ?", (id,))
     
     return jsonify({'message': 'Successful'}), 200
@@ -356,13 +422,16 @@ def addFontToRegistry(cursor, user):
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
-    if path != "" and os.path.exists(f"static/{path}"):
+    fullPath = os.path.join("static", path)
+    if path != "" and os.path.exists(fullPath):
         return send_from_directory("static", path)
     return send_from_directory("static", "index.html")
 
 
+initializeDB()
+
+
 if __name__ == '__main__':
-    initializeDB()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=8000)
 
 

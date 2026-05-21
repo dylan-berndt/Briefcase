@@ -6,7 +6,8 @@
 import os
 
 from .unet import *
-from .data import *
+from .pretraining import *
+from .loaders import *
 from .vit import *
 import cv2
 import random
@@ -24,94 +25,6 @@ from torchvision.transforms import v2
 import math
 
 
-def getAdjectives(filePath, nlp):
-    with open(filePath, "r", encoding="utf-8") as file:
-        data = file.read()
-        soup = BeautifulSoup(data, 'html.parser')
-        text = soup.get_text()
-
-        last = None
-        adjectives = []
-
-        # Yippee for state machines
-        for token in nlp(text):
-            if token.pos_ == "ADJ":
-                last = token.text
-            elif token.pos_ == "NN":
-                if last is not None:
-                    adjectives.append(f"{last} {token.text}")
-                    last = None
-            elif last is not None:
-                adjectives.append(last)
-                last = None
-        
-        return adjectives
-    
-
-class Description:
-    tokenizer = None
-    maxDescriptors = 7
-
-    def __init__(self, name, adjectives, tags=None):
-        tags = tags if tags is not None else {}
-        
-        self.name = name
-        self.adjectives = adjectives
-        self.tags = tags
-
-    def sample(self):
-        if self.tags is not None:
-            tags = [tag for tag, value in self.tags.items() if random.uniform(0, 1) < value]
-
-            descriptors = self.adjectives + tags
-        else:
-            descriptors = self.adjectives
-        numDescriptors = int(random.uniform(0.6, 1.0) * Description.maxDescriptors)
-        chosenDescriptors = random.sample(descriptors, min(len(descriptors), numDescriptors))
-
-        joined = ", ".join(chosenDescriptors) + " font"
-
-        return "a " + joined
-
-    def __len__(self):
-        descriptors = self.adjectives + list(self.tags.keys())
-        description = ", ".join(descriptors) + " font named " + self.name
-        tokens = Description.tokenizer([description], padding=False, return_tensors="pt")
-        return len(tokens["input_ids"][0])
-    
-
-def folderFactory(nlp):
-    def loadFolderDescription(walk):
-        root, dirs, files = walk
-        if not any([file.endswith("METADATA.pb") for file in files]):
-            return None
-        
-        fontNames = []
-        fontStyles = []
-        caption = None
-        
-        for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
-            if file.endswith(".html"):
-                caption = getAdjectives(file, nlp)
-
-        otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
-        ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
-        for filePath in (otf + ttf):
-            try:
-                font = ImageFont.truetype(filePath, 32)
-                fontName, fontStyle = font.getname()
-                fontNames.append(fontName)
-                fontStyles.append(fontStyle)
-
-            except Exception as e:
-                print(filePath, e)
-                continue
-
-        return fontNames, fontStyles, caption
-    
-    return loadFolderDescription
-
-
 # This is very specifically tailored to the Google Fonts repository
 class QueryData(FontData):
     def __init__(self, config, training=False, tokenizer="bert-base-uncased"):
@@ -119,50 +32,7 @@ class QueryData(FontData):
 
         self.setTokenizer(tokenizer)
 
-        self.descriptions = {}
-
-        nlp = spacy.load("en_core_web_sm")
-
-        walks = os.walk(os.path.join(config.directory, "fonts"))
-        roots = [root for root, dirs, files in walks]
-        walks = os.walk(os.path.join(config.directory, "fonts"))
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-            for i, result in enumerate(executor.map(folderFactory(nlp), walks)):
-                if result is None:
-                    continue
-
-                fontNames, fontStyles, caption = result
-
-                if caption is None:
-                    print(roots[i], fontNames)
-                    continue
-
-                for j in range(len(fontNames)):
-                    fontName = fontNames[j]
-                    fontStyle = fontStyles[j]
-                    self.descriptions[fontName] = Description(f"{fontName} {fontStyle}", caption, {fontStyle: 0.2})
-
-                if i % 100 == 0:
-                    print(f"\rPaths checked: {i + 1}/{len(roots)}", end="")
-
-        print()
-                    
-        tagFile = os.path.join(config.directory, "fonts", "tags", "all", "families.csv")
-        tagDF = pd.read_csv(tagFile, names=["family", "na", "tags", "weight"])
-        for family in tagDF.family.unique():
-            familyDF = tagDF[tagDF.family == family]
-            tags = familyDF.tags.tolist()
-            weights = familyDF.weight.tolist()
-
-            tagDict = {}
-            for i, tagSet in enumerate(tags):
-                tag = tagSet.split("/")[-1]
-                tagDict[tag] = weights[i] / 100
-
-            if family not in self.descriptions:
-                continue
-
-            self.descriptions[family].tags = tagDict
+        self.descriptions = loadGoogleDescriptions(config.directory)
 
         names = np.array([self.fontMap[name] for name in self.names])
         viable = np.isin(names, list(self.descriptions.keys()))
@@ -223,58 +93,6 @@ class QueryData(FontData):
         return train, test
 
 
-class Loader:
-    def __init__(self, fontSize):
-        self.fontSize = fontSize
-
-    def loadRochesterImage(self, imagePath):
-        image = Image.open(imagePath).convert("RGBA")
-        array = np.array(image)
-
-        array = 1 - (array[:, :, 0] / 255)
-        charWidth = np.argmax(np.arange(array.shape[1]) * np.max(array, axis=0))
-        alpha = array[:, :charWidth]
-
-        if alpha.shape[0] == 0 or alpha.shape[1] == 0:
-            return None, None
-
-        # Height / Width
-        ratio = alpha.shape[0] / alpha.shape[1]
-        width, height = int(self.fontSize / ratio), self.fontSize
-
-        if height <= 0 or width <= 0:
-            return None, None
-
-        fixed = cv2.resize(alpha, [height, width])
-
-        imageSize = int(self.fontSize * 1.5)
-        overflow = math.ceil((fixed.shape[1] - imageSize) / 2)
-        if overflow > 0:
-            fixed = fixed[:, overflow: overflow + imageSize]
-        overflow = math.ceil((fixed.shape[0] - imageSize) / 2)
-        if overflow > 0:
-            fixed = fixed[overflow: overflow + imageSize]
-
-        full = np.zeros([imageSize, imageSize], dtype=np.float32)
-
-        hPad = (imageSize - fixed.shape[0]) // 2
-        wPad = (imageSize - fixed.shape[1]) // 2
-        full[hPad:hPad + fixed.shape[0], wPad:wPad + fixed.shape[1]] = fixed
-
-        name = os.path.basename(imagePath).removesuffix(".png")
-
-        return name, full
-
-
-def loadRochesterDescription(descriptionPath):
-    name = os.path.basename(descriptionPath)
-    text = open(descriptionPath, "r").read().split()
-
-    description = Description(name, text)
-
-    return name, description
-
-
 # Designed for the MyFonts dataset from Rochester. Does not include actual font files :(
 class MyFontsQueryData(QueryData):
     def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None):
@@ -287,7 +105,7 @@ class MyFontsQueryData(QueryData):
             os.mkdir(os.path.join(config.directory, "smallimage"))
 
         if len(glob(os.path.join(config.directory, "smallimage", "*.bmp"))) == 0:
-            imageFunc = Loader(config.fontSize).loadRochesterImage
+            imageFunc = rochesterImageLoaderFactory(config.fontSize)
             imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
             with Pool(processes=2) as pool:
                 for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
@@ -382,50 +200,10 @@ class MyFontsQueryData(QueryData):
 
         # self.fonts Name -> Loaded Font 
 
-    def _jiggle(self, image):
-        image = image.unsqueeze(-1).permute(2, 0, 1)
-        image = self.transforms(image)
-        return image.permute(1, 2, 0)
 
-
-def loadMyFontsImagePaths(directory, fontSize):
-    print(f"\nLoading MyFonts images from {directory} {'=' * 20}")
-
-    if not os.path.exists(os.path.join(directory, "smallimage")):
-        os.mkdir(os.path.join(directory, "smallimage"))
-
-    if len(glob(os.path.join(directory, "smallimage", "*.bmp"))) == 0:
-        imageFunc = Loader(fontSize).loadRochesterImage
-        imagePaths = glob(os.path.join(directory, "fontimage", "*.png"))
-        with Pool(processes=2) as pool:
-            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
-                if name == None:
-                    continue
-
-                img = Image.fromarray((array * 255).astype(np.uint8)).convert('L')
-                fontName = name.split("_")[0]
-                letter = name[-1].lower()
-                case = "u" if name[-1] == name[-2] else "l"
-                imageName = f"{fontName} {letter}{case}.bmp"
-                img.save(os.path.join(directory, "smallimage", imageName))
-                if i % 100 == 0:
-                    print(f"\rImages converted: {i + 1}/{len(imagePaths)}", end="")
-
-    print()
-
-    imagePaths = glob(os.path.join(directory, "smallimage", "*.bmp"))
-    names, letters, paths = [], [], []
-    for p in imagePaths:
-        name = os.path.basename(p).removesuffix(".bmp")
-        names.append(name[:-3])
-        letters.append(name[-2])
-        paths.append(p)
-
-    return {"names": np.array(names), "letters": np.array(letters), "paths": np.array(paths)}
-
-
-class PairedImageData(FontData):
-    def __init__(self, config, training=False, limit=None):
+class CombinedQueryData:
+    def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None):
+        self.setTokenizer(tokenizer)
         self.config = config
 
         imageSize = int(config.fontSize * 1.5)
@@ -435,7 +213,6 @@ class PairedImageData(FontData):
             v2.RandomRotation(degrees=25)
         ])
 
-        # TODO: Normalize each set of images
         if "directories" in config:
             names = []
             letters = []
@@ -457,43 +234,28 @@ class PairedImageData(FontData):
         self.letters = letters
         self.paths = paths
 
-        indices = np.argsort(self.names)
+        if "directories" in config:
+            descriptions = {}
+            for directory in config.directories:
+                if directory == "myfonts":
+                    descriptions.update(loadRochesterDescriptions(config.directories.myFonts))
+                if directory == "google":
+                    descriptions.update(loadGoogleDescriptions(config.directories.google))
+        else:
+            descriptions = loadRochesterDescriptions(config.directory)
 
-        self.names = self.names[indices]
-        self.letters = self.letters[indices]
-        self.paths = self.paths[indices]
+        self.descriptions = descriptions
 
-        fonts, glyphsPerFont = np.unique(self.names, return_counts=True)
-        interactions = np.power(glyphsPerFont, 2)
+        viable = np.isin(self.names, list(self.descriptions.keys()))
+        print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
+        self.index = np.arange(len(self.images))[viable]
 
-        # Ugh
-        leftIndex = []
-        rightIndex = []
-        leftTotal = 0
-        rightTotal = 0
+        self.fontMap = {key: key for key in self.descriptions}
+        self.fontNum = {key: i for i, key in enumerate(self.descriptions)}
+        self.fonts = {key: None for key in self.descriptions}
 
-        # For every font
-        for value in glyphsPerFont:
-            # For every glyph in font
-            for v in range(value):
-                # Add the index of the first character once for every glyph
-                # it can be compared to
-                leftIndex.extend([leftTotal] * value)
-                # Add the index of each comparative glpyh
-                rightIndex.extend((np.arange(value) + rightTotal).tolist())
-                # Increment the target glyph
-                leftTotal += 1
-            # Increment to the next set of glyphs
-            rightTotal += value
-
-        self.leftIndex = leftIndex
-        self.rightIndex = rightIndex
-
-        print(len(self.rightIndex), len(self.leftIndex))
-
-        self.index = np.arange(np.sum(interactions))
-
-        assert (len(self.leftIndex) == len(self.rightIndex)) and (len(self.rightIndex) == len(self.index))
+    def setTokenizer(self, name):
+        Description.tokenizer = AutoTokenizer.from_pretrained(name)
 
     def __len__(self):
         return len(self.index)
@@ -504,29 +266,19 @@ class PairedImageData(FontData):
         return image.permute(1, 2, 0)
     
     def __getitem__(self, i):
-        leftIndex = self.leftIndex[i]
-        rightIndex = self.rightIndex[i]
+        imageIndex = self.index[i]
+        imagePath = self.paths[imageIndex]
+        _, image = loadImage(imagePath)
 
-        leftImagePath = self.paths[leftIndex]
-        rightImagePath = self.paths[rightIndex]
-
-        _, leftImage = loadImage(leftImagePath)
-        _, rightImage = loadImage(rightImagePath)
-
-        if leftImage is None:
+        if image is None:
             imageSize = int(self.config.fontSize * 1.5)
-            leftImage = np.zeros((imageSize, imageSize), dtype=np.float32)
+            image = np.zeros((imageSize, imageSize), dtype=np.float32)
 
-        if rightImage is None:
-            imageSize = int(self.config.fontSize * 1.5)
-            rightImage = np.zeros((imageSize, imageSize), dtype=np.float32)
+        name = self.names[imageIndex]
 
-        name = self.names[leftIndex]
+        leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
 
-        leftImage = self._jiggle(torch.tensor(leftImage, dtype=torch.float32))
-        rightImage = self._jiggle(torch.tensor(rightImage, dtype=torch.float32))
-
-        letter = self.letters[leftIndex] if (i % 2 == 0) else self.letters[leftIndex].upper()
+        letter = self.letters[imageIndex] if (i % 2 == 0) else self.letters[imageIndex].upper()
         # Bastard: "ԵՒ" 
         if letter in characters:
             num = characters.index(letter)
@@ -534,22 +286,51 @@ class PairedImageData(FontData):
             num = -1
         character = torch.tensor(num, dtype=torch.long)
 
-        return {"inputs": leftImage, "outputs": rightImage, "name": name,
-                "class": character, "letter": letter}
+        fontName = self.fontMap[name]
+        description = self.descriptions[fontName].sample()
+
+        return {"inputs": leftImage, "outputs": None, "fontID": self.fontNum[data["name"]],
+                "class": character, "description": description}
     
     @staticmethod
-    def split(dataset, config):
-        fonts = np.unique(dataset.names)
-        np.random.shuffle(fonts)
-        trainFonts = set(fonts[:int(len(fonts) * 0.8)])
-        
-        trainMask = np.isin(dataset.names, list(trainFonts))
-        testMask = ~trainMask
-        
-        trainIndices = np.where(trainMask[dataset.leftIndex] & trainMask[dataset.rightIndex])[0]
-        testIndices = np.where(testMask[dataset.leftIndex] & testMask[dataset.rightIndex])[0]
-        
-        return torch.utils.data.Subset(dataset, trainIndices), torch.utils.data.Subset(dataset, testIndices)
+    def collate(samples):
+        inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
+        outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
+        characters = torch.stack([sample["class"] for sample in samples], dim=0)
+        names = torch.tensor([sample["fontID"] for sample in samples], dtype=torch.long)
+
+        tokens = Description.tokenizer([sample["description"] for sample in samples],
+                                       padding="longest", truncation=True,
+                                       return_tensors="pt")
+
+        return inputs, outputs, names, tokens, characters
+    
+    @staticmethod
+    def split(dataset, trainSplit=0.8, shuffle=True, seed=1234, batchSize=128):
+        torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
+
+        fontIDs = list(dataset.fonts.keys())
+        trainIDs = np.array(fontIDs)[np.random.choice(len(fontIDs), int(len(fontIDs) * trainSplit), replace=False)]
+        trainIndexMask = np.isin(dataset.names[dataset.index], trainIDs)
+
+        # Pretty sure this flattens correctly
+        if len(trainIndexMask) != len(dataset):
+            trainIndexMask = np.stack([trainIndexMask, trainIndexMask], axis=1).flatten()
+
+        trainIndex = np.arange(len(dataset))[trainIndexMask]
+        testIndex = np.arange(len(dataset))[~trainIndexMask]
+
+        train = torch.utils.data.Subset(dataset, trainIndex)
+        test = torch.utils.data.Subset(dataset, testIndex)
+
+        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate,
+                           generator=torch.Generator(device), shuffle=shuffle)
+        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate,
+                          generator=torch.Generator(device), shuffle=shuffle)
+
+        return train, test
 
     
 class CLIPEmbedder(nn.Module):
