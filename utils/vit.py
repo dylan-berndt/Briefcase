@@ -98,3 +98,26 @@ class ViT(nn.Module):
     
     def activations(self, x):
         raise NotImplementedError("Why am I even testing this model like this")
+    
+
+# Used during finetuning
+class ViTEmbedder(nn.Module):
+    def __init__(self, vitModel, sharedDim):
+        super().__init__()
+        self.model = vitModel
+        self.model.requires_grad_(False)
+        sourceDim = vitModel.config.embedDim
+        self.head = nn.Sequential(
+            nn.Linear(sourceDim, sharedDim),
+            nn.ReLU(),
+            nn.Linear(sharedDim, sharedDim)
+        )
+
+    def forward(self, x):
+        with torch.no_grad():
+            x = x.permute(0, 3, 1, 2)
+            x = self.model.patching(x)
+            x = torch.cat([self.model.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
+            x = self.model.transformer(x)
+            features = x[:, 0]  # CLS token
+        return self.head(features)

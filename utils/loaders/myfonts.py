@@ -9,46 +9,44 @@ from multiprocessing import Pool
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-def rochesterImageLoaderFactory(fontSize):
-    def loadRochesterImage(self, imagePath):
-        image = Image.open(imagePath).convert("RGBA")
-        array = np.array(image)
+def loadRochesterImage(args):
+    imagePath, fontSize = args
+    image = Image.open(imagePath).convert("RGBA")
+    array = np.array(image)
 
-        array = 1 - (array[:, :, 0] / 255)
-        charWidth = np.argmax(np.arange(array.shape[1]) * np.max(array, axis=0))
-        alpha = array[:, :charWidth]
+    array = 1 - (array[:, :, 0] / 255)
+    charWidth = np.argmax(np.arange(array.shape[1]) * np.max(array, axis=0))
+    alpha = array[:, :charWidth]
 
-        if alpha.shape[0] == 0 or alpha.shape[1] == 0:
-            return None, None
+    if alpha.shape[0] == 0 or alpha.shape[1] == 0:
+        return None, None
 
-        # Height / Width
-        ratio = alpha.shape[0] / alpha.shape[1]
-        width, height = int(self.fontSize / ratio), self.fontSize
+    # Height / Width
+    ratio = alpha.shape[0] / alpha.shape[1]
+    width, height = int(fontSize / ratio), fontSize
 
-        if height <= 0 or width <= 0:
-            return None, None
+    if height <= 0 or width <= 0:
+        return None, None
 
-        fixed = cv2.resize(alpha, [height, width])
+    fixed = cv2.resize(alpha, [height, width])
 
-        imageSize = int(self.fontSize * 1.5)
-        overflow = math.ceil((fixed.shape[1] - imageSize) / 2)
-        if overflow > 0:
-            fixed = fixed[:, overflow: overflow + imageSize]
-        overflow = math.ceil((fixed.shape[0] - imageSize) / 2)
-        if overflow > 0:
-            fixed = fixed[overflow: overflow + imageSize]
+    imageSize = int(fontSize * 1.5)
+    overflow = math.ceil((fixed.shape[1] - imageSize) / 2)
+    if overflow > 0:
+        fixed = fixed[:, overflow: overflow + imageSize]
+    overflow = math.ceil((fixed.shape[0] - imageSize) / 2)
+    if overflow > 0:
+        fixed = fixed[overflow: overflow + imageSize]
 
-        full = np.zeros([imageSize, imageSize], dtype=np.float32)
+    full = np.zeros([imageSize, imageSize], dtype=np.float32)
 
-        hPad = (imageSize - fixed.shape[0]) // 2
-        wPad = (imageSize - fixed.shape[1]) // 2
-        full[hPad:hPad + fixed.shape[0], wPad:wPad + fixed.shape[1]] = fixed
+    hPad = (imageSize - fixed.shape[0]) // 2
+    wPad = (imageSize - fixed.shape[1]) // 2
+    full[hPad:hPad + fixed.shape[0], wPad:wPad + fixed.shape[1]] = fixed
 
-        name = os.path.basename(imagePath).removesuffix(".png")
+    name = os.path.basename(imagePath).removesuffix(".png")
 
-        return name, full
-    
-    return loadRochesterImage
+    return name, full
 
 
 def loadRochesterDescription(descriptionPath):
@@ -67,10 +65,10 @@ def loadMyFontsImagePaths(directory, fontSize):
         os.mkdir(os.path.join(directory, "smallimage"))
 
     if len(glob(os.path.join(directory, "smallimage", "*.bmp"))) == 0:
-        imageFunc = rochesterImageLoaderFactory(fontSize)
         imagePaths = glob(os.path.join(directory, "fontimage", "*.png"))
-        with Pool(processes=2) as pool:
-            for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+        tasks = [(path, fontSize) for path in imagePaths]
+        with Pool(processes=30) as pool:
+            for i, (name, array) in enumerate(pool.imap(loadRochesterImage, tasks, chunksize=1000)):
                 if name == None:
                     continue
 

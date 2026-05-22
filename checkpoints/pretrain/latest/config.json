@@ -3,7 +3,7 @@
         "layers": 8,
         "imageSize": 48,
         "patchSize": 8,
-        "embedDim": 256,
+        "embedDim": 512,
         "heads": 8
     },
     "dataset": {
@@ -11,6 +11,7 @@
         "maps": "bitmaps",
         "split": "holdout",
         "directories": {
+            "myFonts": "dataset",
             "standard": [
                 "google",
                 "dafont"
@@ -31,7 +32,7 @@
             "Jokerman Regular"
         ]
     },
-    "batchSize": 128,
+    "batchSize": 1024,
     "learningRate": 0.0001,
     "epochs": 80
 }

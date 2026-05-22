@@ -3,7 +3,7 @@
         "layers": 8,
         "imageSize": 48,
         "patchSize": 8,
-        "embedDim": 256,
+        "embedDim": 512,
         "heads": 8
     },
     "dataset": {
@@ -32,7 +32,7 @@
             "Jokerman Regular"
         ]
     },
-    "batchSize": 512,
+    "batchSize": 1024,
     "learningRate": 1e-4,
     "epochs": 80
 }
