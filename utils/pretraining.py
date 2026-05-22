@@ -165,37 +165,75 @@ class PairedImageData(FontData):
         self.letters = self.letters[indices]
         self.paths = self.paths[indices]
 
+        # fonts, glyphsPerFont = np.unique(self.names, return_counts=True)
+        # interactions = np.power(glyphsPerFont, 2)
+
         fonts, glyphsPerFont = np.unique(self.names, return_counts=True)
-        interactions = np.power(glyphsPerFont, 2)
 
-        # Ugh
-        leftIndex = []
-        rightIndex = []
-        leftTotal = 0
-        rightTotal = 0
+        self.fonts = fonts
+        self.glyphsPerFont = glyphsPerFont
 
-        # For every font
-        for value in glyphsPerFont:
-            # For every glyph in font
-            for v in range(value):
-                # Add the index of the first character once for every glyph
-                # it can be compared to
-                leftIndex.extend([leftTotal] * value)
-                # Add the index of each comparative glpyh
-                rightIndex.extend((np.arange(value) + rightTotal).tolist())
-                # Increment the target glyph
-                leftTotal += 1
-            # Increment to the next set of glyphs
-            rightTotal += value
+        # starting glyph index for each font
+        self.fontOffsets = np.concatenate([[0], np.cumsum(glyphsPerFont[:-1])])
 
-        self.leftIndex = leftIndex
-        self.rightIndex = rightIndex
+        # number of pair interactions per font
+        self.fontPairCounts = glyphsPerFont ** 2
 
-        print(len(self.rightIndex), len(self.leftIndex))
+        # starting pair index for each font
+        self.fontPairOffsets = np.concatenate([[0], np.cumsum(self.fontPairCounts[:-1])])
 
-        self.index = np.arange(np.sum(interactions))
+        self.totalPairs = int(np.sum(self.fontPairCounts))
 
-        assert (len(self.leftIndex) == len(self.rightIndex)) and (len(self.rightIndex) == len(self.index))
+        # # Ugh
+        # leftIndex = []
+        # rightIndex = []
+        # leftTotal = 0
+        # rightTotal = 0
+
+        # # For every font
+        # for value in glyphsPerFont:
+        #     # For every glyph in font
+        #     for v in range(value):
+        #         # Add the index of the first character once for every glyph
+        #         # it can be compared to
+        #         leftIndex.extend([leftTotal] * value)
+        #         # Add the index of each comparative glpyh
+        #         rightIndex.extend((np.arange(value) + rightTotal).tolist())
+        #         # Increment the target glyph
+        #         leftTotal += 1
+        #     # Increment to the next set of glyphs
+        #     rightTotal += value
+
+        # self.leftIndex = leftIndex
+        # self.rightIndex = rightIndex
+
+        # print(len(self.rightIndex), len(self.leftIndex))
+
+        # self.index = np.arange(np.sum(interactions))
+
+        # assert (len(self.leftIndex) == len(self.rightIndex)) and (len(self.rightIndex) == len(self.index))
+
+    def decodePairIndex(self, idx):
+        # which font block this pair belongs to
+        fontIdx = np.searchsorted(
+            self.fontPairOffsets,
+            idx,
+            side="right"
+        ) - 1
+
+        localPairIdx = idx - self.fontPairOffsets[fontIdx]
+
+        glyphCount = self.glyphsPerFont[fontIdx]
+
+        leftLocal = localPairIdx // glyphCount
+        rightLocal = localPairIdx % glyphCount
+
+        base = self.fontOffsets[fontIdx]
+
+        leftIdx = base + leftLocal
+        rightIdx = base + rightLocal
+
+        return leftIdx, rightIdx
 
     def __len__(self):
         return len(self.index)
@@ -206,8 +244,10 @@ class PairedImageData(FontData):
         return image.permute(1, 2, 0)
     
     def __getitem__(self, i):
-        leftIndex = self.leftIndex[i]
-        rightIndex = self.rightIndex[i]
+        leftIndex, rightIndex = self.decodePairIndex(i)
+
+        # leftIndex = self.leftIndex[i]
+        # rightIndex = self.rightIndex[i]
 
         leftImagePath = self.paths[leftIndex]
         rightImagePath = self.paths[rightIndex]
@@ -239,22 +279,55 @@ class PairedImageData(FontData):
         return {"inputs": leftImage, "outputs": rightImage, "name": name,
                 "class": character, "letter": letter}
     
+    # @staticmethod
+    # def split(dataset, config):
+    #     fonts = np.unique(dataset.names)
+    #     np.random.shuffle(fonts)
+    #     trainFonts = set(fonts[:int(len(fonts) * 0.8)])
+        
+    #     trainMask = np.isin(dataset.names, list(trainFonts))
+    #     testMask = ~trainMask
+        
+    #     trainIndices = np.where(trainMask[dataset.leftIndex] & trainMask[dataset.rightIndex])[0]
+    #     testIndices = np.where(testMask[dataset.leftIndex] & testMask[dataset.rightIndex])[0]
+        
+    #     return torch.utils.data.Subset(dataset, trainIndices), torch.utils.data.Subset(dataset, testIndices)
+
     @staticmethod
     def split(dataset, config):
-        fonts = np.unique(dataset.names)
+        fonts = np.array(dataset.fonts)
+
         np.random.shuffle(fonts)
-        trainFonts = set(fonts[:int(len(fonts) * 0.8)])
-        
-        trainMask = np.isin(dataset.names, list(trainFonts))
-        testMask = ~trainMask
-        
-        trainIndices = np.where(trainMask[dataset.leftIndex] & trainMask[dataset.rightIndex])[0]
-        testIndices = np.where(testMask[dataset.leftIndex] & testMask[dataset.rightIndex])[0]
-        
-        return torch.utils.data.Subset(dataset, trainIndices), torch.utils.data.Subset(dataset, testIndices)
+
+        split = int(len(fonts) * 0.8)
+
+        trainFonts = set(fonts[:split])
+
+        trainPairIndices = []
+        testPairIndices = []
+
+        for i, font in enumerate(dataset.fonts):
+            start = dataset.fontPairOffsets[i]
+            count = dataset.fontPairCounts[i]
+
+            indices = np.arange(start, start + count)
+
+            if font in trainFonts:
+                trainPairIndices.append(indices)
+            else:
+                testPairIndices.append(indices)
+
+        trainPairIndices = np.concatenate(trainPairIndices)
+        testPairIndices = np.concatenate(testPairIndices)
+
+        return (
+            torch.utils.data.Subset(dataset, trainPairIndices),
+            torch.utils.data.Subset(dataset, testPairIndices)
+        )
         
 
 if __name__ == "__main__":
+
     data = FontData(Config().load(os.path.join("configs", "config.json")).dataset)
     left, right = data[27]
 
