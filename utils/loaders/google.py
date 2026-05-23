@@ -111,3 +111,5 @@ def loadGoogleDescriptions(directory):
             continue
 
         descriptions[family].tags = tagDict
+
+    return descriptions

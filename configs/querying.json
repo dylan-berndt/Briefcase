@@ -1,6 +1,6 @@
 {
-    "learningRate": 1e-3,
-    "batchSize": 256,
+    "learningRate": 3e-4,
+    "batchSize": 1024,
     "epochs": 40,
     "sharedDim": 512
 }
