@@ -4,14 +4,17 @@ class Description:
     tokenizer = None
     maxDescriptors = 7
 
-    def __init__(self, name, adjectives, tags=None):
+    def __init__(self, name, adjectives, tags=None, fixed=True):
         tags = tags if tags is not None else {}
         
         self.name = name
         self.adjectives = adjectives
         self.tags = tags
 
-    def sample(self):
+        self.fixedSample = self._sample()
+        self.fixed = fixed
+
+    def _sample(self):
         if self.tags is not None:
             tags = [tag for tag, value in self.tags.items() if random.uniform(0, 1) < value]
 
@@ -24,6 +27,11 @@ class Description:
         joined = ", ".join(chosenDescriptors) + " font"
 
         return "a " + joined
+    
+    def sample(self):
+        if self.fixed:
+            return self.fixedSample
+        return self._sample()
 
     def __len__(self):
         descriptors = self.adjectives + list(self.tags.keys())

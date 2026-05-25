@@ -111,5 +111,6 @@ def loadGoogleDescriptions(directory):
             continue
 
         descriptions[family].tags = tagDict
+        descriptions[family].fixedSample = descriptions[family]._sample()
 
     return descriptions
