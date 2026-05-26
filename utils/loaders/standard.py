@@ -38,7 +38,18 @@ def loadImage(imagePath):
     return name, image
 
 
+# Not rewriting it correctly who give a damn
+def imageWrapper(args):
+    try:
+        return imagesFromFont(*args)
+    except Exception as e:
+        print(args[0], e)
+
+
 def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
+    if not os.path.isfile(fontData):
+        return
+
     font = ImageFont.truetype(fontData, fontSize)
     ascent, descent = font.getmetrics()
     # Gross way to do this, but I don't want another package
@@ -99,6 +110,13 @@ def collectFontSetPaths(directory, fontSize, maps):
     imageSize = int(fontSize * 1.5)
     ttfPaths = glob(os.path.join(directory, "fonts", "**", "*.ttf"), recursive=True)
     otfPaths = glob(os.path.join(directory, "fonts", "**", "*.otf"), recursive=True)
+
+    # tasks = [(path, fontSize, imageSize, directory) for path in (ttfPaths + otfPaths)]
+
+    # with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
+    #     for i, result in enumerate(executor.map(imageWrapper, tasks)):
+    #         if i % 100 == 0:
+    #             print(f"\rFonts serialized: {i + 1}/{len(ttfPaths + otfPaths)}", end="")
 
     for f, fontPath in enumerate(ttfPaths + otfPaths):
         if not os.path.isfile(fontPath):

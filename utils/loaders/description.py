@@ -4,12 +4,14 @@ class Description:
     tokenizer = None
     maxDescriptors = 7
 
-    def __init__(self, name, adjectives, tags=None, fixed=True):
+    def __init__(self, name, adjectives, tags=None, plainText=None, fixed=True):
         tags = tags if tags is not None else {}
         
         self.name = name
         self.adjectives = adjectives
         self.tags = tags
+
+        self.plainText = plainText if plainText is not None else ""
 
         self.fixedSample = self._sample()
         self.fixed = fixed

@@ -25,6 +25,24 @@ from torchvision.transforms import v2
 import math
 
 
+def loadDescriptionsFromSource(config: Config):
+    if "directories" in config:
+        descriptions = {}
+        for directoryType in config.directories:
+            if directoryType == "myFonts":
+                descriptions.update(loadRochesterDescriptions(config.directories.myFonts))
+            if directoryType == "standard":
+                for directory in config.directories.standard:
+                    if directory == "google":
+                        descriptions.update(loadGoogleDescriptions(directory))
+                    if directory == "dafont":
+                        descriptions.update(loadDaFontDescriptions(directory))
+    else:
+        descriptions = loadRochesterDescriptions(config.directory)
+
+    return descriptions
+
+
 class CombinedQueryData:
     def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None):
         self.setTokenizer(tokenizer)
@@ -58,21 +76,13 @@ class CombinedQueryData:
         self.letters = letters
         self.paths = paths
 
-        if "directories" in config:
-            descriptions = {}
-            for directoryType in config.directories:
-                if directoryType == "myFonts":
-                    descriptions.update(loadRochesterDescriptions(config.directories.myFonts))
-                if directoryType == "standard":
-                    for directory in config.directories.standard:
-                        if directory == "google":
-                            descriptions.update(loadGoogleDescriptions(directory))
-                        if directory == "dafont":
-                            descriptions.update(loadDaFontDescriptions(directory))
+        if not os.path.exists("fontQueries.json"):
+            self.queries = False
+            self.descriptions = loadDescriptionsFromSource(config)
         else:
-            descriptions = loadRochesterDescriptions(config.directory)
-
-        self.descriptions = descriptions
+            with open("fontQueries.json", "r") as file:
+                self.queries = True
+                self.descriptions = json.load(file)
 
         viable = np.isin(self.names, list(self.descriptions.keys()))
         print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
@@ -115,7 +125,11 @@ class CombinedQueryData:
         character = torch.tensor(num, dtype=torch.long)
 
         fontName = self.fontMap[name]
-        description = self.descriptions[fontName].sample()
+
+        if not self.queries:
+            description = self.descriptions[fontName].sample()
+        else:
+            description = random.choice(self.descriptions[fontName])
 
         return {"inputs": leftImage, "fontID": self.fontNum[name],
                 "class": character, "description": description}

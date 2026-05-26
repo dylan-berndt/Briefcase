@@ -11,28 +11,23 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-def getAdjectives(filePath, nlp):
-    with open(filePath, "r", encoding="utf-8") as file:
-        data = file.read()
-        soup = BeautifulSoup(data, 'html.parser')
-        text = soup.get_text()
+def getAdjectives(text, nlp):
+    last = None
+    adjectives = []
 
-        last = None
-        adjectives = []
-
-        # Yippee for state machines
-        for token in nlp(text):
-            if token.pos_ == "ADJ":
-                last = token.text
-            elif token.pos_ == "NN":
-                if last is not None:
-                    adjectives.append(f"{last} {token.text}")
-                    last = None
-            elif last is not None:
-                adjectives.append(last)
+    # Yippee for state machines
+    for token in nlp(text):
+        if token.pos_ == "ADJ":
+            last = token.text
+        elif token.pos_ == "NN":
+            if last is not None:
+                adjectives.append(f"{last} {token.text}")
                 last = None
-        
-        return adjectives
+        elif last is not None:
+            adjectives.append(last)
+            last = None
+    
+    return adjectives
 
 
 def loadFolderDescription(args):
@@ -44,10 +39,15 @@ def loadFolderDescription(args):
     fontNames = []
     fontStyles = []
     caption = None
+    text = None
     
     for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
         if file.endswith(".html"):
-            caption = getAdjectives(file, nlp)
+            with open(filePath, "r", encoding="utf-8") as file:
+                data = file.read()
+                soup = BeautifulSoup(data, 'html.parser')
+                text = soup.get_text()
+                caption = getAdjectives(text, nlp)
 
     otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
     ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
@@ -62,7 +62,7 @@ def loadFolderDescription(args):
             print(filePath, e)
             continue
 
-    return fontNames, fontStyles, caption
+    return fontNames, fontStyles, caption, text
 
 
 def loadGoogleDescriptions(directory):
@@ -79,7 +79,7 @@ def loadGoogleDescriptions(directory):
             if result is None:
                 continue
 
-            fontNames, fontStyles, caption = result
+            fontNames, fontStyles, caption, plainText = result
 
             if caption is None:
                 print(roots[i], fontNames)
@@ -88,7 +88,7 @@ def loadGoogleDescriptions(directory):
             for j in range(len(fontNames)):
                 fontName = fontNames[j]
                 fontStyle = fontStyles[j]
-                descriptions[fontName] = Description(f"{fontName} {fontStyle}", caption, {fontStyle: 0.2})
+                descriptions[fontName] = Description(f"{fontName} {fontStyle}", caption, {fontStyle: 0.2}, plainText=plainText)
 
             if i % 100 == 0:
                 print(f"\rPaths checked: {i + 1}/{len(roots)}", end="")
