@@ -35,36 +35,34 @@ def getAdjectives(filePath, nlp):
         return adjectives
 
 
-def folderFactory(nlp):
-    def loadFolderDescription(walk):
-        root, dirs, files = walk
-        if not any([file.endswith("METADATA.pb") for file in files]):
-            return None
-        
-        fontNames = []
-        fontStyles = []
-        caption = None
-        
-        for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
-            if file.endswith(".html"):
-                caption = getAdjectives(file, nlp)
-
-        otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
-        ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
-        for filePath in (otf + ttf):
-            try:
-                font = ImageFont.truetype(filePath, 32)
-                fontName, fontStyle = font.getname()
-                fontNames.append(fontName)
-                fontStyles.append(fontStyle)
-
-            except Exception as e:
-                print(filePath, e)
-                continue
-
-        return fontNames, fontStyles, caption
+def loadFolderDescription(args):
+    nlp, walk = args
+    root, dirs, files = walk
+    if not any([file.endswith("METADATA.pb") for file in files]):
+        return None
     
-    return loadFolderDescription
+    fontNames = []
+    fontStyles = []
+    caption = None
+    
+    for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
+        if file.endswith(".html"):
+            caption = getAdjectives(file, nlp)
+
+    otf = glob(os.path.join(root, "**", "*.otf"), recursive=True)
+    ttf = glob(os.path.join(root, "**", "*.ttf"), recursive=True)
+    for filePath in (otf + ttf):
+        try:
+            font = ImageFont.truetype(filePath, 32)
+            fontName, fontStyle = font.getname()
+            fontNames.append(fontName)
+            fontStyles.append(fontStyle)
+
+        except Exception as e:
+            print(filePath, e)
+            continue
+
+    return fontNames, fontStyles, caption
 
 
 def loadGoogleDescriptions(directory):
@@ -75,8 +73,9 @@ def loadGoogleDescriptions(directory):
     walks = os.walk(os.path.join(directory, "fonts"))
     roots = [root for root, dirs, files in walks]
     walks = os.walk(os.path.join(directory, "fonts"))
+    tasks = [(nlp, walk) for walk in walks]
     with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
-        for i, result in enumerate(executor.map(folderFactory(nlp), walks)):
+        for i, result in enumerate(executor.map(loadFolderDescription, tasks)):
             if result is None:
                 continue
 
@@ -112,3 +111,6 @@ def loadGoogleDescriptions(directory):
             continue
 
         descriptions[family].tags = tagDict
+        descriptions[family].fixedSample = descriptions[family]._sample()
+
+    return descriptions

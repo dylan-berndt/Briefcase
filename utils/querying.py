@@ -12,7 +12,7 @@ from .vit import *
 import cv2
 import random
 import pandas as pd
-from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig
+from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel, CLIPImageProcessor, BertModel, AutoConfig, AutoModel
 from collections import defaultdict
 
 from multiprocessing import Pool
@@ -105,10 +105,10 @@ class MyFontsQueryData(QueryData):
             os.mkdir(os.path.join(config.directory, "smallimage"))
 
         if len(glob(os.path.join(config.directory, "smallimage", "*.bmp"))) == 0:
-            imageFunc = rochesterImageLoaderFactory(config.fontSize)
             imagePaths = glob(os.path.join(config.directory, "fontimage", "*.png"))
+            tasks = [(path, config.fontSize) for path in imagePaths]
             with Pool(processes=2) as pool:
-                for i, (name, array) in enumerate(pool.imap(imageFunc, imagePaths, chunksize=1000)):
+                for i, (name, array) in enumerate(pool.imap(loadRochesterImage, tasks, chunksize=1000)):
                     if name == None:
                         continue
 
@@ -236,11 +236,15 @@ class CombinedQueryData:
 
         if "directories" in config:
             descriptions = {}
-            for directory in config.directories:
-                if directory == "myfonts":
+            for directoryType in config.directories:
+                if directoryType == "myFonts":
                     descriptions.update(loadRochesterDescriptions(config.directories.myFonts))
-                if directory == "google":
-                    descriptions.update(loadGoogleDescriptions(config.directories.google))
+                if directoryType == "standard":
+                    for directory in config.directories.standard:
+                        if directory == "google":
+                            descriptions.update(loadGoogleDescriptions(directory))
+                        if directory == "dafont":
+                            descriptions.update(loadDaFontDescriptions(directory))
         else:
             descriptions = loadRochesterDescriptions(config.directory)
 
@@ -248,7 +252,7 @@ class CombinedQueryData:
 
         viable = np.isin(self.names, list(self.descriptions.keys()))
         print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
-        self.index = np.arange(len(self.images))[viable]
+        self.index = np.arange(len(self.paths))[viable]
 
         self.fontMap = {key: key for key in self.descriptions}
         self.fontNum = {key: i for i, key in enumerate(self.descriptions)}
@@ -289,13 +293,12 @@ class CombinedQueryData:
         fontName = self.fontMap[name]
         description = self.descriptions[fontName].sample()
 
-        return {"inputs": leftImage, "outputs": None, "fontID": self.fontNum[data["name"]],
+        return {"inputs": leftImage, "fontID": self.fontNum[name],
                 "class": character, "description": description}
     
     @staticmethod
     def collate(samples):
         inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
-        outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
         characters = torch.stack([sample["class"] for sample in samples], dim=0)
         names = torch.tensor([sample["fontID"] for sample in samples], dtype=torch.long)
 
@@ -303,7 +306,7 @@ class CombinedQueryData:
                                        padding="longest", truncation=True,
                                        return_tensors="pt")
 
-        return inputs, outputs, names, tokens, characters
+        return inputs, names, tokens, characters
     
     @staticmethod
     def split(dataset, trainSplit=0.8, shuffle=True, seed=1234, batchSize=128):
@@ -325,10 +328,8 @@ class CombinedQueryData:
         train = torch.utils.data.Subset(dataset, trainIndex)
         test = torch.utils.data.Subset(dataset, testIndex)
 
-        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate,
-                           generator=torch.Generator(device), shuffle=shuffle)
-        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate,
-                          generator=torch.Generator(device), shuffle=shuffle)
+        train = DataLoader(train, batch_size=batchSize, collate_fn=dataset.collate, shuffle=shuffle)
+        test = DataLoader(test, batch_size=batchSize, collate_fn=dataset.collate, shuffle=shuffle)
 
         return train, test
 
@@ -336,22 +337,13 @@ class CombinedQueryData:
 class CLIPEmbedder(nn.Module):
     def __init__(self, config):
         super().__init__()
-
-        self.config = config
-        # Didn't realize this expects PIL
-        # self.processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.numLayers = 1
-
-        # self.model.requires_grad_(False)
-
-        self.outputDimension = config.textProjection if config is not None else None
-        if self.outputDimension is not None:
-            self.head = nn.Sequential(
-                nn.LazyLinear(self.outputDimension),
-                nn.ReLU(),
-                nn.LazyLinear(self.outputDimension)
-            )
+        self.model.requires_grad_(False)
+        self.head = nn.Sequential(
+            nn.LazyLinear(config.sharedDim),
+            nn.ReLU(),
+            nn.LazyLinear(config.sharedDim)
+        )
 
     def preprocess(self, x):
         x = x * 255.0
@@ -365,10 +357,11 @@ class CLIPEmbedder(nn.Module):
         return x
 
     def forward(self, x):
-        x = x.permute(0, 3, 1, 2)
-        x = x.repeat(1, 3, 1, 1)
-        x = self.preprocess(x)
-        x = self.model(x)
+        with torch.no_grad():
+            x = x.permute(0, 3, 1, 2)
+            x = x.repeat(1, 3, 1, 1)
+            x = self.preprocess(x)
+            x = self.model(x)
         if self.outputDimension is not None:
             return self.head(x.pooler_output)
         return x
@@ -376,5 +369,42 @@ class CLIPEmbedder(nn.Module):
     def activations(self, x):
         outputs = self.forward(x)
         return [outputs.pooler_output]
+    
 
+class CLIPTextEmbedder(nn.Module):
+    def __init__(self, modelName, sharedDim):
+        super().__init__()
+        self.model = CLIPTextModel.from_pretrained(modelName)
+        self.model.requires_grad_(False)
+        cfg = AutoConfig.from_pretrained(modelName)
+        sourceDim = cfg.hidden_size if hasattr(cfg, "hidden_size") else cfg.projection_dim
+        self.head = nn.Sequential(
+            nn.Linear(sourceDim, sharedDim),
+            nn.ReLU(),
+            nn.Linear(sharedDim, sharedDim)
+        )
+
+    def forward(self, text):
+        with torch.no_grad():
+            features = self.model(**text).pooler_output
+        return self.head(features)
+
+
+class BERTTextEmbedder(nn.Module):
+    def __init__(self, modelName, sharedDim):
+        super().__init__()
+        self.model = BertModel.from_pretrained(modelName)
+        self.model.requires_grad_(False)
+        cfg = AutoConfig.from_pretrained(modelName)
+        sourceDim = cfg.hidden_size if hasattr(cfg, "hidden_size") else cfg.projection_dim
+        self.head = nn.Sequential(
+            nn.Linear(sourceDim, sharedDim),
+            nn.ReLU(),
+            nn.Linear(sharedDim, sharedDim)
+        )
+
+    def forward(self, text):
+        with torch.no_grad():
+            features = self.model(**text).pooler_output
+        return self.head(features)
 
