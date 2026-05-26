@@ -40,6 +40,8 @@ class FontData(Dataset):
 
         self.index = np.arange(len(self.pairs))
 
+        self.fontNum = {key: i for i, key in enumerate(list(set(self.names.tolist())))}
+
         print()
 
     def mask(self, mask):
@@ -65,10 +67,10 @@ class FontData(Dataset):
 
         if self.method == "lower":
             return {"inputs": upper, "outputs": lower, "class": character,
-                    "name": self.names[item], "letter": self.letters[item]}
+                    "name": self.names[item], "letter": self.letters[item], "id": self.fontNum[self.names[item]]}
         
         return {"inputs": lower, "outputs": upper, "class": character,
-                "name": self.names[item], "letter": self.letters[item]}
+                "name": self.names[item], "letter": self.letters[item], "id": self.fontNum[self.names[item]]}
     
     def getMasked(self, i):
         item = self.index[i // 2]
@@ -96,18 +98,19 @@ class FontData(Dataset):
 
         if self.method == "none":
             return {"inputs": image, "outputs": image, "class": character,
-                    "name": self.names[item], "letter": letter}
+                    "name": self.names[item], "letter": letter, "id": self.fontNum[self.names[item]]}
 
         return {"inputs": maskedImage, "outputs": image, "class": character,
-                "name": self.names[item], "letter": letter}
+                "name": self.names[item], "letter": letter, "id": self.fontNum[self.names[item]]}
     
     @staticmethod
     def collate(samples):
         inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
         outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
         characters = torch.stack([sample["class"] for sample in samples], dim=0)
+        ids = torch.tensor([sample["id"] for sample in samples], dtype=torch.int32)
 
-        return inputs, outputs, characters
+        return inputs, outputs, characters, ids
 
     def __getitem__(self, item):
         if self.method == "masked" or self.method == "none":
@@ -184,34 +187,7 @@ class PairedImageData(FontData):
 
         self.totalPairs = int(np.sum(self.fontPairCounts))
 
-        # # Ugh
-        # leftIndex = []
-        # rightIndex = []
-        # leftTotal = 0
-        # rightTotal = 0
-
-        # # For every font
-        # for value in glyphsPerFont:
-        #     # For every glyph in font
-        #     for v in range(value):
-        #         # Add the index of the first character once for every glyph
-        #         # it can be compared to
-        #         leftIndex.extend([leftTotal] * value)
-        #         # Add the index of each comparative glpyh
-        #         rightIndex.extend((np.arange(value) + rightTotal).tolist())
-        #         # Increment the target glyph
-        #         leftTotal += 1
-        #     # Increment to the next set of glyphs
-        #     rightTotal += value
-
-        # self.leftIndex = leftIndex
-        # self.rightIndex = rightIndex
-
-        # print(len(self.rightIndex), len(self.leftIndex))
-
-        # self.index = np.arange(np.sum(interactions))
-
-        # assert (len(self.leftIndex) == len(self.rightIndex)) and (len(self.rightIndex) == len(self.index))
+        self.fontNum = {key: i for i, key in enumerate(list(set(self.names.tolist())))}
 
     def decodePairIndex(self, idx):
         # which font block this pair belongs to
@@ -277,7 +253,7 @@ class PairedImageData(FontData):
         character = torch.tensor(num, dtype=torch.long)
 
         return {"inputs": leftImage, "outputs": rightImage, "name": name,
-                "class": character, "letter": letter}
+                "class": character, "letter": letter, "id": self.fontNum[name]}
     
     # @staticmethod
     # def split(dataset, config):
