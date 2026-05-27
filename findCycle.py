@@ -7,7 +7,7 @@ from utils import *
 @torch.no_grad()
 def greedyPaths(embeddings, 
                 initialPaths = 2000, nodes = 40, 
-                distanceAlpha = 2, maxAlpha = 2.0, varianceAlpha = 1.2, outAlpha = 0.7, 
+                distanceAlpha = 2, maxAlpha = 2.0, varianceAlpha = 2.0, outAlpha = 0.7, 
                 replaceMutationRate = 0.1, flipMutationRate = 0.3,
                 trainingSteps = 2000, topK = 400) -> list[list[str]]:
     paths = [random.sample(list(embeddings.keys()), nodes) for i in range(initialPaths)]

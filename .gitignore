@@ -35,3 +35,5 @@ dataset.tar.gz
 **/password.txt
 
 wandb
+
+results/fontQueries.json

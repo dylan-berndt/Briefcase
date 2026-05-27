@@ -43,7 +43,7 @@ def loadFolderDescription(args):
     
     for file in glob(os.path.join(root, "**", "*.html"), recursive=True):
         if file.endswith(".html"):
-            with open(filePath, "r", encoding="utf-8") as file:
+            with open(file, "r", encoding="utf-8") as file:
                 data = file.read()
                 soup = BeautifulSoup(data, 'html.parser')
                 text = soup.get_text()
