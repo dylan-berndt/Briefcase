@@ -44,6 +44,9 @@ COPY --from=frontend-build /frontend/build ./backend/static
 # Add the font map page to the static folder
 COPY results/fontMap.html .backend/static/points.html
 
+# Check for points.html
+RUN find /app -name "*.html"
+
 WORKDIR /app/backend
 
 EXPOSE 8000
