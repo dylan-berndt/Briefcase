@@ -5,3 +5,4 @@ from .config import *
 from .querying import *
 from .extraction import *
 from .metrics import *
+from .embeddings import *

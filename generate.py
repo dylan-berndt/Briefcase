@@ -6,7 +6,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from utils import Description, loadDescriptionsFromSource, Config
 
-MODEL_ID = "google/gemma-4-4b-it"
+MODEL_ID = "microsoft/Phi-4"
 
 SYSTEM_PROMPT = """You are a font search expert. Given a font description (or set of adjectives), generate realistic search queries that a designer or developer might type to find this font.
 
@@ -15,11 +15,11 @@ Queries should:
 - Sound like natural Google/font-search queries
 - Cover different aspects: style, use case, mood, visual characteristics
 - Focus on visuals
-- Vary in specificity (some broad, some narrow)
+- Vary in specificity and length (some broad, some narrow)
 - Never mention the font name
 
 Return ONLY a JSON array of strings. No explanation, no markdown, no preamble. Example:
-["clean sans serif logo font", "modern geometric typeface", "minimalist corporate font"]
+["clean sans serif logo font", "modern geometric typeface with monolinear strokes", "minimalist corporate font balancing technical precision with approachable rounded details"]
 """
 
 
@@ -55,7 +55,7 @@ def buildPrompt(description: Description) -> str:
 
 
 def generateQueries(tokenizer, model, description: Description, queriesPerFont: int = 8, retries: int = 3):
-    message = f"Generate {queriesPerFont} search queries for this font:\n\n{buildPrompt(**description)}"
+    message = f"Generate {queriesPerFont} search queries for this font:\n\n{buildPrompt(description)}"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -72,7 +72,7 @@ def generateQueries(tokenizer, model, description: Description, queriesPerFont: 
         with torch.inference_mode():
             outputs = model.generate(
                 inputs,
-                max_new_tokens=256,
+                max_new_tokens=384,
                 do_sample=attempt > 0,          # greedy first, sample on retries
                 temperature=0.7 if attempt > 0 else None,
                 pad_token_id=tokenizer.eos_token_id,
@@ -98,7 +98,7 @@ def generateQueries(tokenizer, model, description: Description, queriesPerFont: 
     return None
 
     
-def generate(descriptions: dict[str, Description], output: str = "fontQueries.json", queriesPerFont: int = 8):
+def generate(descriptions: dict[str, Description], output: str = os.path.join("results", "fontQueries.json"), queriesPerFont: int = 8):
     tokenizer, model = loadModel()
 
     # Resume from checkpoint
@@ -114,7 +114,7 @@ def generate(descriptions: dict[str, Description], output: str = "fontQueries.js
     failed = []
     with open(output, "a") as out:
         for i, (name, desc) in enumerate(remaining.items()):
-            queries = generateQueries(tokenizer, model, desc, n_queries=queriesPerFont)
+            queries = generateQueries(tokenizer, model, desc, queriesPerFont=queriesPerFont)
 
             if queries is None:
                 print(f"  [{i+1}] FAILED: {name}")
@@ -123,8 +123,7 @@ def generate(descriptions: dict[str, Description], output: str = "fontQueries.js
 
             completed[name] = queries
 
-            if (i + 1) % 100 == 0:
-                print(f"  [{i+1}/{len(remaining)}] last: {name}")
+            print(f"\r  [{i+1}/{len(remaining)}] last: {name}", end="")
 
     print(f"Done. Failed: {len(failed)}")
     if failed:

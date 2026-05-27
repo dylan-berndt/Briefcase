@@ -2,64 +2,43 @@
 # Useful for generating the list of fonts to use on the front page of the site
 # Using Google fonts for easy imports on the site
 from utils import *
-from sklearn.decomposition import PCA
-
-latinCharacters = latin + [c.upper() for c in latin]
 
 
-def generateEmbeddings(fontData, model):
-    embeddings = {}
-
-    paths = dict(zip([(fontData["names"][i], fontData["letters"][i]) for i in range(len(fontData["names"]))], fontData["paths"]))
-
-    for name in np.unique(fontData["names"]):
-        images = []
-        for letter in latinCharacters:
-            path = paths[(name, letter)]
-            images.append(torch.tensor(loadImage(path), dtype=torch.float32))
-
-        batch = torch.stack(images, dim=0).unsqueeze(-1)
-        fontEmbeddings = nn.functional.normalize(model(batch), dim=-1).mean(dim=0)
-
-        embeddings[name] = fontEmbeddings.numpy()
-
-    return embeddings
-
-
-def compressEmbeddings(embeddings, components=12):
-    pca = PCA(n_components=components)
-
-    values = np.stack(embeddings.values(), axis=0)
-    transformed = pca.fit_transform(values)
-
-    return dict(zip(embeddings.keys(), transformed))
-
-
+@torch.no_grad()
 def greedyPaths(embeddings, 
-                initialPaths = 2000, nodes = 20, 
-                distanceAlpha = 0.2, maxAlpha = 0.2, varianceAlpha = 0.2, outAlpha = 0.2, 
-                replaceMutationRate = 0.05, flipMutationRate = 0.3,
-                trainingSteps = 2000, topK = 300) -> list[list[str]]:
+                initialPaths = 2000, nodes = 40, 
+                distanceAlpha = 2, maxAlpha = 2.0, varianceAlpha = 1.2, outAlpha = 0.7, 
+                replaceMutationRate = 0.1, flipMutationRate = 0.3,
+                trainingSteps = 2000, topK = 400) -> list[list[str]]:
     paths = [random.sample(list(embeddings.keys()), nodes) for i in range(initialPaths)]
     names = list(embeddings.keys())
 
-    left = np.arange(nodes)[:, None]
-    right = np.arange(nodes)[None, :]
+    left = np.arange(nodes + 1)[:, None]
+    right = np.arange(nodes + 1)[None, :]
 
-    mask = np.logical_or(np.logical_or(left - 1 == right, left + 1 == right), np.eye(nodes, dtype=bool))
+    mask = np.logical_or(np.logical_or(left - 1 == right, left + 1 == right), np.eye(nodes + 1, dtype=bool))
     edgesOnly = np.logical_or(left - 1 == right, left + 1 == right)
+
+    idx = np.arange(nodes + 1)
+    hopMatrix = np.minimum(np.abs(idx[:, None] - idx[None, :]), nodes - np.abs(idx[:, None] - idx[None, :]))
+
+    nonEdgeMask = ~mask
+    weights = hopMatrix[nonEdgeMask].astype(float)
+    weights /= weights.sum()
 
     def scorePath(path):
         cycle = path + [path[0]]
         emb = np.stack([embeddings[name] for name in cycle], axis=0)
-        distances = 1 - (emb[:, None] @ emb[None, :])
-
-        maxDistanceScore = np.mean(distances[~mask])
+        distances = 1 - (emb @ emb.T)
+    
+        maxDistanceScore = np.sum(distances[nonEdgeMask] * weights)
         minEdgesScore = np.mean(distances[edgesOnly])
         edgeVarianceScore = np.std(distances[edgesOnly])
         maxValuesScore = np.mean(np.abs(emb))
 
-        score = maxAlpha * maxDistanceScore - distanceAlpha * minEdgesScore + varianceAlpha * edgeVarianceScore + outAlpha * maxValuesScore
+        # print(minEdgesScore)
+
+        score = maxAlpha * maxDistanceScore - distanceAlpha * minEdgesScore - varianceAlpha * edgeVarianceScore + outAlpha * maxValuesScore
         return score
     
     def mutateReplace(path):
@@ -91,10 +70,12 @@ def greedyPaths(embeddings,
         chosen = np.random.choice(len(paths), size=topK, replace=False, p=probs)
         return [scores[i] for i in chosen], [paths[i] for i in chosen]
     
-    def reproduce(parents, targetSize):
+    def reproduce(parents, targetSize, minDiversity=0.6):
         children = []
         while len(children) < targetSize:
             a, b = random.sample(parents, 2)
+            if len(set(a) & set(b)) / nodes > (1 - minDiversity):
+                continue
             i, j = sorted(random.sample(range(nodes), 2))
             child = [None] * nodes
             child[i: j + 1] = a[i: j + 1]
@@ -114,11 +95,14 @@ def greedyPaths(embeddings,
     for step in range(trainingSteps):
         scores, paths = select(scores, paths, topK)
 
-        if step % 100 == 0:
-            print(f"Step: {step:4d} | Best: {scores[0]:.4f} | Mean: {np.mean(scores):.4f}")
+        print(f"\rStep: {step:4d} | Best: {max(scores):.4f} | Mean: {np.mean(scores):.4f}", end="")
 
         paths = paths + reproduce(paths, initialPaths - topK)
-        scores = scores + [scorePath(p) for p in paths[topK:]]
+        scores = [scorePath(p) for p in paths]
+
+        # scores = nichedScores(scores, paths)
+
+    print()
 
     ranked = sorted(zip(scores, paths), key=lambda x: x[0], reverse=True)
     return [p for _, p in ranked[:topK]]
@@ -133,5 +117,5 @@ if __name__ == "__main__":
 
     paths = greedyPaths(embeddings)
 
-    for path in paths:
+    for path in paths[:10]:
         print(" -> ".join(path))
