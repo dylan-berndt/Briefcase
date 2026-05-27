@@ -6,6 +6,7 @@ import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import SearchPage from './search';
 import AboutPage from './about';
+import MapPage from './map';
 
 
 const fragmentSource = `
@@ -236,6 +237,7 @@ function App() {
 					<header className="Bar">
 						<div>
 							<button className="HomeButton" onClick={() => setLocation("search")}>Home</button>
+							<button className="HomeButton" onClick={() => setLocation("map")}>Map</button>
 							<button className="HomeButton" onClick={() => setLocation("about")}>About</button>
 						</div>
 						<div>
@@ -243,7 +245,7 @@ function App() {
 							{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
 						</div>
 					</header>
-					{location === "search" ? <SearchPage></SearchPage> : <AboutPage></AboutPage>}
+					{location === "search" ? <SearchPage></SearchPage> : (location === "about" ? <AboutPage></AboutPage> : <MapPage></MapPage>)}
 				</div>
 			</div>
 		</>

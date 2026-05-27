@@ -32,8 +32,12 @@ if __name__ == "__main__":
         lineY.extend([ay, by, None])
         lineZ.extend([az, bz, None])
 
+    fig.write_html(os.path.join("results", "fontMap.html"))
+
     fig.add_trace(
         go.Scatter3d(x=lineX, y=lineY, z=lineZ, mode="lines", line=dict(width=4, color="red"), hoverinfo="none")
     )
 
     fig.show()
+
+    
