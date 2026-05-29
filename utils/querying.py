@@ -24,6 +24,8 @@ from torchvision.transforms import v2
 
 import math
 
+from pygtrie import CharTrie
+
 
 GENERIC_FONTS = {"noto", "unifont", "quivira", "symbola", "dejavu", "gnu unifont"}
 
@@ -62,9 +64,9 @@ class CombinedQueryData:
             names = []
             letters = []
             paths = []
-            # if "myFonts" in config.directories:
-            #     data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize)
-            #     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
+            if "myFonts" in config.directories:
+                data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize)
+                names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
                     if directory != "google":
@@ -96,19 +98,21 @@ class CombinedQueryData:
 
         print(len(self.names), len(self.descriptions), len(self.paths))
 
-        viable = []
+        trie = CharTrie()
+        for key in self.descriptions:
+            trie[key] = key
+
         solidNames = []
-        for i in range(len(self.names)):
-            broke = False
-            for key in list(self.descriptions.keys()):
-                if self.names[i].startswith(key):
-                    viable.append(True)
-                    solidNames.append(key)
-                    broke = True
-                    break
-            if not broke:
-                viable.append(False)
+        viable = []
+        for i, name in enumerate(self.names):
+            # longest_prefix is O(len(name)) instead of O(num_keys)
+            match = trie.longest_prefix(name)
+            if match.key is not None:
+                solidNames.append(match.key)
+                viable.append(True)
+            else:
                 solidNames.append(None)
+                viable.append(False)
 
         self.solidNames = np.array(solidNames)
                 

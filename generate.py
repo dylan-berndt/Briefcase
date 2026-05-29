@@ -4,7 +4,7 @@ import json
 import os
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from utils import Description, loadGoogleDescriptions, Config
+from utils import Description, loadGoogleDescriptions, loadDescriptionsFromSource, Config
 
 MODEL_ID = "microsoft/Phi-4"
 
@@ -233,5 +233,5 @@ def generate(
 
 if __name__ == "__main__":
     config = Config().load(os.path.join("configs", "vit.json"))
-    descriptions = loadGoogleDescriptions("google")
+    descriptions = loadDescriptionsFromSource(config.dataset)
     generate(descriptions, queriesPerFont=8)
