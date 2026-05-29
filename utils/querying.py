@@ -24,6 +24,11 @@ from torchvision.transforms import v2
 
 import math
 
+from pygtrie import CharTrie
+
+
+GENERIC_FONTS = {"noto", "unifont", "quivira", "symbola", "dejavu", "gnu unifont"}
+
 
 def loadDescriptionsFromSource(config: Config):
     if "directories" in config:
@@ -64,6 +69,8 @@ class CombinedQueryData:
                 names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
+                    if directory != "google":
+                        continue
                     data = collectFontSetPaths(directory, config.fontSize, config.maps)
                     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
 
@@ -76,15 +83,40 @@ class CombinedQueryData:
         self.letters = letters
         self.paths = paths
 
-        if not os.path.exists("fontQueries.json"):
+        if not os.path.exists(os.path.join("results", "fontQueries.json")):
             self.queries = False
             self.descriptions = loadDescriptionsFromSource(config)
         else:
-            with open("fontQueries.json", "r") as file:
+            with open(os.path.join("results", "fontQueries.json"), "r") as file:
+                print("USING GENERATED QUERIES")
                 self.queries = True
                 self.descriptions = json.load(file)
+                self.descriptions = {
+                    k: v for k, v in self.descriptions.items()
+                    if not any(k.lower().startswith(prefix) for prefix in GENERIC_FONTS)
+                }
 
-        viable = np.isin(self.names, list(self.descriptions.keys()))
+        print(len(self.names), len(self.descriptions), len(self.paths))
+
+        trie = CharTrie()
+        for key in self.descriptions:
+            trie[key] = key
+
+        solidNames = []
+        viable = []
+        for i, name in enumerate(self.names):
+            # longest_prefix is O(len(name)) instead of O(num_keys)
+            match = trie.longest_prefix(name)
+            if match.key is not None:
+                solidNames.append(match.key)
+                viable.append(True)
+            else:
+                solidNames.append(None)
+                viable.append(False)
+
+        self.solidNames = np.array(solidNames)
+                
+        viable = np.array(viable, dtype=bool)
         print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
         self.index = np.arange(len(self.paths))[viable]
 
@@ -112,9 +144,10 @@ class CombinedQueryData:
             imageSize = int(self.config.fontSize * 1.5)
             image = np.zeros((imageSize, imageSize), dtype=np.float32)
 
-        name = self.names[imageIndex]
+        name = self.solidNames[imageIndex]
 
-        leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
+        # leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
+        leftImage = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
 
         letter = self.letters[imageIndex] if (i % 2 == 0) else self.letters[imageIndex].upper()
         # Bastard: "ԵՒ" 
@@ -154,7 +187,7 @@ class CombinedQueryData:
 
         fontIDs = list(dataset.fonts.keys())
         trainIDs = np.array(fontIDs)[np.random.choice(len(fontIDs), int(len(fontIDs) * trainSplit), replace=False)]
-        trainIndexMask = np.isin(dataset.names[dataset.index], trainIDs)
+        trainIndexMask = np.isin(dataset.solidNames[dataset.index], trainIDs)
 
         # Pretty sure this flattens correctly
         if len(trainIndexMask) != len(dataset):
@@ -213,18 +246,20 @@ class CLIPTextEmbedder(nn.Module):
     def __init__(self, modelName, sharedDim):
         super().__init__()
         self.model = CLIPTextModel.from_pretrained(modelName)
-        self.model.requires_grad_(False)
+        # self.model.requires_grad_(False)
         cfg = AutoConfig.from_pretrained(modelName)
         sourceDim = cfg.hidden_size if hasattr(cfg, "hidden_size") else cfg.projection_dim
         self.head = nn.Sequential(
+            nn.Dropout(0.2),
             nn.Linear(sourceDim, sharedDim),
+            nn.LayerNorm(sharedDim),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(sharedDim, sharedDim)
         )
 
     def forward(self, text):
-        with torch.no_grad():
-            features = self.model(**text).pooler_output
+        features = self.model(**text).pooler_output
         return self.head(features)
 
 

@@ -108,8 +108,11 @@ class ViTEmbedder(nn.Module):
         self.model.requires_grad_(False)
         sourceDim = vitModel.config.embedDim
         self.head = nn.Sequential(
+            nn.Dropout(0.2),
             nn.Linear(sourceDim, sharedDim),
+            nn.LayerNorm(sharedDim),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(sharedDim, sharedDim)
         )
 
