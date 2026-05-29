@@ -5,6 +5,7 @@ import os
 import numpy as np
 from .pretraining import latin, loadImage
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 latinCharacters = [chr(c) for c in latin]
 
@@ -54,10 +55,20 @@ def generateEmbeddings(fontData, model, name="google"):
     return embeddings
 
 
-def compressEmbeddings(embeddings, components=12):
-    pca = PCA(n_components=components)
+def compressEmbeddings(embeddings, components=12, method="PCA"):
+    if method == "PCA":
+        pca = PCA(n_components=components)
 
-    values = np.stack(list(embeddings.values()), axis=0)
-    transformed = pca.fit_transform(values)
+        values = np.stack(list(embeddings.values()), axis=0)
+        transformed = pca.fit_transform(values)
+
+    if method == "TSNE":
+        pca = PCA(n_components=20)
+
+        values = np.stack(list(embeddings.values()), axis=0)
+        transformed = pca.fit_transform(values)
+
+        tsne = TSNE(n_components=components, perplexity=30.0, learning_rate='auto', init='pca', random_state=42, method="exact")
+        transformed = tsne.fit_transform(transformed)
 
     return dict(zip(embeddings.keys(), transformed))
