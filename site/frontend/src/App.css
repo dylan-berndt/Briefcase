@@ -90,6 +90,7 @@ body {
   z-index: 100;
   width: var(--ui-width);
   height: 56px;
+  width: 100%;
 
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -100,19 +101,18 @@ body {
   border-bottom: 1px solid var(--col-border);
 }
 
-.Bar :nth-child(1) {
+.Bar > div:nth-child(2),
+.Bar > div:nth-child(1) {
   display: flex;
   align-items: center;
+}
+
+.Bar > div:first-child {
   justify-content: flex-start;
+  gap: 24px;
 }
 
-.Bar :nth-child(1) button {
-  margin-right: 24px;
-}
-
-.Bar :nth-child(2) {
-  display: flex;
-  align-items: center;
+.Bar > div:last-child {
   justify-content: flex-end;
 }
 

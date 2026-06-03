@@ -111,6 +111,15 @@ def initializeDB():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ratings (
+            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
+            rating INTEGER NOT NULL,
+            userID INTEGER NOT NULL REFERENCES users(id),
+            created TEXT NOT NULL
+        )
+    ''')
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -342,6 +351,43 @@ def approveQuery(cursor, user):
         cursor.execute('''
             INSERT INTO approvals (fontID, query, userID, created) VALUES (?, ?, ?, ?)
         ''', (rows[0][0], query, user[0], datetime.now(timezone.utc)))
+
+    return jsonify({'message': 'Successful'}), 200
+
+
+@app.route('/api/font/rate', methods=['POST'])
+@limiter.limit("20 per minute")
+@dbRequired
+@loginRequired
+def rateFont(cursor, user):
+    fontName = request.args.get("fontName", "")
+    cursor.execute('''
+        SELECT id FROM fonts WHERE name = ?
+    ''', (fontName,))
+    fontRow = cursor.fetchone()
+
+    if not fontRow:
+        return jsonify({'message': 'Font not found'}), 401
+    
+    rating = request.args.get("rating", None)
+    if not rating:
+        return jsonify({'message': 'No rating provided'}), 401
+    
+    cursor.execute('''
+        SELECT id FROM ratings WHERE fontID = ? AND userID = ?
+    ''', (fontRow[0], user[0]))
+    ratingRow = cursor.fetchone()
+
+    if ratingRow:
+        # Rating exists, update the user's rating of this font
+        cursor.execute('''
+            UPDATE ratings SET rating = ?, created = ? WHERE fontID = ? AND userID = ?
+        ''', (rating, datetime.now(timezone.utc), fontRow[0], user[0]))
+    else:
+        # Create a new rating for the font by the user
+        cursor.execute('''
+            INSERT INTO ratings (fontID, rating, userID, created) VALUES (?, ?, ?, ?)
+        ''', (fontRow[0], rating, user[0], datetime.now(timezone.utc)))
 
     return jsonify({'message': 'Successful'}), 200
 

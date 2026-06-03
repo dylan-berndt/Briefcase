@@ -1,0 +1,17 @@
+.MapArea {
+  background-color: var(--col-surface);
+  height: 100vh;
+
+  display: flex;
+  flex-direction: column;
+
+  padding: 0;
+  overflow: visible;
+}
+
+.MapArea iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  flex: 1;
+}

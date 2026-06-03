@@ -38,3 +38,7 @@ wandb
 
 results/fontQueries.json
 embeddings
+
+/results/*.html
+/site/frontend/public/*.html
+!/site/frontend/public.index.html
