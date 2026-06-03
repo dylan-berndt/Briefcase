@@ -6,3 +6,4 @@ from .querying import *
 from .extraction import *
 from .metrics import *
 from .embeddings import *
+from .training import *

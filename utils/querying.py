@@ -56,7 +56,7 @@ class CombinedQueryData:
         imageSize = int(config.fontSize * 1.5)
 
         self.transforms = v2.Compose([
-            v2.RandomResizedCrop(size=(imageSize, imageSize), scale=(0.7, 1.0), ratio=(1.0, 1.0)),
+            v2.RandomResizedCrop(size=(imageSize, imageSize), scale=(0.7, 1.0), ratio=(0.75, 1.333)),
             v2.RandomRotation(degrees=25)
         ])
 
@@ -69,8 +69,6 @@ class CombinedQueryData:
                 names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
-                    if directory != "google":
-                        continue
                     data = collectFontSetPaths(directory, config.fontSize, config.maps)
                     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
 
@@ -116,9 +114,12 @@ class CombinedQueryData:
 
         self.solidNames = np.array(solidNames)
                 
-        viable = np.array(viable, dtype=bool)
-        print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
-        self.index = np.arange(len(self.paths))[viable]
+        if training:
+            viable = np.array(viable, dtype=bool)
+            print(f"{np.mean(viable) * 100:.2f}% of fonts have descriptions")
+            self.index = np.arange(len(self.paths))[viable]
+        else:
+            self.index = np.arange(len(self.paths))
 
         self.fontMap = {key: key for key in self.descriptions}
         self.fontNum = {key: i for i, key in enumerate(self.descriptions)}
@@ -146,8 +147,8 @@ class CombinedQueryData:
 
         name = self.solidNames[imageIndex]
 
-        # leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
-        leftImage = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
+        leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
+        # leftImage = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
 
         letter = self.letters[imageIndex] if (i % 2 == 0) else self.letters[imageIndex].upper()
         # Bastard: "ԵՒ" 
@@ -245,7 +246,7 @@ class CLIPEmbedder(nn.Module):
 class CLIPTextEmbedder(nn.Module):
     def __init__(self, modelName, sharedDim):
         super().__init__()
-        self.model = CLIPTextModel.from_pretrained(modelName)
+        self.model: CLIPTextModel = CLIPTextModel.from_pretrained(modelName)
         # self.model.requires_grad_(False)
         cfg = AutoConfig.from_pretrained(modelName)
         sourceDim = cfg.hidden_size if hasattr(cfg, "hidden_size") else cfg.projection_dim
@@ -261,6 +262,22 @@ class CLIPTextEmbedder(nn.Module):
     def forward(self, text):
         features = self.model(**text).pooler_output
         return self.head(features)
+    
+    @staticmethod
+    def load(path, name="checkpoint"):
+        modelPath = os.path.join(path, f"{name}.pt")
+        configPath = os.path.join(path, "config.json")
+
+        loadedConfig = Config().load(configPath)
+        loadedModel = CLIPTextEmbedder(loadedConfig.model)
+
+        loaded = torch.load(modelPath, weights_only=False, map_location="cuda" if torch.cuda.is_available() else "cpu")
+        if hasattr(loaded, "state_dict"):
+            loaded = loaded.state_dict()
+        loadedModel.load_state_dict(loaded)
+        loadedModel.eval()
+
+        return loadedModel, loadedConfig
 
 
 class BERTTextEmbedder(nn.Module):

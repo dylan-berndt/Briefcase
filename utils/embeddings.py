@@ -6,16 +6,17 @@ import numpy as np
 from .pretraining import latin, loadImage
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from umap import UMAP
 
 latinCharacters = [chr(c) for c in latin]
 
 @torch.no_grad()
-def generateEmbeddings(fontData, model, name="google"):
+def generateEmbeddings(fontData, model, fileName="google"):
     embeddings = {}
 
     os.makedirs("embeddings", exist_ok=True)
-    if os.path.exists(os.path.join("embeddings", f"{name}.json")):
-        with open(os.path.join("embeddings", f"{name}.json"), "r") as file:
+    if os.path.exists(os.path.join("embeddings", f"{fileName}.json")):
+        with open(os.path.join("embeddings", f"{fileName}.json"), "r") as file:
             embeddings = json.load(file)
             embeddings = {key: np.array(value) for key, value in embeddings.items()}
             return embeddings
@@ -38,17 +39,22 @@ def generateEmbeddings(fontData, model, name="google"):
         if broken:
             continue
 
-        batch = torch.stack(images, dim=0).unsqueeze(-1)
-        _, embedding = model(batch)
-        fontEmbeddings = nn.functional.normalize(embedding, dim=-1).mean(dim=0)
+        batch = torch.stack(images, dim=0).unsqueeze(-1).to(next(model.parameters()).device)
+        if type(model).__name__ == "ViT":
+            _, embedding = model(batch)
+        else:
+            embedding = model(batch)
+        # Old functionality that produced the flower
+        # fontEmbeddings = nn.functional.normalize(embedding, dim=-1).mean(dim=0)
+        fontEmbeddings = nn.functional.normalize(embedding.mean(dim=0, keepdim=True), dim=-1).squeeze()
 
-        embeddings[name] = fontEmbeddings.numpy()
+        embeddings[name] = fontEmbeddings.cpu().numpy()
 
         print(f"\r{n + 1}/{len(names)} Embeddings extracted", end="")
 
     print()
 
-    with open(os.path.join("embeddings", f"{name}.json"), "w+") as file:
+    with open(os.path.join("embeddings", f"{fileName}.json"), "w+") as file:
         serialized = {key: value.tolist() for key, value in embeddings.items()}
         json.dump(serialized, file)
 
@@ -68,7 +74,16 @@ def compressEmbeddings(embeddings, components=12, method="PCA"):
         values = np.stack(list(embeddings.values()), axis=0)
         transformed = pca.fit_transform(values)
 
-        tsne = TSNE(n_components=components, perplexity=30.0, learning_rate='auto', init='pca', random_state=42, method="exact")
+        tsne = TSNE(n_components=components, perplexity=30.0, learning_rate='auto', init='pca', random_state=42, method="exact", metric="cosine", n_jobs=6)
         transformed = tsne.fit_transform(transformed)
+
+    if method == "UMAP":
+        pca = PCA(n_components=20)
+
+        values = np.stack(list(embeddings.values()), axis=0)
+        transformed = pca.fit_transform(values)
+
+        umap = UMAP(n_components=components, n_neighbors=30, min_dist=0.6, random_state=42, metric="cosine")
+        transformed = umap.fit_transform(transformed)
 
     return dict(zip(embeddings.keys(), transformed))

@@ -37,3 +37,4 @@ dataset.tar.gz
 wandb
 
 results/fontQueries.json
+embeddings

@@ -68,9 +68,9 @@ class ViT(nn.Module):
         x = torch.cat([self.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
         x = self.transformer(x)
 
-        c = self.classifier(x[:, 0])
+        c = x[:, 0]
         if self.outputType == "pooled":
-            return c
+            return self.classifier(c)
         
         x = x[:, 1:].view(x.shape[0], *self.patches, x.shape[-1])
         x = x.permute(0, 3, 1, 2)
@@ -115,6 +115,23 @@ class ViTEmbedder(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(sharedDim, sharedDim)
         )
+
+    @staticmethod
+    def load(path, model, name="checkpoint"):
+        modelPath = os.path.join(path, f"{name}.pt")
+        configPath = os.path.join(path, "config.json")
+
+        loadedConfig = Config().load(configPath)
+        loadedModel = ViTEmbedder(model, model.config.embedDim)
+
+        loaded = torch.load(modelPath, weights_only=False, map_location="cuda" if torch.cuda.is_available() else "cpu")
+        if hasattr(loaded, "state_dict"):
+            loaded = loaded.state_dict()
+        loadedModel.load_state_dict(loaded)
+        loadedModel.eval()
+
+        return loadedModel, loadedConfig
+
 
     def forward(self, x):
         with torch.no_grad():

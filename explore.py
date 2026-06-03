@@ -4,9 +4,10 @@ import plotly
 
 
 if __name__ == "__main__":
-    with open(os.path.join("embeddings", "google.json"), "r") as file:
+    with open(os.path.join("embeddings", "all.json"), "r") as file:
         embeddings = json.load(file)
-    compressed = compressEmbeddings(embeddings, components=6, method="TSNE")
+    print("Compressing... ")
+    compressed = compressEmbeddings(embeddings, components=6, method="UMAP")
 
     with open(os.path.join("results", "fontPaths.txt"), "r") as pathFile:
         paths = pathFile.read().split("\n")

@@ -108,7 +108,7 @@ class FontData(Dataset):
         inputs = torch.stack([sample["inputs"] for sample in samples], dim=0)
         outputs = torch.stack([sample["outputs"] for sample in samples], dim=0)
         characters = torch.stack([sample["class"] for sample in samples], dim=0)
-        ids = torch.tensor([sample["id"] for sample in samples], dtype=torch.int32)
+        ids = torch.tensor([sample["id"] for sample in samples], dtype=torch.long)
 
         return inputs, outputs, characters, ids
 

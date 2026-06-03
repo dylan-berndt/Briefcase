@@ -11,42 +11,50 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def loadRochesterImage(args):
     imagePath, fontSize = args
-    image = Image.open(imagePath).convert("RGBA")
-    array = np.array(image)
-
-    array = 1 - (array[:, :, 0] / 255)
-    charWidth = np.argmax(np.arange(array.shape[1]) * np.max(array, axis=0))
-    alpha = array[:, :charWidth]
-
-    if alpha.shape[0] == 0 or alpha.shape[1] == 0:
-        return None, None
-
-    # Height / Width
-    ratio = alpha.shape[0] / alpha.shape[1]
-    width, height = int(fontSize / ratio), fontSize
-
-    if height <= 0 or width <= 0:
-        return None, None
-
-    fixed = cv2.resize(alpha, [height, width])
-
     imageSize = int(fontSize * 1.5)
-    overflow = math.ceil((fixed.shape[1] - imageSize) / 2)
-    if overflow > 0:
-        fixed = fixed[:, overflow: overflow + imageSize]
-    overflow = math.ceil((fixed.shape[0] - imageSize) / 2)
-    if overflow > 0:
-        fixed = fixed[overflow: overflow + imageSize]
+    padding = 8
+    targetGlyphSize = imageSize - 2 * padding
 
-    full = np.zeros([imageSize, imageSize], dtype=np.float32)
+    image = Image.open(imagePath).convert("RGB")
+    array = np.array(image, dtype=np.float32)
 
-    hPad = (imageSize - fixed.shape[0]) // 2
-    wPad = (imageSize - fixed.shape[1]) // 2
-    full[hPad:hPad + fixed.shape[0], wPad:wPad + fixed.shape[1]] = fixed
+    # Black glyph on white background → invert so glyph = 1.0
+    gray = 1.0 - (array[:, :, 0] / 255.0)
+
+    # Trim the large right-side whitespace: last col where any pixel > threshold
+    col_max = np.max(gray, axis=0)
+    nonzero_cols = np.where(col_max > 0.05)[0]
+    if len(nonzero_cols) == 0:
+        return None, None
+    gray = gray[:, : nonzero_cols[-1] + 1]
+
+    # Tight crop rows
+    row_max = np.max(gray, axis=1)
+    nonzero_rows = np.where(row_max > 0.05)[0]
+    if len(nonzero_rows) == 0:
+        return None, None
+    gray = gray[nonzero_rows[0]: nonzero_rows[-1] + 1, :]
+
+    if gray.shape[0] == 0 or gray.shape[1] == 0:
+        return None, None
+
+    # Scale to fit within targetGlyphSize preserving aspect ratio
+    h, w = gray.shape
+    scale = min(targetGlyphSize / h, targetGlyphSize / w)
+    new_h = max(1, round(h * scale))
+    new_w = max(1, round(w * scale))
+
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+    resized = cv2.resize(gray, (new_w, new_h), interpolation=interp)
+
+    # Center in canvas (glyph=1.0, background=0.0)
+    canvas = np.zeros((imageSize, imageSize), dtype=np.float32)
+    y0 = (imageSize - new_h) // 2
+    x0 = (imageSize - new_w) // 2
+    canvas[y0: y0 + new_h, x0: x0 + new_w] = resized
 
     name = os.path.basename(imagePath).removesuffix(".png")
-
-    return name, full
+    return name, canvas
 
 
 def loadRochesterDescription(descriptionPath):
@@ -67,7 +75,7 @@ def loadMyFontsImagePaths(directory, fontSize):
     if len(glob(os.path.join(directory, "smallimage", "*.bmp"))) == 0:
         imagePaths = glob(os.path.join(directory, "fontimage", "*.png"))
         tasks = [(path, fontSize) for path in imagePaths]
-        with Pool(processes=30) as pool:
+        with Pool(processes=4) as pool:
             for i, (name, array) in enumerate(pool.imap(loadRochesterImage, tasks, chunksize=1000)):
                 if name == None:
                     continue

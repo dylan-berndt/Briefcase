@@ -3,102 +3,48 @@ import pygame
 import math
 
 
-testDir = os.path.join("checkpoints", "finetune", "2025-11-23 01-35", "upper openai-clip-vit-base-patch32")
-textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"))
+testDir = os.path.join("checkpoints", "finetune", "2026-05-29 15-32", "ViT openai-clip-vit-base-patch32")
+model, conf = ViT.load(os.path.join("checkpoints", "pretrain", "latest"))
+imageModel, conf = ViTEmbedder.load(testDir, model=model, name="image")
+textModel = CLIPTextEmbedder("openai/clip-vit-base-patch32", conf.model.embedDim)
+textModel.load_state_dict(torch.load(os.path.join(testDir, "text.pt")))
 Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
-imageModel, conf = UNet.load(testDir, name="image")
-conf.dataset.directory = "google"
-dataset = FontData(conf.dataset, training=False)
+dataset = CombinedQueryData(conf.dataset, training=False)
 
 textModel.eval()
 imageModel.eval()
 
+imageModel = imageModel.to(device)
+textModel = textModel.to(device)
 
-def searchQuery(query, fontVectors):
+
+def searchQuery(query, fontEmbeddings):
     textData = Description.tokenizer([query], padding=False, return_tensors="pt")
-    embeddedText = textModel(**textData).pooler_output
+    textData = {k: v.to(device) for k, v in textData.items() if k != "token_type_ids"}
+    embeddedText = textModel(textData).cpu()
 
-    fontIndices = []
-    fontMatrix = None
-    fontKeys = list(fontVectors.keys())
-    for f, fontName in enumerate(fontKeys):
-        fontIndices.extend([f] * len(fontVectors[fontName]))
+    fontKeys = list(fontEmbeddings.keys())
+    fontMatrix = torch.tensor(np.stack([fontEmbeddings[k] for k in fontKeys]), dtype=torch.float32)
 
-        singleFontMatrix = torch.stack(fontVectors[fontName], dim=0)
-        if fontMatrix is None:
-            fontMatrix = singleFontMatrix
-        else:
-            fontMatrix = torch.cat([fontMatrix, singleFontMatrix], dim=0)
-
-    fontIndices = torch.tensor(fontIndices, dtype=torch.long)
-    f, e = nn.functional.normalize(fontMatrix, dim=-1), nn.functional.normalize(embeddedText, dim=-1)
-    scoreMatrix = f @ e.t()
-    fontScores = {}
-    
-    for f, fontName in enumerate(fontKeys):
-        scores = scoreMatrix[fontIndices == f]
-        fontScores[fontName] = {"median": torch.median(scores).item(),
-                                "mean": torch.mean(scores).item(),
-                                "std": torch.std(scores).item(),
-                                "min": torch.min(scores).item(),
-                                "max": torch.max(scores).item()}
-
-    return fontScores
+    scores = fontMatrix @ nn.functional.normalize(embeddedText, dim=-1).t()
+    return {fontKeys[i]: scores[i].item() for i in range(len(fontKeys))}
 
 
-def generateFontVectors(batchSize=128):
-    testCharacters = [chr(c) for c in latin]
-
-    fontVectors = {}
-
-    inputs = []
-    names = []
-    letters = []
-    for i in range(len(dataset)):
-        data = dataset[i]
-        inputs.append(data["inputs"].cpu())
-        names.append(data["name"])
-        letters.append(data["letter"])
-
-    inputs = np.array(inputs)
-    names = np.array(names)
-    letters = np.array(letters)
-
-    mask = np.isin(letters, np.array(testCharacters))
-    inputs = inputs[mask]
-    names = names[mask]
-
-    for i in range(0, len(inputs), batchSize):
-        with torch.no_grad():
-            j = min(len(inputs) - 1, i + batchSize)
-            ips = torch.tensor(inputs[i:j], dtype=torch.float32).squeeze().unsqueeze(-1)
-            outputs = imageModel(ips)
-
-            batchNames = names[i:j]
-
-            for n, batchName in enumerate(batchNames):
-                if batchName not in fontVectors:
-                    fontVectors[batchName] = []
-
-                fontVectors[batchName].append(outputs[n])
-
-        print(f"\r{i}/{len(inputs)} images processed", end="")
-
-    return fontVectors
-
-
-def topKRankings(scores, rank, k=5):
-    sortedScores = sorted(scores.items(), key=lambda item: item[1][rank], reverse=True)
-    return sortedScores[:k]
+def topKRankings(scores, k=5):
+    return sorted(scores.items(), key=lambda item: item[1], reverse=True)[:k]
 
 
 queryText = ""
-ranking = "mean"
-rankingTypes = ["mean", "median", "min", "max", "std"]
 currentRankings = {}
 results = []
-fontVectors = generateFontVectors()
+fontVectors = generateEmbeddings(
+    {"names": dataset.names,
+     "paths": dataset.paths,
+     "letters": dataset.letters},
+     model = imageModel,
+     fileName = "google"
+)
 
 pygame.init()
 windowSize = [960, 640]
@@ -125,20 +71,11 @@ while True:
             quit()
 
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_LEFT:
-                ranking = rankingTypes[(rankingTypes.index(ranking) - 1) % len(rankingTypes)]
-                results = topKRankings(currentRankings, ranking)
-                resetImages = True
-            elif event.key == pygame.K_RIGHT:
-                ranking = rankingTypes[(rankingTypes.index(ranking) + 1) % len(rankingTypes)]
-                results = topKRankings(currentRankings, ranking)
-                resetImages = True
-            elif event.key == pygame.K_BACKSPACE:
+            if event.key == pygame.K_BACKSPACE:
                 queryText = queryText[:-1]
             elif event.key == pygame.K_RETURN:
-                modifiedQuery = "a " + queryText + " font"
-                currentRankings = searchQuery(modifiedQuery, fontVectors)
-                results = topKRankings(currentRankings, ranking)
+                currentRankings = searchQuery(queryText, fontVectors)
+                results = topKRankings(currentRankings)
                 resetImages = True
             else:
                 queryText += event.unicode
@@ -148,7 +85,13 @@ while True:
         for result in results:
             # Wow I hate every image processing step here. This is stupid
             name, score = result
+            if name not in dataset.fonts:
+                images.append(None)
+                continue
             loadedFont = dataset.fonts[name]
+            if loadedFont is None:
+                images.append(None)
+                continue
             size = loadedFont.getmask(displayCharacters).size
             image = Image.new("RGBA", size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(image)
@@ -168,12 +111,13 @@ while True:
         fontImage = images[r]
         name, score = result
 
-        nameRender = uiFont.render(f"{name} | {ranking}: {score[ranking]:.2f}", False, [255, 255, 255])
+        nameRender = uiFont.render(f"{name} | {score:.2f}", False, [255, 255, 255])
         window.blit(nameRender, (resultsCorner[0], resultsCorner[1] + height))
         height += nameRender.get_height() + 8
 
-        window.blit(fontImage, (resultsCorner[0], resultsCorner[1] + height))
-        height += fontImage.get_height() + 32
+        if fontImage is not None:
+            window.blit(fontImage, (resultsCorner[0], resultsCorner[1] + height))
+            height += fontImage.get_height() + 32
 
     window.blit(uiSurface, [0, 0])
 
