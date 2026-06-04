@@ -75,7 +75,7 @@ def loadMyFontsImagePaths(directory, fontSize):
     if len(glob(os.path.join(directory, "smallimage", "*.bmp"))) == 0:
         imagePaths = glob(os.path.join(directory, "fontimage", "*.png"))
         tasks = [(path, fontSize) for path in imagePaths]
-        with Pool(processes=4) as pool:
+        with Pool(processes=30) as pool:
             for i, (name, array) in enumerate(pool.imap(loadRochesterImage, tasks, chunksize=1000)):
                 if name == None:
                     continue

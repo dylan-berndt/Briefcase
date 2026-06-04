@@ -30,21 +30,23 @@ def sigreg_weak_loss(x, sketch_dim=64):
 class MoCoQueue:
     def __init__(self, dim: int, size: int = 8192):
         self.queue = nn.functional.normalize(torch.randn(size, dim), dim=-1)
+        self.text_queue = nn.functional.normalize(torch.randn(size, dim), dim=-1)
         self.families = torch.full((size,), fill_value=-1, dtype=torch.long)
         self.ptr = 0
         self.size = size
 
     def get(self):
-        return self.queue.clone(), self.families.clone()
+        return self.queue.clone(), self.text_queue.clone(), self.families.clone()
 
     @torch.no_grad()
-    def enqueue(self, embeddings: torch.Tensor, families: torch.Tensor):
+    def enqueue(self, embeddings: torch.Tensor, text_embeddings: torch.Tensor, families: torch.Tensor):
         device = embeddings.device
         self.queue = self.queue.to(device)
+        self.text_queue = self.text_queue.to(device)
         n = embeddings.shape[0]
-        # Wrap around if needed
         slots = torch.arange(self.ptr, self.ptr + n) % self.size
         self.queue[slots.to(device)] = nn.functional.normalize(embeddings.detach(), dim=-1)
+        self.text_queue[slots.to(device)] = nn.functional.normalize(text_embeddings.detach(), dim=-1)
         self.families[slots] = families.detach().cpu()
         self.ptr = (self.ptr + n) % self.size
 
@@ -83,19 +85,22 @@ class EmbeddingLoss(nn.Module):
         device = x.device
 
         if families is not None and queue is not None:
-            queueEmb, queueFam = queue.get()
-            queueEmb = queueEmb.to(device)
+            queueImg, queueTxt, queueFam = queue.get()
+            queueImg = queueImg.to(device)
+            queueTxt = queueTxt.to(device)
             queueFam = queueFam.to(device)
 
-            # Keys = current batch + queue for both directions
-            imageKeys = torch.cat([x, queueEmb], dim=0)
             allFamilies = torch.cat([families, queueFam], dim=0)
 
+            # text queries → [current image batch ‖ image queue] keys
+            imageKeys = torch.cat([x, queueImg], dim=0)
             loss1 = self.infoNCE(y, imageKeys, families, allFamilies)
-            loss2 = self.infoNCE(x, y, families, families)
 
-            # Enqueue current batch after computing loss
-            queue.enqueue(x, families)
+            # image queries → [current text batch ‖ text queue] keys
+            textKeys = torch.cat([y, queueTxt], dim=0)
+            loss2 = self.infoNCE(x, textKeys, families, allFamilies)
+
+            queue.enqueue(x, y, families)
 
         elif families is not None:
             xNorm, yNorm = nn.functional.normalize(x, dim=-1), nn.functional.normalize(y, dim=-1)
@@ -138,7 +143,7 @@ def recallAtK(x, y, families=None, k=10, queue: MoCoQueue = None):
     yNorm = nn.functional.normalize(y, dim=-1)
 
     if queue is not None:
-        queueEmb, queueFam = queue.get()
+        queueEmb, _, queueFam = queue.get()
         queueEmb = nn.functional.normalize(queueEmb.to(device), dim=-1)
         queueFam = queueFam.to(device)
         keys = torch.cat([xNorm, queueEmb], dim=0)

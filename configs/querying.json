@@ -1,7 +1,7 @@
 {
-    "learningRate": 1e-3,
-    "batchSize": 64,
-    "queueSize": 256,
+    "learningRate": 3e-4,
+    "batchSize": 1024,
+    "queueSize": 4096,
     "epochs": 40,
     "sharedDim": 512,
     "headOnlyEpochs": 2,
