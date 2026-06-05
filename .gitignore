@@ -24,6 +24,7 @@ dataset.tar.gz
 /checkpoints/pretrain/*
 !/checkpoints/pretrain/best
 !/checkpoints/finetune/best
+!/checkpoints/finetune/latest
 
 /venv
 

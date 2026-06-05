@@ -256,6 +256,10 @@ class CLIPTextEmbedder(nn.Module):
             nn.LayerNorm(sharedDim),
             nn.ReLU(),
             nn.Dropout(0.2),
+            nn.Linear(sharedDim, sharedDim),
+            nn.LayerNorm(sharedDim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(sharedDim, sharedDim)
         )
 

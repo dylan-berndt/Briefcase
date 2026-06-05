@@ -65,7 +65,7 @@ class EmbeddingLoss(nn.Module):
         keyFamilies:   [B+Q]
         """
         queries = nn.functional.normalize(queries, dim=-1)
-        keys    = nn.functional.normalize(keys,    dim=-1)
+        keys = nn.functional.normalize(keys, dim=-1)
 
         logits = (queries @ keys.T) / self.temperature  # [B, B+Q]
 
