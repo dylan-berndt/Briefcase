@@ -32,7 +32,8 @@
             "Jokerman Regular"
         ]
     },
-    "batchSize": 1536,
+    "batchSize": 1024,
     "learningRate": 0.0001,
-    "epochs": 80
+    "epochs": 80,
+    "queueSize": 4096
 }
