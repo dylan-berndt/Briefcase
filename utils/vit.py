@@ -138,10 +138,9 @@ class ViTEmbedder(nn.Module):
 
 
     def forward(self, x):
-        with torch.no_grad():
-            x = x.permute(0, 3, 1, 2)
-            x = self.model.patching(x)
-            x = torch.cat([self.model.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
-            x = self.model.transformer(x)
-            features = x[:, 0]  # CLS token
+        x = x.permute(0, 3, 1, 2)
+        x = self.model.patching(x)
+        x = torch.cat([self.model.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
+        x = self.model.transformer(x)
+        features = x[:, 0]  # CLS token
         return self.head(features)

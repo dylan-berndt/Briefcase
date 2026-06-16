@@ -3,13 +3,14 @@ import pygame
 import math
 
 
-testDir = os.path.join("checkpoints", "finetune", "best", "ViT openai-clip-vit-base-patch32")
-model, conf = ViT.load(os.path.join("checkpoints", "pretrain", "latest"))
-imageModel, conf = ViTEmbedder.load(testDir, model=model, name="image")
+testDir = os.path.join("checkpoints", "finetune", "2026-06-07 17-04", "ViT openai-clip-vit-base-patch32")
+_, conf = ViT.load(os.path.join("checkpoints", "pretrain", "latest"))
+imageModel, conf = ViTEmbedder.load(testDir, model=ViT(conf.model), name="image")
 textModel = CLIPTextEmbedder("openai/clip-vit-base-patch32", conf.model.embedDim)
 textModel.load_state_dict(torch.load(os.path.join(testDir, "text.pt")))
 Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 
+ 
 dataset = CombinedQueryData(conf.dataset, training=False)
 
 textModel.eval()
@@ -21,6 +22,7 @@ textModel = textModel.to(device)
 
 def searchQuery(query, fontEmbeddings):
     textData = Description.tokenizer([query], padding=False, return_tensors="pt")
+    print(Description.tokenizer.convert_ids_to_tokens(textData["input_ids"][0]))
     textData = {k: v.to(device) for k, v in textData.items() if k != "token_type_ids"}
     embeddedText = textModel(textData).cpu()
 
@@ -43,7 +45,7 @@ fontVectors = generateEmbeddings(
      "paths": dataset.paths,
      "letters": dataset.letters},
      model = imageModel,
-     fileName = "google"
+     fileName = "allText"
 )
 
 pygame.init()
@@ -85,6 +87,7 @@ while True:
             elif event.key == pygame.K_RETURN:
                 currentRankings = searchQuery(queryText, fontVectors)
                 results = topKRankings(currentRankings, k=100)
+                print(len(results))
                 resetImages = True
                 scrollOffset = 0
             else:
@@ -94,6 +97,7 @@ while True:
             scrollOffset = max(0, scrollOffset - event.y * 20)
 
     if resetImages:
+        images = []
         for result in results:
             name, score = result
             letterMap = fontPathMap.get(name)
@@ -137,21 +141,21 @@ while True:
     uiSurface.blit(queryRender, (searchBarCorner[0] + 8, searchBarCorner[1] + 4))
 
     contentSurface = pygame.Surface(windowSize, pygame.SRCALPHA)
-    height = 0
+    height = -scrollOffset
     for r, result in enumerate(results):
         fontImage = images[r]
         name, score = result
 
         nameRender = uiFont.render(f"{name} | {score:.2f}", False, [255, 255, 255])
-        contentSurface.blit(nameRender, (resultsCorner[0], height))
-        height += nameRender.get_height() + 8
+        contentSurface.blit(nameRender, (resultsCorner[0], height - 8))
+        height += nameRender.get_height() - 16 + 8
 
         if fontImage is not None:
             contentSurface.blit(fontImage, (resultsCorner[0], height))
             height += fontImage.get_height() + 32
 
     scrollOffset = min(scrollOffset, max(0, height - (windowSize[1] - resultsCorner[1])))
-    window.blit(contentSurface, (0, resultsCorner[1] - scrollOffset))
+    window.blit(contentSurface, (0, resultsCorner[1]))
     window.blit(uiSurface, [0, 0])
 
     pygame.display.flip()

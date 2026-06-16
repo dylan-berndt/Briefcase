@@ -4,8 +4,20 @@ import plotly
 
 
 if __name__ == "__main__":
-    with open(os.path.join("embeddings", "all.json"), "r") as file:
-        embeddings = json.load(file)
+    if not os.path.exists(os.path.join("embeddings", "allText.json")):
+        model, config = ViT.load(os.path.join("checkpoints", "pretrain", "best"))
+        dataset = CombinedQueryData(config.dataset, training=False)
+
+        embeddings = generateEmbeddings(
+            {"names": dataset.names,
+            "paths": dataset.paths,
+            "letters": dataset.letters},
+            model = model,
+            fileName = "allText"
+        )
+    else:
+        with open(os.path.join("embeddings", "allText.json"), "r") as file:
+            embeddings = json.load(file)
     print("Compressing... ")
     compressed = compressEmbeddings(embeddings, components=6, method="UMAP")
 

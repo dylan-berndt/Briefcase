@@ -104,12 +104,13 @@ def buildContrastivePrompt(
 SYSTEM_PROMPT = """You are a font search expert. Given a font and a list of visually similar fonts, generate realistic search queries a designer might type to find exactly this font and not the similar ones listed.
 
 Queries must:
-- Be long and descriptive enough to be specific (aim for 8-20 words for at least half of them)
+- Be long and descriptive enough to be specific (aim for 16-28 words for at least half of them)
 - Describe visual qualities that make this font unique within its style category — specific details like stroke contrast, terminal style, weight distribution, x-height, historical period, construction geometry, or emotional register
 - Include some broader category queries (3-6 words) for general discoverability
 - Sound like natural search queries, not academic descriptions
 - Never mention the font name
-- Do not make assumptions about data you do not have access to
+- Never mention support for specific characters
+- Include BOTH information about the font that is shared with other fonts AND the characteristics that make it unique
 
 Think carefully about what makes this font visually distinct from the similar fonts listed. A query that would equally describe one of those similar fonts is a bad query.
 

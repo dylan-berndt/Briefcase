@@ -2,7 +2,7 @@ import random
 
 class Description:
     tokenizer = None
-    maxDescriptors = 7
+    maxDescriptors = 12
 
     def __init__(self, name, adjectives, tags=None, plainText=None, fixed=True):
         tags = tags if tags is not None else {}

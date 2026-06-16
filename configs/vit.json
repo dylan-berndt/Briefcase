@@ -1,6 +1,6 @@
 {
     "model": {
-        "layers": 8,
+        "layers": 12,
         "imageSize": 48,
         "patchSize": 8,
         "embedDim": 512,
@@ -32,8 +32,8 @@
             "Jokerman Regular"
         ]
     },
-    "batchSize": 1024,
+    "batchSize": 128,
     "learningRate": 1e-4,
     "epochs": 80,
-    "queueSize": 4096
+    "queueSize": 16384
 }

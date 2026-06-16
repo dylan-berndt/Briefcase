@@ -6,6 +6,9 @@ import numpy as np
 from .pretraining import latin, loadImage
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.neighbors import kneighbors_graph
+from scipy.sparse.csgraph import connected_components
 from umap import UMAP
 
 latinCharacters = [chr(c) for c in latin]
@@ -45,8 +48,8 @@ def generateEmbeddings(fontData, model, fileName="google"):
         else:
             embedding = model(batch)
         # Old functionality that produced the flower
-        # fontEmbeddings = nn.functional.normalize(embedding, dim=-1).mean(dim=0)
-        fontEmbeddings = nn.functional.normalize(embedding.mean(dim=0, keepdim=True), dim=-1).squeeze()
+        fontEmbeddings = nn.functional.normalize(embedding, dim=-1).mean(dim=0)
+        # fontEmbeddings = embedding.mean(dim=0).squeeze()
 
         embeddings[name] = fontEmbeddings.cpu().numpy()
 
@@ -78,12 +81,35 @@ def compressEmbeddings(embeddings, components=12, method="PCA"):
         transformed = tsne.fit_transform(transformed)
 
     if method == "UMAP":
-        pca = PCA(n_components=20)
+        pca = PCA(n_components=80)
 
         values = np.stack(list(embeddings.values()), axis=0)
         transformed = pca.fit_transform(values)
 
-        umap = UMAP(n_components=components, n_neighbors=30, min_dist=0.6, random_state=42, metric="cosine")
-        transformed = umap.fit_transform(transformed)
+        graph = kneighbors_graph(
+            values,
+            n_neighbors=10,
+            metric="cosine",
+            mode="connectivity",
+            include_self=False
+        )
+
+        # connected components
+        _, labels = connected_components(graph)
+
+        # component sizes
+        counts = np.bincount(labels)
+
+        # keep only large components
+        keep_components = np.where(counts > 100)[0]
+
+        mask = np.isin(labels, keep_components)
+
+        values = values[mask]
+        keys = np.array(list(embeddings.keys()))[mask]
+
+        umap = UMAP(n_components=components, n_neighbors=200, min_dist=0.4, random_state=42, metric="cosine", repulsion_strength=0.4)
+        transformed = umap.fit_transform(values)
+        return dict(zip(keys, transformed))
 
     return dict(zip(embeddings.keys(), transformed))

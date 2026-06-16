@@ -49,9 +49,10 @@ def loadDescriptionsFromSource(config: Config):
 
 
 class CombinedQueryData:
-    def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None):
+    def __init__(self, config, training=False, tokenizer="bert-base-uncased", limit=None, multiClass=False):
         self.setTokenizer(tokenizer)
         self.config = config
+        self.multiClass = multiClass
 
         imageSize = int(config.fontSize * 1.5)
 
@@ -81,7 +82,7 @@ class CombinedQueryData:
         self.letters = letters
         self.paths = paths
 
-        if not os.path.exists(os.path.join("results", "fontQueries.json")):
+        if not os.path.exists(os.path.join("results", "fontQueries.json")) or multiClass:
             self.queries = False
             self.descriptions = loadDescriptionsFromSource(config)
         else:
@@ -121,12 +122,20 @@ class CombinedQueryData:
         else:
             self.index = np.arange(len(self.paths))
 
+        if multiClass:
+            counts = {}
+            for description in self.descriptions.values():
+                for tag in description.adjectives + list(description.tags.keys()):
+                    counts[tag] = counts.get(tag, 0) + 1
+
+            self.vocab = sorted(tag for tag, count in counts.items() if count >= 10)
+            
         self.fontMap = {key: key for key in self.descriptions}
         self.fontNum = {key: i for i, key in enumerate(self.descriptions)}
         self.fonts = {key: None for key in self.descriptions}
 
-    def setTokenizer(self, name):
-        Description.tokenizer = AutoTokenizer.from_pretrained(name)
+    # def setTokenizer(self, name):
+    #     Description.tokenizer = AutoTokenizer.from_pretrained(name)
 
     def __len__(self):
         return len(self.index)
@@ -160,10 +169,16 @@ class CombinedQueryData:
 
         fontName = self.fontMap[name]
 
-        if not self.queries:
-            description = self.descriptions[fontName].sample()
+        if not self.multiClass:
+            if not self.queries:
+                description = self.descriptions[fontName].sample()
+            else:
+                description = random.choice(self.descriptions[fontName])
         else:
-            description = random.choice(self.descriptions[fontName])
+            desc = self.descriptions[fontName]
+            tags = set(desc.adjectives + list(desc.tags.keys()))
+            description = [1 if item in tags else 0 for item in self.vocab]
+            description = torch.tensor(description, dtype=torch.long)
 
         return {"inputs": leftImage, "fontID": self.fontNum[name],
                 "class": character, "description": description}
@@ -174,9 +189,12 @@ class CombinedQueryData:
         characters = torch.stack([sample["class"] for sample in samples], dim=0)
         names = torch.tensor([sample["fontID"] for sample in samples], dtype=torch.long)
 
-        tokens = Description.tokenizer([sample["description"] for sample in samples],
-                                       padding="longest", truncation=True,
-                                       return_tensors="pt")
+        if isinstance(samples[0]["description"], torch.Tensor):
+            tokens = torch.stack([sample["description"] for sample in samples], dim=0)
+        else:
+            tokens = Description.tokenizer([sample["description"] for sample in samples],
+                                        padding="longest", truncation=True,
+                                        return_tensors="pt")
 
         return inputs, names, tokens, characters
     
