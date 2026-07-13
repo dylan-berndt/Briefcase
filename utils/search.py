@@ -28,7 +28,7 @@ from .embeddings import generateEmbeddings, latinCharacters
 from .pretraining import device, loadImage
 from .loaders.description import Description
 
-__all__ = ["FontSearch", "TagSearch"]
+__all__ = ["FontSearch", "TagSearch", "MeanderSearch"]
 
 
 DEFAULT_BACKBONE = os.path.join("checkpoints", "pretrain", "latest")
@@ -384,3 +384,103 @@ class TagSearch(FontSearch):
                 vectors.append(doc.vector / norm if norm else np.zeros_like(doc.vector))
 
         self.tagVectors = np.stack(vectors).astype(np.float32) if hasVectors else None
+
+
+class MeanderSearch(FontSearch):
+    def __init__(self, checkpoint=DEFAULT_FINETUNE, backbone=DEFAULT_BACKBONE,
+                 dataset=None, embeddingName="all", device=device, learningRate=3e-3):
+        self.device = device
+        self.backbone = backbone
+        self.embeddingName = embeddingName
+
+        self.loadModels()
+        self.dataset = dataset if dataset is not None else self.buildDataset()
+        self.fontPathMap = self._buildPathMap()
+        self.embeddings = self.embedFonts()
+
+        def cosineDistance(x, y):
+            return 1 - (x @ y.t())
+        
+        self.location = nn.Parameter(torch.randn(self.embeddings[list(self.embeddings.keys())[0]].shape[0]))
+
+        self.getRepresentatives()
+
+        self.learningRate = learningRate
+        self.optimizer = torch.optim.SGD([self.location], lr=self.learningRate)
+        self.objective = nn.TripletMarginWithDistanceLoss(distance_function=cosineDistance, margin=0.1)
+        
+        self.rankings = {}
+        self.results = []
+
+    # Select embeddings perpendicular to the current location that are dissimilar to each other
+    def getRepresentatives(self):
+        self.options = []
+
+        keys = np.array(list(self.embeddings.keys()))
+        matrix = torch.tensor(np.stack([self.embeddings[k] for k in keys]), dtype=torch.float32)
+        simMatrix = matrix @ matrix.t()
+
+        key = nn.functional.normalize(self.location, dim=-1).t()
+        scores = matrix @ key
+
+        indices = torch.argsort(torch.abs(scores))
+
+        names = keys[indices.numpy()]
+        simMatrix = simMatrix[indices, :]
+        simMatrix = simMatrix[:, indices]
+        scores = scores[indices]
+
+        check = 0
+
+        for i in range(4):
+            found = False
+            while not found:
+                name = names[check]
+
+                # Check all current options to make sure we are also perpendicular
+                # to the other options
+                blocked = False
+                for option in self.options:
+                    location = list(names).index(option[0])
+                    value = matrix[check, location]
+
+                    if value > 0:
+                        blocked = True
+                        break
+
+                if not blocked:
+                    # Found a new option
+                    self.options.append((name, self.embeddings[name]))
+                    found = True
+
+                # Remove embedding from list
+                check += 1
+
+    def updateLocation(self, positive, negative):
+        normalized = nn.functional.normalize(self.location, dim=-1)
+        pos = torch.tensor(positive[1], dtype=torch.float32)
+        neg = torch.tensor(negative[1], dtype=torch.float32)
+        loss = self.objective(normalized, pos, neg)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        self.getRepresentatives()
+
+    # ------------------------------------------------------------------ models
+    def loadModels(self):
+        """Load and stash the image / text models. Sets ``self.datasetConfig``."""
+        self.imageModel, conf = ViT.load(self.backbone)
+
+        self.config = conf
+        self.datasetConfig = conf.dataset
+
+        self.imageModel.eval().to(self.device)
+
+    @torch.no_grad()
+    def encodeQuery(self, query):
+        keys = list(self.embeddings.keys())
+        matrix = torch.tensor(np.stack([self.embeddings[k] for k in keys]), dtype=torch.float32)
+        scores = matrix @ nn.functional.normalize(self.location, dim=-1).t()
+        return {keys[i]: scores[i].item() for i in range(len(keys))}
