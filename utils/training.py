@@ -5,7 +5,7 @@ import torch.nn as nn
 
 
 # https://github.com/kreasof-ai/sigreg
-def sigreg_weak_loss(x, sketch_dim=64):
+def sigreg_weak_loss(x, sketch_dim=2048):
     """
     Forces Covariance(x) ~ Identity.
     Matches the 2nd Moment (Spherical Cloud).

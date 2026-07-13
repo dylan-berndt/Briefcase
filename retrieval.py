@@ -100,7 +100,9 @@ def trainModel(config, model: ViTEmbedder, dataset, posWeight, experimentName, s
           f"over {len(dataset.vocab)} tags")
 
     optimizer = torch.optim.AdamW([{"params": model.head.parameters(), "lr": config.learningRate},
-                                   {"params": model.model.parameters(), "lr": 1e-4}], lr=config.learningRate)
+                                #    {"params": model.model.parameters(), "lr": 1e-4}
+                                   ], 
+                                   lr=config.learningRate)
     criterion = nn.BCEWithLogitsLoss(pos_weight=posWeight.to(device))
 
     print(f"{len(dataset)} total samples in dataset")

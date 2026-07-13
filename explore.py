@@ -3,9 +3,12 @@ import plotly.graph_objects as go
 import plotly
 
 
+location = "all"
+
+
 if __name__ == "__main__":
-    if not os.path.exists(os.path.join("embeddings", "allText.json")):
-        model, config = ViT.load(os.path.join("checkpoints", "pretrain", "best"))
+    if not os.path.exists(os.path.join("embeddings", f"{location}.json")):
+        model, config = ViT.load(os.path.join("checkpoints", "pretrain", "latest"))
         dataset = CombinedQueryData(config.dataset, training=False)
 
         embeddings = generateEmbeddings(
@@ -13,10 +16,10 @@ if __name__ == "__main__":
             "paths": dataset.paths,
             "letters": dataset.letters},
             model = model,
-            fileName = "allText"
+            fileName = f"{location}"
         )
     else:
-        with open(os.path.join("embeddings", "allText.json"), "r") as file:
+        with open(os.path.join("embeddings", f"{location}.json"), "r") as file:
             embeddings = json.load(file)
     print("Compressing... ")
     compressed = compressEmbeddings(embeddings, components=6, method="UMAP")

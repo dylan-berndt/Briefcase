@@ -134,8 +134,8 @@ class CombinedQueryData:
         self.fontNum = {key: i for i, key in enumerate(self.descriptions)}
         self.fonts = {key: None for key in self.descriptions}
 
-    # def setTokenizer(self, name):
-    #     Description.tokenizer = AutoTokenizer.from_pretrained(name)
+    def setTokenizer(self, name):
+        Description.tokenizer = AutoTokenizer.from_pretrained(name)
 
     def __len__(self):
         return len(self.index)
