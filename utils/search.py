@@ -398,6 +398,12 @@ class MeanderSearch(FontSearch):
         self.fontPathMap = self._buildPathMap()
         self.embeddings = self.embedFonts()
 
+        self.initializeLearner(learningRate)
+        
+        self.rankings = {}
+        self.results = []
+
+    def initializeLearner(self, learningRate):
         def cosineDistance(x, y):
             return 1 - (x @ y.t())
         
@@ -408,9 +414,6 @@ class MeanderSearch(FontSearch):
         self.learningRate = learningRate
         self.optimizer = torch.optim.SGD([self.location], lr=self.learningRate)
         self.objective = nn.TripletMarginWithDistanceLoss(distance_function=cosineDistance, margin=0.1)
-        
-        self.rankings = {}
-        self.results = []
 
     # Select embeddings perpendicular to the current location that are dissimilar to each other
     def getRepresentatives(self):
