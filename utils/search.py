@@ -407,7 +407,9 @@ class MeanderSearch(FontSearch):
         def cosineDistance(x, y):
             return 1 - (x @ y.t())
         
-        self.location = nn.Parameter(torch.randn(self.embeddings[list(self.embeddings.keys())[0]].shape[0]))
+        self.location = torch.randn(self.embeddings[list(self.embeddings.keys())[0]].shape[0])
+        self.location = nn.functional.normalize(self.location, dim=-1)
+        self.location = nn.Parameter(self.location)
 
         self.getRepresentatives()
 
