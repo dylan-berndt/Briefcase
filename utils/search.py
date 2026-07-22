@@ -20,6 +20,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer
+from sklearn.decomposition import PCA
+import math
 
 from .config import Config
 from .vit import ViT, ViTEmbedder
@@ -28,7 +30,7 @@ from .embeddings import generateEmbeddings, latinCharacters
 from .pretraining import device, loadImage
 from .loaders.description import Description
 
-__all__ = ["FontSearch", "TagSearch", "MeanderSearch"]
+__all__ = ["FontSearch", "TagSearch", "ClusteringSearch", "MeanderSearch"]
 
 
 DEFAULT_BACKBONE = os.path.join("checkpoints", "pretrain", "latest")
@@ -384,6 +386,78 @@ class TagSearch(FontSearch):
                 vectors.append(doc.vector / norm if norm else np.zeros_like(doc.vector))
 
         self.tagVectors = np.stack(vectors).astype(np.float32) if hasVectors else None
+
+
+class ClusteringSearch(FontSearch):
+    def __init__(self, checkpoint=DEFAULT_FINETUNE, backbone=DEFAULT_BACKBONE,
+                 dataset=None, embeddingName="all", device=device, visible=10, digits=8, k=8):
+        self.device = device
+        self.backbone = backbone
+        self.embeddingName = embeddingName
+
+        self.loadModels()
+        self.dataset = dataset if dataset is not None else self.buildDataset()
+        self.fontPathMap = self._buildPathMap()
+        self.embeddings = self.embedFonts()
+
+        self.visible = visible
+        self.digits = digits
+        self.k = k
+
+        self.keys = list(self.embeddings.keys())
+        self.matrix = torch.tensor(np.stack([self.embeddings[k] for k in self.keys]), dtype=torch.float32)
+
+        bitsPer = math.log(self.k, 2)
+        self.pca = PCA(n_components=self.digits * bitsPer)
+        transformed = self.pca.fit_transform(self.matrix)
+        self.transformed = transformed.copy()
+
+        transformed = np.reshape(transformed, [transformed.shape[0], -1, bitsPer])
+        codes = np.zeros(transformed.shape[:-1], dtype=np.int32)
+        for i in range(bitsPer):
+            codes += (2 ** i) * (transformed[:, :, i] <= 0).astype(np.int32)
+        self.codes = codes
+
+        self.initializeLearner()
+        
+        self.rankings = {}
+        self.results = []
+
+    def initializeLearner(self):
+        self.identified = np.full((self.digits), fill_value=np.nan)
+        self.digit = 0
+
+    def getRepresentatives(self):
+        self.options = []
+
+        for i in range(self.k):
+            code = self.identified.copy()
+            code[self.digit] = i
+
+            mask = ~np.isnan(code)
+            availableCodes = self.codes[mask] == code[mask]
+            chosenNames = np.array(self.keys)[availableCodes][:self.visible]
+
+            clusterSet = [(name, self.embeddings[name]) for name in chosenNames]
+
+            self.options.append(clusterSet)
+
+    def updateLocation(self, positive):
+        self.identified[self.digit] = positive
+
+        self.digit += 1
+
+        self.getRepresentatives()
+
+    # ------------------------------------------------------------------ models
+    def loadModels(self):
+        """Load and stash the image / text models. Sets ``self.datasetConfig``."""
+        self.imageModel, conf = ViT.load(self.backbone)
+
+        self.config = conf
+        self.datasetConfig = conf.dataset
+
+        self.imageModel.eval().to(self.device)
 
 
 class MeanderSearch(FontSearch):
