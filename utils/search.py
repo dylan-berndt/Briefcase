@@ -28,7 +28,7 @@ from .embeddings import generateEmbeddings, latinCharacters
 from .pretraining import device, loadImage
 from .loaders.description import Description
 
-__all__ = ["FontSearch", "TagSearch", "MeanderSearch"]
+__all__ = ["FontSearch", "TagSearch", "MeanderSearch", "WalkSearch"]
 
 
 DEFAULT_BACKBONE = os.path.join("checkpoints", "pretrain", "latest")
@@ -489,3 +489,122 @@ class MeanderSearch(FontSearch):
         matrix = torch.tensor(np.stack([self.embeddings[k] for k in keys]), dtype=torch.float32)
         scores = matrix @ nn.functional.normalize(self.location, dim=-1).t()
         return {keys[i]: scores[i].item() for i in range(len(keys))}
+
+
+class WalkSearch(FontSearch):
+    def __init__(self, checkpoint=DEFAULT_FINETUNE, backbone=DEFAULT_BACKBONE,
+                 dataset=None, embeddingName="all", device=device,
+                 priorVar=1.0, obsVar=0.25, obsMargin=1.0, numOptions=4):
+        self.device = device
+        self.backbone = backbone
+        self.embeddingName = embeddingName
+        self.priorVar = priorVar
+        self.obsVar = obsVar
+        self.obsMargin = obsMargin
+        self.numOptions = numOptions
+
+        self.loadModels()
+        self.dataset = dataset if dataset is not None else self.buildDataset()
+        self.fontPathMap = self._buildPathMap()
+        self.embeddings = self.embedFonts()
+
+        self.matrixKeys = list(self.embeddings.keys())
+        self.matrix = torch.tensor(np.stack([self.embeddings[k] for k in self.matrixKeys]), dtype=torch.float32)
+
+        centered = self.matrix - self.matrix.mean(dim=0)
+        self.corpusCov = (centered.t() @ centered) / self.matrix.shape[0]
+
+        DEff = 75  # start here, tune against the participation ratio you measure above
+
+        eigvals, eigvecs = torch.linalg.eigh(self.corpusCov)
+        topEigvecs = eigvecs[:, -DEff:]
+        self.corpusCov = topEigvecs @ topEigvecs.t()
+
+        self.initializeLearner()
+
+        self.rankings = {}
+        self.results = []
+
+    def initializeLearner(self, priorVar=None, obsVar=None, obsMargin=None, numOptions=None):
+        if priorVar is not None:
+            self.priorVar = priorVar
+        if obsVar is not None:
+            self.obsVar = obsVar
+        if obsMargin is not None:
+            self.obsMargin = obsMargin
+        if numOptions is not None:
+            self.numOptions = numOptions
+
+        dim = self.matrix.shape[1]
+        self.location = nn.functional.normalize(torch.randn(dim), dim=-1)
+        self.covariance = self.priorVar * self.corpusCov
+
+        self.getRepresentatives()
+
+    # Select candidates at the extremes of whatever directions the current
+    # belief is still most uncertain about.
+    # def getRepresentatives(self):
+    #     eigvals, eigvecs = torch.linalg.eigh(self.covariance)
+    #     topDirs = eigvecs[:, -(self.numOptions // 2):]
+
+    #     proj = self.matrix @ topDirs
+
+    #     chosen = []
+    #     for d in range(topDirs.shape[1]):
+    #         order = torch.argsort(proj[:, d])
+    #         chosen.append(order[0].item())
+    #         chosen.append(order[-1].item())
+    #     chosen = list(dict.fromkeys(chosen))[:self.numOptions]
+
+    #     self.options = [(self.matrixKeys[i], self.matrix[i].numpy()) for i in chosen]
+
+    def getRepresentatives(self):
+        location = nn.functional.normalize(self.location, dim=-1)
+        P = torch.eye(location.shape[0]) - torch.outer(location, location)
+        covPerp = P @ self.covariance @ P
+
+        eigvals, eigvecs = torch.linalg.eigh(covPerp)
+        topDirs = eigvecs[:, -(self.numOptions // 2):]
+
+        proj = self.matrix @ topDirs
+
+        chosen = []
+        for d in range(topDirs.shape[1]):
+            order = torch.argsort(proj[:, d])
+            chosen.append(order[0].item())
+            chosen.append(order[-1].item())
+        chosen = list(dict.fromkeys(chosen))[:self.numOptions]
+
+        self.options = [(self.matrixKeys[i], self.matrix[i].numpy()) for i in chosen]
+
+    def updateLocation(self, positive, negative):
+        optionsMatrix = nn.functional.normalize(
+            torch.tensor(np.stack([o[1] for o in self.options]), dtype=torch.float32), dim=-1)
+
+        p = nn.functional.normalize(torch.tensor(positive[1], dtype=torch.float32), dim=-1)
+        n = nn.functional.normalize(torch.tensor(negative[1], dtype=torch.float32), dim=-1)
+        axis = p - n
+
+        weights = optionsMatrix @ axis      # each shown option's correlation to the p/n axis
+        a = weights @ optionsMatrix         # M(p - n): correlation-weighted centroid direction
+
+        y = self.obsMargin - a @ self.location
+        s = a @ self.covariance @ a + self.obsVar
+        gain = (self.covariance @ a) / s
+
+        self.location = nn.functional.normalize(self.location + gain * y, dim=-1)
+        self.covariance = self.covariance - torch.outer(gain, a) @ self.covariance
+
+        self.getRepresentatives()
+
+    # ------------------------------------------------------------------ models
+    def loadModels(self):
+        self.imageModel, conf = ViT.load(self.backbone)
+        self.config = conf
+        self.datasetConfig = conf.dataset
+        self.imageModel.eval().to(self.device)
+
+    @torch.no_grad()
+    def encodeQuery(self, query):
+        scores = self.matrix @ nn.functional.normalize(self.location, dim=-1)
+        return {self.matrixKeys[i]: scores[i].item() for i in range(len(self.matrixKeys))}

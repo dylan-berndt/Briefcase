@@ -3,16 +3,63 @@ from utils import *
 topK = 10
 maxSearches = 15
 
-rates = [1e-1, 1e-2, 1e-3, 1e-4]
-results = [[] for _ in range(len(rates))]
-trajectories = [[] for _ in range(len(rates))]
-
 searchHelper = WalkSearch(backbone=os.path.join("checkpoints", "pretrain", "best"), obsVar=1e-3, priorVar=1, obsMargin=0.4, numOptions=8, embeddingName="all")
 keys = list(searchHelper.embeddings.keys())
 matrix = torch.tensor(np.stack([searchHelper.embeddings[k] for k in keys]), dtype=torch.float32)
 
 norms = matrix.norm(dim=1)
 print(norms.mean().item(), norms.std().item(), norms.min().item(), norms.max().item())
+
+
+class PreferenceModel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+        self.optionEncoder = nn.Sequential(
+            nn.Linear(matrix.shape[-1], config.hidden),
+            nn.LayerNorm(config.hidden),
+            nn.Dropout(),
+            nn.ReLU(),
+            nn.Linear(config.hidden, config.hidden)
+        )
+
+        self.lstm = nn.LSTM(config.hidden * 3, config.hidden, num_layers=2, batch_first=True)
+    
+    def forward(self, o, p, n):
+        o = torch.tensor(o, dtype=torch.float32)
+        p = torch.tensor(p, dtype=torch.float32)
+        n = torch.tensor(n, dtype=torch.float32)
+
+        o = self.optionEncoder(o).mean(dim=-2)
+        p = self.optionEncoder(p)
+        n = self.optionEncoder(n)
+
+        x = torch.stack([o, p, n], dim=-1)
+        x, _ = self.lstm(x)
+
+        return x[:, -1]
+    
+
+class TrialDataset(Dataset):
+    def __init__(self):
+        self.options = []
+        self.positives = []
+        self.negatives = []
+        self.trialNum = []
+
+    def append(self, o, p, n, t):
+        self.options.append(o)
+        self.positives.append(p)
+        self.negatives.append(n)
+        self.trialNum.append(t)
+
+    def __len__(self):
+        return len(self.options)
+    
+    def __getitem__(self, i):
+        return self.options[i], self.positives[i], self.negatives[i], self.trialNum[i]
+
 
 
 def estimateObsMargin(searchHelper, trials=300, roundsPerTrial=6):
@@ -53,51 +100,19 @@ def estimateObsMargin(searchHelper, trials=300, roundsPerTrial=6):
     return alignments.mean()
 
 
-def calibrationCheck(searchHelper, obsVar, trials=200, roundsPerTrial=8):
-    keys = searchHelper.matrixKeys
-    matrix = searchHelper.matrix
-    nis = []
-
-    for _ in range(trials):
-        searchHelper.initializeLearner(obsVar=obsVar)
-        fontName = random.choice(keys)
-        target = torch.tensor(searchHelper.embeddings[fontName], dtype=torch.float32)
-
-        for _ in range(roundsPerTrial):
-            scores = [(target @ torch.tensor(o[1], dtype=torch.float32)).item()
-                      for o in searchHelper.options]
-            positive = searchHelper.options[scores.index(max(scores))]
-            negative = searchHelper.options[scores.index(min(scores))]
-
-            p = nn.functional.normalize(torch.tensor(positive[1], dtype=torch.float32), dim=-1)
-            n = nn.functional.normalize(torch.tensor(negative[1], dtype=torch.float32), dim=-1)
-            a = p - n
-
-            yPred = searchHelper.obsMargin - a @ searchHelper.location
-            sPred = a @ searchHelper.covariance @ a + searchHelper.obsVar
-
-            nis.append((yPred.item() ** 2) / sPred.item())
-
-            searchHelper.updateLocation(positive, negative)
-
-    nis = np.array(nis)
-    print(f"obsVar={obsVar}: mean NIS={nis.mean():.3f} (well-calibrated ~= 1.0)")
-    return nis.mean()
-
-
 margin = estimateObsMargin(searchHelper)
 searchHelper = WalkSearch(backbone=os.path.join("checkpoints", "pretrain", "best"), obsVar=1e-3, priorVar=1, obsMargin=margin, numOptions=8, embeddingName="all")
 
-# for obsVar in rates:
-#     calibrationCheck(searchHelper, obsVar)
 
+def obtainTrials():
+    dataset = TrialDataset()
 
-for r, rate in enumerate(rates):
-    status = []
+    for i in range(10000):
+        optionHistory = []
+        positiveHistory = []
+        negativeHistory = []
 
-    for i in range(1000):
-        trajectory = []
-        searchHelper.initializeLearner(obsVar=rate)
+        searchHelper.initializeLearner(obsVar=1e-3)
         names = list(searchHelper.embeddings.keys())
         fontName = random.choice(names)
         target = searchHelper.embeddings[fontName]
@@ -113,8 +128,6 @@ for r, rate in enumerate(rates):
             k = int((scores > targetScore).sum())
             # print(searchHelper.location.norm(p=2).item(), targetScore, k)
 
-            trajectory.append(k)
-
             if k <= topK:
                 found = True
                 break
@@ -123,6 +136,12 @@ for r, rate in enumerate(rates):
             positive = searchHelper.options[scores.index(max(scores))]
             negative = searchHelper.options[scores.index(min(scores))]
 
+            optionHistory.append(searchHelper.options)
+            positiveHistory.append(positive)
+            negativeHistory.append(negative)
+
+            dataset.append(optionHistory, positiveHistory, negativeHistory, i)
+
             searchHelper.updateLocation(positive, negative)
 
             searches += 1
@@ -130,29 +149,14 @@ for r, rate in enumerate(rates):
             if searches >= maxSearches:
                 break
 
-        for _ in range(maxSearches - len(trajectory)):
-            trajectory.append(1)
-
-        status.append(found)
-        results[r].append(searches)
-        trajectories[r].append(trajectory)
-
-        print(f"\r{i}/1000 | Learning Rate: {rate:.3f} | Success Rate: {(sum(status) / len(status)) * 100:.2f}%", end="")
+        print(f"\r{i}/10000", end="")
 
     print()
 
+    return dataset
 
-trajectories = np.array(trajectories)
 
-for r, rate in enumerate(rates):
-    plt.title(f"Learning Rate {rate}")
-    plt.hist(results[r])
-    plt.show()
+data = obtainTrials()
+model = PreferenceModel(Config(hidden=32))
 
-    fig, ax = plt.subplots()
-    ax.set_title(f"Median Trajectory {rate}")
-    ax.boxplot(trajectories[r])
-    ax.set_yscale("log")
-
-    plt.show()
-    
+trajectories = []
