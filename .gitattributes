@@ -1,3 +1,5 @@
 *.safetensors filter=lfs diff=lfs merge=lfs -text
 checkpoints/finetune/best/** filter=lfs diff=lfs merge=lfs -text
 checkpoints/finetune/latest/** filter=lfs diff=lfs merge=lfs -text
+embeddings/all.json filter=lfs diff=lfs merge=lfs -text
+checkpoints/pretrain/best/checkpoint.pt filter=lfs diff=lfs merge=lfs -text

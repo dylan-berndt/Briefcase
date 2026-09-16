@@ -1,0 +1,131 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Briefcase is a research project for font search via neural embeddings. Pipeline:
+1. **Pretrain** a UNet or ViT to reconstruct uppercase glyphs from lowercase (or masked-glyph reconstruction), forcing the backbone to learn font style rather than letterform. Trained on font bitmaps rendered from thousands of `.ttf`/`.otf` files.
+2. **Retrieval head**: freeze the pretrained ViT backbone, train a small head to predict style tags/adjectives (`retrieval.py`).
+3. **Finetune**: train paired image/text embedders (ViT image side + CLIP or BERT text side) contrastively so a text query and a font's glyph images land in the same embedding space (`finetune.ipynb`, `finetuneViT.ipynb`).
+4. **Search**: use the finetuned embedders to rank a font corpus against a free-text query, or against tag vocab (`utils/search.py`, exposed via `site/`).
+
+There is also an exploratory line of work (`meander.py`, `trainMeander.py`, `testMeander.py`, `cluster_search.py`) on interactive/preference-based search — narrowing a font corpus through repeated pairwise or clustered choices instead of typing a query — plus transferability estimation (`estimation.py`) comparing pretraining objectives with LogME/TransRate/H-Alpha. See `README.md` for background, methodology and results tables.
+
+## Environment setup
+
+No lint/test/CI commands exist for the Python side — this is a research codebase, not a package. There is no formal test suite; scripts under `test*.py` are exploratory sweeps, not assertions.
+
+```bash
+# One-time setup (also see initialize.sh, which does all of this + fetches datasets)
+python3 -m venv venv
+source venv/bin/activate        # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+```
+
+Datasets are not checked in (see `.gitignore`) and must be fetched separately:
+- `data/fonts` — your own local fonts, used for quick pretraining experiments (config: `configs/config.json`).
+- `google/fonts` — clone of `github.com/google/fonts`, used for tag/description-labeled training.
+- `dataset/` — the ICCV 2019 "Large-scale Tag-based Font Retrieval" dataset (MyFonts-derived; see `dataset/readme.md`), fetched via `gdown` in `initialize.sh`.
+- `dafont/` — public-domain fonts from `dafonts-free`.
+
+Rendered glyph bitmaps/SDFs (`*/bitmaps`, `*/sdf`) are generated from the raw font files on first load and cached alongside them (also gitignored).
+
+### Frontend (`site/frontend`)
+
+```bash
+cd site/frontend
+npm install
+npm start    # dev server, proxies to https://font-search.com (see package.json "proxy")
+npm run build
+npm test
+```
+
+### Backend (`site/backend`)
+
+Flask app (`app.py`) serving the search API + the built frontend as static files, backed by SQLite with the `sqlite-vec` extension for vector search. Requires `SECRET_KEY` env var. Run from `site/backend` so relative model/checkpoint paths resolve, or via the Docker image (below).
+
+### Docker / deploy
+
+`Dockerfile` does a multi-stage build: `npm run build` the frontend, then a `python:3.11-slim` Flask image with `utils/` and `checkpoints/` copied in, served via gunicorn. `.github/workflows/deploy.yml` builds and pushes to GHCR on push to `main`, then SSHes into a DigitalOcean droplet to `docker compose pull && up -d`. Not something to trigger casually — it deploys to production (`font-search.com`).
+
+## Architecture
+
+### Config system (`utils/config.py`)
+
+Everything is driven by `Config`, a dict-of-dicts wrapper loaded from JSON in `configs/*.json` (e.g. `configs/uppercase.json`, `configs/vit.json`, `configs/querying.json`). Supports dotted-key access (`config["model.layers"]`), attribute access (`config.model.layers`), and `"key" in config` membership checks — most model/dataset code branches on optional keys this way (e.g. `if "textProjection" not in config`) rather than using explicit defaults, so when adding a new model variant, prefer adding a new optional config key over changing call signatures.
+
+### Models (`utils/unet.py`, `utils/vit.py`)
+
+Both `UNet` and `ViT` are dual-purpose, switching behavior based on whether `config.model` has a `textProjection` key:
+- **No `textProjection`** ("image" mode): used during pretraining. Outputs a reconstructed glyph image plus a character-classification logit (glyph identity is classified off the bottleneck/CLS features to force the backbone to separate style from letterform).
+- **Has `textProjection`** ("pooled" mode): used during finetuning/embedding. Outputs a single pooled feature vector of that width, meant to be compared against a text embedding.
+
+`ViTEmbedder` wraps a pretrained (frozen) `ViT` backbone with a trainable projection head for the finetuning stage — this is the actual "image side" of the contrastive image/text model. Both model classes have a `.load(path, name="checkpoint")` staticmethod expecting a directory with `<name>.pt` + `config.json`; checkpoints are organized under `checkpoints/{pretrain,retrieval,finetune}/<run-name>/`, with a `latest`/`best` symlink-equivalent kept per the `.gitignore` allowlist.
+
+### Data loading (`utils/loaders/`, `utils/pretraining.py`, `utils/querying.py`)
+
+`utils/loaders/` has one module per data source (`google.py`, `myfonts.py`, `dafont.py`, `standard.py`, `description.py`) — each knows how to enumerate a specific dataset's fonts/tags/descriptions on disk. `utils/pretraining.py` (`FontData`) builds lowercase/uppercase glyph pairs for the reconstruction pretraining task. `utils/querying.py` (`CombinedQueryData`) builds the paired image/text dataset for finetuning, and can pull from multiple `config.directories` sources at once (e.g. `myFonts` + `standard: [google, dafont]`, see `configs/vit.json`). Font descriptions are cleaned with spaCy (adjective/adjective-noun extraction).
+
+### Search (`utils/search.py`)
+
+`FontSearch` is the base class owning model loading, the font glyph dataset, cached per-font embeddings (persisted to `embeddings/<name>.json` via `utils/embeddings.py`), and top-k ranking; subclasses override `loadModels` / `embedFonts` / `encodeQuery`:
+- `FontSearch` — CLIP-style image/text embedding search (the finetuned `ViTEmbedder` + `CLIPTextEmbedder`).
+- `TagSearch` — searches via the multi-label tagging head from `retrieval.py`, mapping free text onto the tag vocabulary with spaCy.
+- `ClusteringSearch` — narrows the corpus by iteratively assigning fonts to a k-ary cluster code (interactive digit-by-digit narrowing, no text query).
+- `MeanderSearch` / `WalkSearch` — exploratory preference-walk search (positive/negative example steering, Bayesian-ish position updates); `WalkSearch` is used by `trainMeander.py`/`testMeander.py` to fit/evaluate a `PreferenceModel` over these walks.
+- `GridFeedbackSearch` — "Interactive Grid-Feedback Retrieval": no text query, just repeated rounds of picking (or skipping) fonts from a grid, refit each round as an L2-logistic-regression belief over a whitened-PCA subspace of raw pre-projection backbone features. See **Ongoing investigation** below — under active evaluation, not yet wired into the site.
+
+Local pygame UIs for trying these interactively: `search.py` (TagSearch/FontSearch), `meander.py` (MeanderSearch), `cluster_search.py` (ClusteringSearch), `draw.py` (draw a glyph, run it through a pretrained UNet), `hallucinate.py` (gradient-ascent glyph hallucination from a trained UNet classifier).
+
+**Known footgun**: `FontSearch`'s `DEFAULT_BACKBONE` (`checkpoints/pretrain/latest`) has drifted out of sync with `DEFAULT_FINETUNE` (`checkpoints/finetune/2026-06-07 17-04/...`) — `latest` is now a 12-layer/embedDim-512 ViT, but that finetune checkpoint's image tower was trained against an 8-layer/embedDim-512 backbone (`checkpoints/pretrain/best` matches). Loading `FontSearch()` with default args throws a `state_dict` mismatch on `transformer.layers.8` onward; pass `backbone=os.path.join("checkpoints","pretrain","best")` explicitly until this is fixed.
+
+### Site (`site/`)
+
+`site/backend/app.py`: Flask + `sqlite-vec` for the deployed search API — stores per-font embedding vectors in a `vec0` virtual table (dimension = `config.model.textProjection`), plus font metadata, user accounts (JWT auth via `PyJWT`), and per-font text descriptions/registry data. `site/frontend`: Create React App (react-scripts 5), with route-like sections under `src/{search,map,about}`, each with its own `index.js` + `main.css`. `src/map` visualizes font embeddings spatially — `findCycle.py` generates the path data it walks (a greedy/evolutionary search for smooth tours through embedding space, used to pick which Google Fonts to feature on the front page).
+
+## Working in this repo
+
+- Naming convention throughout is camelCase for Python (not PEP8 snake_case) — match the existing style rather than converting.
+- Checkpoint/embedding/dataset directories are large and gitignored; don't assume they exist, and don't try to regenerate them as part of unrelated tasks — check with the user first, since building them from raw fonts is slow and datasets aren't publicly bundled.
+- `requirements.txt` is UTF-16 encoded (an artifact of how it was exported) — tools that assume UTF-8 text may need explicit decoding to read it.
+
+## Ongoing investigation: grid-feedback search viability
+
+**Goal, per the user:** implement `GridFeedbackSearch` (done, in `utils/search.py`), decide whether it's actually viable at the deployed corpus scale, and — once viable — replace the text/tag search in `site/` with it, removing the now-vestigial CLIP text-embedding code. **The site-integration/removal plan has not been started** — it's explicitly blocked on settling viability first.
+
+### The algorithm, briefly
+
+Offline: per-font raw backbone CLS features (pre-projection, pre-classifier — see `GridFeedbackSearch._rawFeatures`) → centre → PCA(D, D from the covariance participation ratio) → whiten → `Z`. Seed grid = k-means(Z, m) medoids. Online: each round, refit an L2-logistic regression from scratch on all labels collected so far (`GridFeedbackSearch._fitLogistic`), display the top-m unshown fonts by the fitted score. This matches a spec the user provided almost exactly (a simplified version of a fuller doc that also described Laplace-covariance UCB and a "Frontier" batch-diversification policy, dropped for the simplified version actually implemented).
+
+### Evaluation harness
+
+Not part of `utils/` — throwaway root-level scripts (gitignored is *not* set up for these, they're just untracked; not committed): `evalGridFeedback.py` (baseline top-m sweep + shared helpers other eval scripts import: `loadCorpus`, `fitProjection`, `seedGrid`), `evalGridFeedbackUCB.py` (fixed-κ Laplace-UCB), `evalGridFeedbackFrontier.py` (spec's geomspace-κ batch policy), `evalGridFeedbackUCBPE.py` (GP-UCB-PE), `evalTextNarrowing.py` (recall measurement for text pre-filtering, see below). All load `embeddings/all.json` directly (39,421 fonts, `ViTEmbedder`-pooled, mean-of-per-glyph-normalized vectors, **not** raw CLS features — a deliberate simplification for fast iteration, not what `GridFeedbackSearch` itself uses) rather than recomputing embeddings, so they need no model/dataset load and run in seconds-to-minutes. Simulated user: target font uniform at random, acceptance set `T` = its 10 nearest cosine neighbors (not just the exact font — matches the original design doc's `t=10`), each round's "true" positive labels are the k closest displayed fonts to the target by cosine similarity, each label flipped independently w.p. ε. Success = any of `T` appears in the displayed grid.
+
+### Findings so far, in order
+
+1. **Pure top-m works at the design doc's own tested scale, fails at deployed scale.** On a random 3,760-font subset (matching the doc's own corpus size), the harness reproduces its published numbers almost exactly (e.g. median 3 rounds at m=20,k=3,ε=0 — they report 3). On the full 39,421-font corpus, most `(m,k,ε)` cells **majority-censor** (>30 rounds) even at ε=0. Traced individual runs: the target's rank under the fitted weight genuinely wanders rather than trending down (0 → 6k → 13k → 136 → 1k → 3k → ...) — this is a real "absorbing basin" trap (top-m commits fully to one region every round; once wrong, nothing ever samples elsewhere again), not a scale/information-capacity wall. Demand at N=39,421 is only ~7.6 bits (`log2(N/(m·t))`, m=20,t=10) against ~14 bits/round supply (`log2(C(20,5))` at ε=0) — plenty of information-theoretic headroom that pure exploitation isn't using.
+2. **Fixed-κ Laplace-UCB (`μ + κσ`, κ=1) roughly doubles the escape rate but is bimodal, not uniformly faster.** Censoring dropped from ~93% (κ=0, i.e. top-m) to ~58-63%. Critically: of the runs that *do* escape, they converge in median 4 rounds (mode exactly 3) — matching the small-corpus numbers almost exactly, confirming the trap-vs-demand diagnosis. The ~40-60% that don't escape within 30 rounds just don't, regardless of κ (swept 0.5-8, plateaus around 60-65% censored).
+3. **The spec's own "Frontier" policy (`geomspace(κ_lo,κ_hi,m)`, one argmax pick per κ, dedupe, backfill) is *worse* than fixed κ, and has no literature grounding.** Searched specifically for the paper the fuller spec cited ("spherical-linear-BO") — not found. Diagnosed why it underperforms: the geomspace sweep is degenerate here (only 3-5 of 20 κ values produce distinct argmaxes; μ/σ don't reorder candidates continuously, only at a few "elbow" thresholds), so ~75-85% of every grid ends up filled by the backfill pass at κ_hi (near-pure exploration), diluting useful signal. Worse median (6-11 vs. fixed-κ's 4) and worse censoring (60-72% vs. 58-63%).
+4. **GP-UCB-PE (Contal et al., ICML 2013 — real citation, implemented faithfully: one UCB-maximizing pick + m-1 pure-variance picks restricted to a "relevant region," posterior fantasy-updated after each pick) is a genuinely different, real tradeoff.** Escape rate roughly doubled again vs. fixed-κ (62-72% success vs. ~42%), but each escape is much slower (success median 10-20 vs. 4). Net overall median (censored included) still 17-24.5 — did not reach the "under 7" bar that was checked for. Prediction beforehand ("no" on <7) was right; the *reasoning* ("more exploration-heavy = lower escape rate like Frontier") was wrong — it actually escapes far more often, just slower per escape. Worth remembering: exploration-heavy ≠ automatically worse here, Frontier's failure was a construction bug (degenerate sweep + bad backfill weighting), not evidence against exploration generally.
+5. **Net read on display-policy tweaks alone: probably a dead end for reaching small-corpus-like medians (~3-4) at full scale.** Three different policies (top-m, Frontier, GP-UCB-PE) all hit a similar wall. That convergence is itself a signal the bottleneck may not be the round-level display policy at all — see next finding.
+6. **Metric mismatch is a real, separate, measured concern.** An oracle check (weight = target's own `Z`-vector, the best possible query) only gets 7/20 overlap with the true cosine-nearest-neighbors in the raw `V` space. The aggregator reasons in a whitened-PCA space built from `embeddings/all.json`; the simulated user's ground truth is cosine similarity in that same raw space — even a perfect fit only partially agrees with it. If this is the dominant bottleneck (not yet isolated from the trap problem), no amount of round-policy tuning fixes it; the offline PCA/whitening itself would need to target the right metric.
+7. **Text-based pre-narrowing (user's idea: cut 39,421 → ~4,000 by text score before grid search) has real signal but a real risk at that exact cutoff.** Measured directly against the actual finetuned contrastive model (not a baseline) using each font's own real description as a proxy query (`evalTextNarrowing.py`, needs the `checkpoints/pretrain/best` backbone fix above to load): median target rank in the **top 2.2%** of the corpus (strong aggregate signal) despite R@1≈0% (confirms it's not viable as a direct prompt→font pipeline, consistent with why grid-feedback was built at all). At a hard 10%/~4,000-font cutoff: **18.3% of targets would be silently thrown away** before search even starts — too risky as an invisible hard filter for a real product. At 20%/~7,900: 7.3% loss, much safer, still ~5x corpus reduction. Recommendation: use text score as a **soft prior on round 1's seed grid** (bias k-means medoid selection), not a hard filter — captures the benefit without the silent-failure mode. Caveat: this measurement uses each font's *true* description as the query (idealized); a real free-typed user query is likely noisier, so real recall is probably somewhat worse than measured.
+
+### Contrastive model improvement research (not yet tested empirically — analysis only, per explicit instruction not to script this part)
+
+Read the actual training pipeline (`utils/training.py`'s `EmbeddingLoss`/`MoCoQueue`/`sigreg_weak_loss`, `utils/querying.py`'s `CLIPTextEmbedder`, `finetuneViT.ipynb`'s progressive-unfreezing schedule) before researching, to avoid recommending things already done.
+
+- **Already implemented, don't re-suggest:** MoCo momentum queue (size 4096 in the config that actually trained the deployed checkpoint — `vit.json`'s 16384 is a red herring, doesn't match what's saved in the checkpoint's own `config.json`), InfoNCE with a sigreg anti-collapse regularizer (VICReg/Barlow-Twins-style, forces embedding covariance toward identity), a TF-IDF description-similarity **false-negative mask** (excludes accidentally-similar fonts from the negative pool — `buildFalseNegativeMask`), progressive block-unfreezing with a 10x lower backbone LR than head LR, and — important — **LLM-generated natural-language captions already exist** (`generate.py`, Phi-4-based, → `results/fontQueries.json`, 25,054/39,421 fonts × 8 diverse queries each; `CombinedQueryData` already prefers these over raw tag lists when present). Don't recommend "use richer captions," it's done for 2/3 of the corpus.
+- **Real gap 1 — caption coverage:** only 25,054/39,421 fonts have the LLM-generated captions; the rest fall back to raw tag concatenation. Extending `generate.py` to the remaining third is cheap (proven pattern, just compute time) and probably the best ROI-per-effort item here.
+- **Real gap 2 — CLIP itself is meaningfully outdated for this use case.** SigLIP (Zhai et al., ICCV 2023) replaced softmax-CLIP as the default open-source VLM pretraining objective by 2024. Relevant here specifically: SigLIP's sigmoid pairwise loss scores each image-text pair independently instead of forcing a single softmax "winner" per anchor, and trains well at much smaller batch/queue sizes than softmax-CLIP needs (this project's queue is 4096, far below CLIP-scale). Swapping the *loss*, not necessarily the text tower (queries here are short, so a heavier LLM-based text encoder like T5/LLM2CLIP is probably not worth the complexity) is the actionable version of this.
+- **User's correction, important — naive hard-negative mining (e.g. FG-CLIP's approach, initially suggested) is likely a bad fit here and was walked back.** FG-CLIP-style hard-negative mining assumes a hard negative (embeds close, different label) is *wrong* — true for categorical vision-language data, false for font style, which is a graded/continuous similarity manifold where a "hard negative" is frequently a legitimate alternative answer (user's own framing: "the close fonts typically are also correct answers"). Forcing separation there would fight the real structure of the problem.
+- **The actual right fix for that, found via literature, not first-principles guessing: Rank-N-Contrast (Zha et al., NeurIPS 2023).** Built for exactly this — continuous/graded target similarity — by contrasting samples on *relative ranking* in target space rather than binary pos/neg, so it never demands artificial separation between two legitimately-similar fonts, only correct relative ordering. The existing TF-IDF description-similarity matrix (currently only used to *exclude* false negatives) is already the right continuous signal to use as RNC's ranking target — no new data needed. SigLIP's independent-pairwise scoring and RNC's ranked-relative scoring are two different fixes for the *same* root cause (softmax forcing one winner per anchor); pursuing one or both together is more coherent than adding hard-negative mining on top of the current InfoNCE loss unchanged.
+- **Untested, cheap, inference-time-only ideas worth trying before any retraining:**
+  - **Prompt averaging** (ask for 2+ phrasings, embed each, average before scoring): grounded in multi-query/prompt-ensembling retrieval literature (GenQREnsemble; "why averaging embeddings works" in multi-query RAG). Matches the diagnosed failure signature precisely — R@1≈0% but median rank top 2.2% is the signature of high variance / low bias (roughly right neighborhood, wrong precise order due to single-phrasing word-choice noise), which query-averaging is the textbook fix for.
+  - **"All-but-the-Top" (Mu & Viswanath):** mean-center, strip the top-k dominant principal directions, z-score the rest — a training-free postprocessing fix for anisotropic embeddings (a few directions dominate variance but carry mostly generic signal). This is the user's own "TF-IDF on portions of the vector space" intuition, confirmed as a real, named technique — z-scoring after removing dominant directions is the continuous analog of IDF-weighting (suppress generic/common directions, relatively boost discriminative low-variance ones). Would apply to the raw contrastive embedding space (`embeddings/all.json`), distinct from `GridFeedbackSearch`'s own whitening, which operates on a downstream PCA'd subspace built for the search algorithm specifically.
+
+### Suggested next steps (not yet decided/started)
+
+Isolate finding 6 (metric mismatch) from findings 1-5 (trap dynamics) before investing further in display-policy tuning — e.g. re-run the eval harness with the simulated user's "true" similarity computed in the *whitened Z-space* itself rather than raw cosine, to see how much of the residual censoring is metric-mismatch vs. trap. On the contrastive-model side, the two cheapest untested things (prompt-averaging, ABTT postprocessing) should be tried empirically before committing to any retraining path (caption-coverage extension, SigLIP/RNC loss swap), since both are inference-time-only against the already-trained checkpoint and would validate or kill those hypotheses cheaply.
