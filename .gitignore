@@ -44,6 +44,7 @@ embeddings
 
 experiments/pipeline.log
 experiments/effective_dimension.log
+experiments/character_variance.log
 
 /results/*.html
 /site/frontend/public/*.html
