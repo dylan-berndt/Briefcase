@@ -11,6 +11,11 @@ embedding search as-is.
 ``checkpoints/retrieval`` (trained by ``retrieval.py`` / ``utils/querying.py``).
 Each font is encoded as a probability over the checkpoint's tag vocabulary, and
 a free-text query is mapped onto that vocabulary with spaCy before ranking.
+
+``GridFeedbackSearch`` implements the "Interactive Grid-Feedback Retrieval" method:
+no text query at all, just repeated rounds of picking (or skipping) fonts out of
+a grid, refit as an L2-logistic-regression belief over a whitened PCA subspace of
+raw (pre-projection) backbone features. See the design doc for the derivation.
 """
 
 import os
@@ -21,6 +26,8 @@ import torch
 import torch.nn as nn
 from transformers import AutoTokenizer
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from scipy.optimize import minimize
 import math
 
 from .config import Config
@@ -30,7 +37,8 @@ from .embeddings import generateEmbeddings, latinCharacters
 from .pretraining import device, loadImage
 from .loaders.description import Description
 
-__all__ = ["FontSearch", "TagSearch", "ClusteringSearch", "MeanderSearch", "WalkSearch"]
+__all__ = ["FontSearch", "TagSearch", "ClusteringSearch", "MeanderSearch", "WalkSearch",
+           "GridFeedbackSearch"]
 
 
 DEFAULT_BACKBONE = os.path.join("checkpoints", "pretrain", "latest")
@@ -407,7 +415,7 @@ class ClusteringSearch(FontSearch):
         self.keys = list(self.embeddings.keys())
         self.matrix = torch.tensor(np.stack([self.embeddings[k] for k in self.keys]), dtype=torch.float32)
 
-        bitsPer = math.log(self.k, 2)
+        bitsPer = int(round(math.log(self.k, 2)))
         self.pca = PCA(n_components=self.digits * bitsPer)
         transformed = self.pca.fit_transform(self.matrix)
         self.transformed = transformed.copy()
@@ -426,17 +434,22 @@ class ClusteringSearch(FontSearch):
     def initializeLearner(self):
         self.identified = np.full((self.digits), fill_value=np.nan)
         self.digit = 0
+        self.getRepresentatives()
 
     def getRepresentatives(self):
         self.options = []
+
+        if self.digit >= self.digits:
+            return
 
         for i in range(self.k):
             code = self.identified.copy()
             code[self.digit] = i
 
             mask = ~np.isnan(code)
-            availableCodes = self.codes[mask] == code[mask]
-            chosenNames = np.array(self.keys)[availableCodes][:self.visible]
+            target = code[mask].astype(np.int32)
+            matches = np.all(self.codes[:, mask] == target, axis=1)
+            chosenNames = np.array(self.keys)[matches][:self.visible]
 
             clusterSet = [(name, self.embeddings[name]) for name in chosenNames]
 
@@ -448,6 +461,33 @@ class ClusteringSearch(FontSearch):
         self.digit += 1
 
         self.getRepresentatives()
+
+    def undo(self):
+        """Reverse the most recent digit assignment so it can be reselected."""
+        if self.digit == 0:
+            return
+        self.digit -= 1
+        self.identified[self.digit] = np.nan
+        self.getRepresentatives()
+
+    def reset(self):
+        """Clear every digit assignment and start back over at the first digit."""
+        self.identified[:] = np.nan
+        self.digit = 0
+        self.getRepresentatives()
+
+    @property
+    def finished(self):
+        return self.digit >= self.digits
+
+    def matchedNames(self):
+        """Every font name whose code matches the digits identified so far."""
+        mask = ~np.isnan(self.identified)
+        if not mask.any():
+            return list(self.keys)
+        target = self.identified[mask].astype(np.int32)
+        matches = np.all(self.codes[:, mask] == target, axis=1)
+        return list(np.array(self.keys)[matches])
 
     # ------------------------------------------------------------------ models
     def loadModels(self):
@@ -682,3 +722,259 @@ class WalkSearch(FontSearch):
     def encodeQuery(self, query):
         scores = self.matrix @ nn.functional.normalize(self.location, dim=-1)
         return {self.matrixKeys[i]: scores[i].item() for i in range(len(self.matrixKeys))}
+
+
+class GridFeedbackSearch(FontSearch):
+    """
+    Interactive Grid-Feedback Retrieval.
+
+    No text query, no image upload. The user is shown a grid of ``m`` fonts each
+    round and picks whichever (if any) are close to what they want -- including
+    picking none, which is itself a negative label for every shown font. Every
+    round's labels accumulate into ``L`` and are refit from scratch as an
+    L2-regularised logistic regression over a whitened PCA subspace of raw
+    (pre-projection) backbone CLS features; the next grid is just the top-``m``
+    unshown fonts by the fitted score. See the design doc, section 3, for why
+    this beats text/tag search (insufficient channel capacity, not a bad
+    embedding space) and why whitening is load-bearing (~60 labels in ~56 dims
+    is underdetermined otherwise).
+
+    Offline (once per corpus, cached under ``embeddings/``):
+        raw per-font features -> centre -> PCA -> whiten -> ``Z``
+        k-means(Z, m) -> medoid of each cluster -> seed grid
+
+    Online (per session, held on ``self``):
+        round r: show ``self.options`` -> ``selectFonts(picks)`` labels them,
+        refits ``self.weight``, and replaces ``self.options`` with the next grid.
+    """
+
+    def __init__(self, backbone=DEFAULT_BACKBONE, dataset=None, embeddingName="gridRaw",
+                 device=device, m=20, D=None, regularization=1.0):
+        self.device = device
+        self.backbone = backbone
+        self.embeddingName = embeddingName
+        self.m = m
+        self.regularization = regularization
+
+        self.loadModels()
+        self.dataset = dataset if dataset is not None else self.buildDataset()
+        self.fontPathMap = self._buildPathMap()
+        self.rawEmbeddings = self.embedFonts()
+
+        self.keys = np.array(list(self.rawEmbeddings.keys()))
+        self.nameToIndex = {name: i for i, name in enumerate(self.keys)}
+        rawMatrix = np.stack([self.rawEmbeddings[k] for k in self.keys], axis=0)
+
+        self.D = D if D is not None else self._participationRatio(rawMatrix)
+        self.D = max(1, min(self.D, rawMatrix.shape[0] - 1, rawMatrix.shape[1]))
+
+        self._fitProjection(rawMatrix)
+        self.seed = self._seedGrid()
+
+        self.reset()
+
+    # ------------------------------------------------------------------ models
+    def loadModels(self):
+        """Only the pretraining backbone is needed -- there is no finetuned checkpoint."""
+        self.imageModel, conf = ViT.load(self.backbone)
+        self.config = conf
+        self.datasetConfig = conf.dataset
+        self.imageModel.eval().to(self.device)
+
+    # ------------------------------------------------------------- raw features
+    @torch.no_grad()
+    def _rawFeatures(self, batch):
+        """
+        The backbone's CLS token *before* the pretraining classifier head --
+        ``h`` rather than ``z``. ``z`` is trained to be invariant to the SSL
+        augmentations (scale/blur/contrast), which is exactly the style signal
+        this method needs, so the classifier/projection is deliberately skipped.
+        """
+        x = batch.permute(0, 3, 1, 2)
+        x = self.imageModel.patching(x)
+        x = torch.cat([self.imageModel.clsToken.expand(x.shape[0], -1, -1), x], dim=1)
+        x = self.imageModel.transformer(x)
+        return x[:, 0]
+
+    @torch.no_grad()
+    def embedFonts(self):
+        """
+        Per-font mean raw CLS feature across its latin glyphs -- unnormalised,
+        unlike ``generateEmbeddings`` (see design doc step 1). Cached under
+        ``embeddings/<name>.json`` like the other search backends.
+        """
+        os.makedirs("embeddings", exist_ok=True)
+        path = os.path.join("embeddings", f"{self.embeddingName}.json")
+        if os.path.exists(path):
+            with open(path, "r") as file:
+                return {key: np.array(value) for key, value in json.load(file).items()}
+
+        lookup = {(self.dataset.names[i], self.dataset.letters[i]): self.dataset.paths[i]
+                  for i in range(len(self.dataset.names))}
+        names = np.unique(self.dataset.names)
+
+        embeddings = {}
+        for n, name in enumerate(names):
+            images = []
+            broken = False
+            for letter in latinCharacters:
+                if (name, letter) not in lookup:
+                    broken = True
+                    break
+                _, image = loadImage(lookup[(name, letter)])
+                if image is None:
+                    broken = True
+                    break
+                images.append(torch.tensor(image, dtype=torch.float32))
+
+            if broken:
+                continue
+
+            batch = torch.stack(images, dim=0).unsqueeze(-1).to(self.device)
+            features = self._rawFeatures(batch).mean(dim=0)
+            embeddings[name] = features.cpu().numpy()
+
+            print(f"\r{n + 1}/{len(names)} raw grid features extracted", end="")
+
+        print()
+        with open(path, "w+") as file:
+            json.dump({key: value.tolist() for key, value in embeddings.items()}, file)
+        return embeddings
+
+    # --------------------------------------------------------- offline PCA/whiten
+    @staticmethod
+    def _participationRatio(V):
+        """(sum(eigvals))^2 / sum(eigvals^2) -- effective dimensionality of the spectrum."""
+        centered = V - V.mean(axis=0)
+        cov = np.cov(centered, rowvar=False)
+        eigvals = np.clip(np.linalg.eigvalsh(cov), 0, None)
+        ratio = (eigvals.sum() ** 2) / (np.square(eigvals).sum() + 1e-12)
+        return int(round(ratio))
+
+    def _fitProjection(self, V):
+        """Centre -> PCA(D) -> whiten, cached alongside the raw feature cache."""
+        cachePath = os.path.join("embeddings", f"{self.embeddingName}_projection.npz")
+        if os.path.exists(cachePath):
+            cached = np.load(cachePath)
+            if int(cached["D"]) == self.D:
+                self.mean = cached["mean"]
+                self.components = cached["components"]
+                self.std = cached["std"]
+                self.Z = cached["Z"]
+                return
+
+        self.mean = V.mean(axis=0)
+        centered = V - self.mean
+
+        pca = PCA(n_components=self.D)
+        projected = pca.fit_transform(centered)
+        self.components = pca.components_
+
+        self.std = projected.std(axis=0)
+        self.std[self.std < 1e-8] = 1e-8
+        self.Z = projected / self.std
+
+        os.makedirs("embeddings", exist_ok=True)
+        np.savez(cachePath, mean=self.mean, components=self.components,
+                 std=self.std, Z=self.Z, D=self.D)
+
+    def _seedGrid(self):
+        """k-means(Z, m) -> index of the medoid (nearest-to-centroid member) of each cluster."""
+        clusters = min(self.m, self.Z.shape[0])
+        kmeans = KMeans(n_clusters=clusters, n_init=10, random_state=0).fit(self.Z)
+
+        seed = []
+        for c in range(clusters):
+            members = np.where(kmeans.labels_ == c)[0]
+            if len(members) == 0:
+                continue
+            distances = np.linalg.norm(self.Z[members] - kmeans.cluster_centers_[c], axis=1)
+            seed.append(members[np.argmin(distances)])
+        return np.array(seed)
+
+    # ------------------------------------------------------------- online belief
+    def reset(self):
+        """Clear all labels and belief, and reissue the seed grid as round 1."""
+        self.labeledIndices = []
+        self.labels = []
+        self.shown = set()
+        self.weight = np.zeros(self.D)
+        self.round = 1
+        self.finished = False
+        self.terminalName = None
+
+        self.options = self._namesFor(self.seed)
+        self.shown.update(int(i) for i in self.seed)
+
+    def _namesFor(self, indices):
+        return [(self.keys[i], self.Z[i]) for i in indices]
+
+    def accept(self, name):
+        """User accepted a font straight out of the grid -- terminate the session."""
+        self.finished = True
+        self.terminalName = name
+
+    def selectFonts(self, selectedNames):
+        """
+        Submit the user's picks from the current grid (``self.options``) and
+        advance to the next round. ``selectedNames`` may be empty -- "nothing
+        here is close" is itself a negative label for every shown font, per the
+        design doc's free-selection model.
+        """
+        selected = set(selectedNames)
+        for name, _ in self.options:
+            index = self.nameToIndex[name]
+            self.labeledIndices.append(index)
+            self.labels.append(1 if name in selected else 0)
+
+        self._fitWeight()
+        self.options = self._nextGrid()
+        self.round += 1
+        return self.options
+
+    def _fitWeight(self):
+        labels = np.array(self.labels)
+        if len(np.unique(labels)) < 2:
+            # No contrast yet (all-positive or all-negative so far): fall back
+            # to the centroid of whatever has been marked positive.
+            positives = [self.Z[i] for i, y in zip(self.labeledIndices, self.labels) if y == 1]
+            self.weight = np.mean(positives, axis=0) if positives else np.zeros(self.D)
+            return
+
+        Z = self.Z[self.labeledIndices]
+        signed = np.where(labels == 1, 1.0, -1.0)
+        self.weight = self._fitLogistic(Z, signed, self.regularization)
+
+    @staticmethod
+    def _fitLogistic(Z, y, regularization, iterations=200):
+        """
+        L2-regularised logistic regression, refit from scratch every round:
+            argmin_w  sum_j log(1 + exp(-y_j w.z_j)) + (lambda/2)||w||^2
+        Cheap at D ~ 50-60 and at most a few hundred labels.
+        """
+        def lossAndGrad(w):
+            margins = y * (Z @ w)
+            loss = np.logaddexp(0, -margins).sum() + 0.5 * regularization * (w @ w)
+            p = 1.0 / (1.0 + np.exp(margins))
+            grad = -(y * p) @ Z + regularization * w
+            return loss, grad
+
+        result = minimize(lossAndGrad, np.zeros(Z.shape[1]), jac=True,
+                           method="L-BFGS-B", options={"maxiter": iterations})
+        return result.x
+
+    def _nextGrid(self):
+        """Top-m unshown fonts by the current belief: argsort(-mu over corpus \\ shown)[:m]."""
+        scores = self.Z @ self.weight
+        order = np.argsort(-scores)
+
+        chosen = []
+        for index in order:
+            if int(index) in self.shown:
+                continue
+            chosen.append(index)
+            if len(chosen) >= self.m:
+                break
+
+        self.shown.update(int(i) for i in chosen)
+        return self._namesFor(chosen)

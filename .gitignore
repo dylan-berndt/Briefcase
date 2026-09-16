@@ -29,6 +29,8 @@ dataset.tar.gz
 
 /venv
 
+/logs
+
 /.idea
 **/__pycache__
 
