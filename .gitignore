@@ -43,6 +43,7 @@ results/fontQueries.json
 embeddings
 
 experiments/pipeline.log
+experiments/effective_dimension.log
 
 /results/*.html
 /site/frontend/public/*.html
