@@ -9,13 +9,14 @@ collectFontSetPaths treat these fonts as already rasterized.
 import os
 import sys
 from glob import glob
+from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import torch
 
-from utils.loaders.standard import imagesFromFont, collectFontSetPaths
+from utils.loaders.standard import imagesFromFont, imageWrapper, collectFontSetPaths
 from utils.loaders.myfonts import loadMyFontsImagePaths
 from utils.vit import ViT
 from utils.embeddings import generateEmbeddings
@@ -30,20 +31,19 @@ CHECKPOINT_DIR = os.path.join("checkpoints", "pretrain", "best")
 OUTPUT_NAME = "font_vit_embeddings"
 
 
-def rasterize(directory):
+def rasterize(directory, workers=None):
     fontsGlob = os.path.join(directory, "fonts", "**", "*")
     paths = glob(fontsGlob + ".ttf", recursive=True) + glob(fontsGlob + ".otf", recursive=True)
+    paths = [p for p in paths if os.path.isfile(p)]
     os.makedirs(os.path.join(directory, "bitmaps"), exist_ok=True)
     os.makedirs(os.path.join(directory, "sdf"), exist_ok=True)
 
-    for i, path in enumerate(paths):
-        if not os.path.isfile(path):
-            continue
-        try:
-            imagesFromFont(path, FONT_SIZE, IMAGE_SIZE, save=directory, chars=LOWERCASE_LATIN)
-        except Exception as e:
-            print(path, e)
-        print(f"\r[{directory}] Fonts rasterized: {i + 1}/{len(paths)}", end="")
+    workers = workers or (os.cpu_count() or 4)
+    tasks = [(path, FONT_SIZE, IMAGE_SIZE, directory, LOWERCASE_LATIN) for path in paths]
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        for i, _ in enumerate(executor.map(imageWrapper, tasks, chunksize=16)):
+            print(f"\r[{directory}] Fonts rasterized: {i + 1}/{len(paths)}", end="")
     print()
 
 
