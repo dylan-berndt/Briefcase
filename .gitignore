@@ -23,6 +23,7 @@ dataset.tar.gz
 /checkpoints/finetune/*
 /checkpoints/pretrain/*
 /checkpoints/retrieval/*
+/checkpoints/diffusion/*
 !/checkpoints/pretrain/best
 !/checkpoints/finetune/best
 !/checkpoints/finetune/latest
@@ -40,6 +41,8 @@ wandb
 
 results/fontQueries.json
 embeddings
+
+experiments/pipeline.log
 
 /results/*.html
 /site/frontend/public/*.html
