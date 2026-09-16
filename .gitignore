@@ -41,7 +41,9 @@ dataset.tar.gz
 wandb
 
 results/fontQueries.json
-embeddings
+
+embeddings/*
+!embeddings/all.json
 
 /results/*.html
 /site/frontend/public/*.html
