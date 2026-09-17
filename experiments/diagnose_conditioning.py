@@ -127,13 +127,6 @@ def main():
     print(f"  [for reference] mean cosine(true target, corpus-wide mean font): "
           f"{(trueTargets @ globalMean).mean():.4f} (std {(trueTargets @ globalMean).std():.4f})")
 
-    print("\nReading these together:")
-    print("  - low correlation + high/tight off-diagonal generated similarity + high cosine-to-global-mean")
-    print("    => conditioning collapse: the model ignores the query and outputs ~the average font regardless.")
-    print("  - positive correlation, generated off-diagonal similarity closer to true's spread")
-    print("    => conditioning is doing real work; near-chance recall@k likely reflects task difficulty")
-    print("    (many legitimately similar fonts per style region) rather than a broken model.")
-
 
 if __name__ == "__main__":
     main()
