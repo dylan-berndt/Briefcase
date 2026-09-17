@@ -30,6 +30,11 @@ def cachePathFor(modelName):
 def parseArgs():
     parser = argparse.ArgumentParser()
     parser.add_argument("--samplesPerQuery", type=int, default=8)
+    parser.add_argument("--evalSteps", type=int, default=50,
+                         help="Reverse-diffusion steps to sample with at eval time -- can be less than "
+                              "the training schedule's --timesteps (default 1000) to match a faster "
+                              "production sampling budget. Uses the same respacing trick regardless of "
+                              "how many steps training used, so this never requires retraining.")
     parser.add_argument("--maxQueries", type=int, default=None,
                          help="Evaluate on a random subset of test queries for a quick check.")
     parser.add_argument("--seed", type=int, default=1234)
@@ -89,7 +94,7 @@ def main():
 
         # [samplesPerQuery, B, visualDim]
         allSamples = torch.stack([
-            diffusion.sample(model, texts, config["visualDim"], device=device)
+            diffusion.sample(model, texts, config["visualDim"], device=device, numSteps=args.evalSteps)
             for _ in range(args.samplesPerQuery)
         ], dim=0)
 
@@ -113,7 +118,9 @@ def main():
         print(f"\r{min(start + batchSize, len(testPairs))}/{len(testPairs)} queries evaluated", end="")
     print()
 
+    actualSteps = min(args.evalSteps, config["timesteps"])
     print(f"\nRecall@k over {total} held-out test queries, {args.samplesPerQuery} samples/query, "
+          f"{actualSteps}/{config['timesteps']} reverse-diffusion steps, "
           f"{len(candidateNames)} candidate fonts:")
     for k in K_VALUES:
         print(f"  recall@{k}: {hits[k] / total:.4f}")

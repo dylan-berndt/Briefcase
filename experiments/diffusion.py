@@ -132,13 +132,57 @@ class GaussianDiffusion:
         mask = (t > 0).float().unsqueeze(-1)
         return mean + mask * torch.sqrt(betaT) * noise
 
+    def respacedSteps(self, numSteps):
+        """
+        Evenly-spaced subset of the training schedule's timesteps, for
+        sampling with fewer steps than training used (matching OpenAI's
+        improved-diffusion "respacing" trick). The model is still queried at
+        the ORIGINAL timestep values it was trained on -- only the reverse
+        process's effective beta/alpha between consecutive selected steps is
+        recomputed from the ratio of their alphaBars, so skipping steps stays
+        a mathematically consistent shorter DDPM chain rather than an
+        approximation that feeds the model out-of-distribution timesteps.
+        """
+        if numSteps >= self.timesteps:
+            return list(range(self.timesteps))
+        indices = torch.linspace(0, self.timesteps - 1, numSteps).round().long()
+        return sorted(set(indices.tolist()))
+
     @torch.no_grad()
-    def sample(self, model, text, visualDim, device=None):
-        """Full reverse process, x_T ~ N(0, I) -> x_0."""
+    def sample(self, model, text, visualDim, device=None, numSteps=None):
+        """
+        Full reverse process, x_T ~ N(0, I) -> x_0. Pass numSteps < the
+        schedule's training timesteps to sample with fewer steps than
+        training used (e.g. to match a faster production configuration)
+        without retraining -- see respacedSteps.
+        """
         device = device or text.device
         B = text.shape[0]
         x = torch.randn(B, visualDim, device=device)
-        for step in reversed(range(self.timesteps)):
-            t = torch.full((B,), step, device=device, dtype=torch.long)
-            x = self.pSample(model, x, t, text)
+
+        if numSteps is None or numSteps >= self.timesteps:
+            for step in reversed(range(self.timesteps)):
+                t = torch.full((B,), step, device=device, dtype=torch.long)
+                x = self.pSample(model, x, t, text)
+            return x
+
+        steps = self.respacedSteps(numSteps)
+        alphaBarAtStep = self.alphaBars[torch.tensor(steps, device=self.alphaBars.device)]
+        prevAlphaBar = torch.cat([torch.ones(1, device=alphaBarAtStep.device), alphaBarAtStep[:-1]])
+
+        for i in reversed(range(len(steps))):
+            t = torch.full((B,), steps[i], device=device, dtype=torch.long)
+            alphaBarT = alphaBarAtStep[i]
+            betaT = 1.0 - (alphaBarT / prevAlphaBar[i])
+            alphaT = 1.0 - betaT
+
+            predictedNoise = model(x, t, text)
+            mean = (1.0 / torch.sqrt(alphaT)) * (
+                x - (betaT / torch.sqrt(1.0 - alphaBarT)) * predictedNoise
+            )
+
+            noise = torch.randn_like(x)
+            mask = 1.0 if i > 0 else 0.0
+            x = mean + mask * torch.sqrt(betaT) * noise
+
         return x
