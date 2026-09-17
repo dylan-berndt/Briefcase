@@ -1,58 +1,46 @@
 # Text -> Visual Font Embedding Diffusion Experiment
 
-Tests whether a diffusion model can learn `P(visual font embedding | text embedding)`,
-using the repo's pretrained font ViT (`checkpoints/pretrain/best`) as the source of
-"ground truth" visual embeddings and the pregenerated font-search queries
-(`results/fontQueries.json`, `results/shortQueries.json`) as text.
+Tests whether a diffusion model can learn `P(visual font embedding | text embedding)`.
 
-## Pipeline
+## Current pipeline (targets `embeddings/all.json`, the staging-branch corpus)
 
 ```
-experiments/setup_data.sh   # venv + Google Fonts + DaFont + MyFonts ("dataset")
-experiments/embed_fonts.py  # -> embeddings/font_vit_embeddings.json   {fontKey: [512]}
-experiments/embed_text.py   # -> embeddings/text_query_embeddings.json {query: [1024]}
-                             # -> embeddings/query_font_pairs.json     [{font, query, source}]
-experiments/train.py        # -> checkpoints/diffusion/{checkpoint.pt, stats.npz, config.json, test_pairs.json}
-experiments/evaluate.py     # recall@k over held-out queries
+experiments/embed_text_local.py  # -> embeddings/sentenceQueries_<model>.pkl  {fontKey: [nQueries, dim]}
+                                  #    run LOCALLY (not this sandbox) -- see Compute note
+experiments/train.py             # -> checkpoints/diffusion/{checkpoint.pt, stats.npz, config.json, test_pairs.json}
+experiments/evaluate.py          # recall@k over held-out queries
 ```
 
-Run `run_pipeline.sh` to do the first three steps in one shot.
+`embeddings/all.json` (39,421 fonts, LFS-tracked) and `results/fontQueriesV2.json`
+(18,940 fonts x up to 16 Gemma-generated queries each) already exist on `staging`
+and are consumed directly by `experiments/dataset.py` -- no font rasterization or
+ViT inference needed for this path.
 
 ## Design decisions / assumptions
 
-- **Visual embedding**: the raw pretrained ViT's CLS-token output
-  (`checkpoints/pretrain/best`), *not* the contrastively-finetuned
-  `ViTEmbedder` head. This keeps the diffusion task a clean probe of the
-  modality gap rather than something already partially aligned to text
-  during finetuning. Per-font embedding = L2-normalized per-letter CLS
-  embeddings, mean-pooled over lowercase a-z (same convention
-  `utils/embeddings.generateEmbeddings` already used elsewhere in the repo).
-- **Font sources**: Google Fonts + DaFont + MyFonts ("dataset", the
-  Rochester/gdown corpus), matching `configs/vit.json`'s original pretraining
-  sources. `embed_fonts.py` only rasterizes lowercase a-z per font (26 glyphs)
-  rather than the ~200-character set `collectFontSetPaths` normally produces,
-  since that's all `generateEmbeddings` averages over -- this keeps disk usage
-  down by roughly 8x with no effect on the resulting embeddings.
-- **Text encoder**: `BAAI/bge-large-en-v1.5` via `sentence-transformers`.
-  BGE models pool via the `[CLS]` token by default (`1_Pooling/config.json`
-  has `pooling_mode_cls_token: true`), rather than the mean-pooling most
-  `sentence-transformers/all-*` models use.
-- **Query matching**: `fontQueries.json`/`shortQueries.json` are keyed by
-  bare family/slug names (e.g. `"Nokora"`), while visual embeddings are keyed
-  by `"{family} {style}"` (e.g. `"Open Sans Regular"`, from `font.getname()`).
-  `embed_text.py` matches them with the same longest-prefix trie lookup
-  `CombinedQueryData` uses in `utils/querying.py`. Fonts that only exist in
-  the query files (e.g. described from MyFonts descriptions but never
-  successfully rasterized) are simply dropped from the pairing.
-- **Query set union**: the two query files are concatenated per font
-  (`fontQueries` + `shortQueries`, tagged by `source` in
-  `query_font_pairs.json` in case you want to analyze them separately later).
-- **Train/test split holds out queries, not fonts** (`dataset.splitPairs`):
-  each font's own queries are split independently (default 80/20), so every
-  font with a query appears in training, and every font with more than one
-  query also has held-out queries in test. This matches the requirement to
-  evaluate on unseen prompts while keeping the full font vocabulary visible
-  during training.
+- **Visual embedding**: `embeddings/all.json` -- the *contrastively-finetuned*
+  `ViTEmbedder` head's pooled output, not the raw pretrained ViT CLS token.
+  (An earlier version of this experiment targeted the raw CLS output instead;
+  see "Effective dimension" below for why that changed.) `embed_fonts.py` /
+  `effective_dimension.py` / `character_variance.py` / `pooling_bug_check.py`
+  still exist and operate on the raw-CLS space (`embeddings/font_vit_embeddings.json`)
+  for that comparison, but are no longer part of the main training path.
+- **Text encoder**: swappable via `--model`/`--sentenceModel` (must match between
+  `embed_text_local.py` and `train.py`/`evaluate.py`), defaulting to
+  `BAAI/bge-large-en-v1.5`. BGE models pool via the `[CLS]` token by default
+  (`1_Pooling/config.json` has `pooling_mode_cls_token: true`), rather than the
+  mean-pooling most `sentence-transformers/all-*` models use.
+- **Query matching**: `embed_text_local.py`/`dataset.py` reuse
+  `experiments/text-searches/trainTextMLP.py`'s exact matching convention:
+  `embeddings/all.json` is keyed by per-style-variant render name (e.g.
+  `" Really Petshop Italic  Really Petshop Italic"`), `fontQueriesV2.json` by
+  base family name (`"Really Petshop"`); match via longest-prefix trie, and
+  when a family has multiple matching style variants keep the shortest-named
+  one as the canonical "regular" embedding.
+- **Train/test split holds out queries, not fonts** (`dataset.splitQueryCache`,
+  same convention as `trainTextMLP.py`): each font's own queries are split
+  independently (default 80/20), so every font appears in training, and every
+  font with more than one query also has held-out queries in test.
 - **Diffusion model**: a plain residual MLP (`experiments/diffusion.py:
   DiffusionMLP`) conditioned on a sinusoidal timestep embedding and the raw
   text embedding (no visual information at all besides the noised target) --
@@ -68,13 +56,39 @@ Run `run_pipeline.sh` to do the first three steps in one shot.
   embedding (fonts are never held out, so the true font is always a
   candidate), and reports whether the true font lands in the top k for
   k in {1, 5, 10, 50, 100}.
+- **Verified working** (`experiments/*` as of this commit): smoke-tested
+  end-to-end on a 300-font / bge-small subset -- `embed_text_local.py` ->
+  `train.py` (3 epochs) -> `evaluate.py` all ran cleanly. Recall@k was 0 at
+  that scale/epoch count, as expected (mechanical check only, not a real result).
+
+## Effective dimension of the visual embedding space
+
+`embeddings/font_vit_embeddings.json` (raw pretrained ViT CLS, mean-pooled over
+a-z, ~39.5k fonts) has an effective rank of **~9.5 out of 512** nominal dims
+(`effective_dimension.py`) -- true even for individual, unpooled, per-letter
+embeddings before any pooling happens (`character_variance.py` rules out
+pooling as the cause). `embeddings/all.json` (the contrastively-finetuned
+`ViTEmbedder` space) has an effective rank of **~57.6 out of 512** -- about
+6x higher, consistent with contrastive/InfoNCE training being what actually
+spreads font-identity information across the embedding space; the raw
+pretrain objective (reconstruction + character classification) never
+incentivizes that. Still fairly anisotropic in absolute terms (~11% of
+nominal dims used) -- CLAUDE.md's own "All-but-the-Top" suggestion is a
+reasonable inference-time fix worth trying independent of this experiment.
+
+Both embedding files also have the same normalization bug (`pooling_bug_check.py`):
+`utils/embeddings.generateEmbeddings` normalizes each per-letter embedding
+before mean-pooling but never renormalizes the pooled result, so stored font
+vectors don't sit exactly on the unit hypersphere (norms observed: 0.70-1.00
+for font_vit_embeddings.json, 0.72-1.00 for all.json) and cosine similarity
+against them isn't exactly the average pairwise letter-cosine it's meant to
+approximate. Not yet fixed upstream as of this commit.
 
 ## Compute note
 
-This was kicked off on a CPU-only, ~30GB-disk sandbox. Downloading/rasterizing
-all three font corpora and running full-reverse-diffusion recall@k eval
-(`samplesPerQuery` x `timesteps` model calls per query) is slow without a GPU.
-If the sandbox run doesn't finish, everything above is meant to be run
-locally as-is: `bash experiments/setup_data.sh && python3 experiments/embed_fonts.py
-&& python3 experiments/embed_text.py && python3 experiments/train.py && python3
-experiments/evaluate.py`.
+Font/ViT-embedding generation and the CPU-only DDPM training loop are fine on
+a modest sandbox, but text-encoding tens/hundreds of thousands of queries with
+a large sentence-transformer model (e.g. bge-large) is not -- run
+`embed_text_local.py` locally (ideally with a GPU) rather than in a CPU-only
+sandbox; a full bge-large pass over ~380k queries measured at ~3s/batch
+(batch 64) there, i.e. hours.

@@ -11,15 +11,20 @@ the top k.
 import argparse
 import json
 import os
+import pickle
 
 import numpy as np
 import torch
 
-from dataset import EmbeddingStats, loadRaw
 from diffusion import DiffusionMLP, GaussianDiffusion
+from dataset import EmbeddingStats, loadFontEmbeddings, EMBEDDINGS_PATH
 
 CHECKPOINT_DIR = os.path.join("checkpoints", "diffusion")
 K_VALUES = [1, 5, 10, 50, 100]
+
+
+def cachePathFor(modelName):
+    return os.path.join("embeddings", f"sentenceQueries_{modelName.replace('/', '_')}.pkl")
 
 
 def parseArgs():
@@ -42,7 +47,13 @@ def main():
         testPairs = json.load(f)
 
     stats = EmbeddingStats.load(os.path.join(CHECKPOINT_DIR, "stats.npz"))
-    fontEmbeddings, textEmbeddings, _ = loadRaw()
+    fontEmbeddings = loadFontEmbeddings(EMBEDDINGS_PATH)
+    with open(cachePathFor(config["sentenceModel"]), "rb") as f:
+        sentenceCache = pickle.load(f)
+
+    # Only pairs whose font still has a visual embedding (matches dataset.py's
+    # matched set at train time) are valid candidates for eval too.
+    testPairs = [p for p in testPairs if p["font"] in fontEmbeddings]
 
     if args.maxQueries is not None and args.maxQueries < len(testPairs):
         rng = np.random.RandomState(args.seed)
@@ -70,7 +81,10 @@ def main():
     batchSize = 32
     for start in range(0, len(testPairs), batchSize):
         batch = testPairs[start: start + batchSize]
-        texts = torch.stack([torch.from_numpy(textEmbeddings[p["query"]]) for p in batch]).to(device)
+        texts = torch.stack([
+            torch.from_numpy(np.asarray(sentenceCache[p["font"]][p["index"]], dtype=np.float32))
+            for p in batch
+        ]).to(device)
         trueIndices = [nameToIndex[p["font"]] for p in batch]
 
         # [samplesPerQuery, B, visualDim]
