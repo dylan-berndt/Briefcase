@@ -84,43 +84,63 @@ def splitQueryCache(sentenceCache, names, testFraction=0.2, seed=1234):
     return trainCache, testCache
 
 
-class EmbeddingStats:
-    """Per-dimension mean/std of the visual embedding space the diffusion
-    process operates in, so x_T ~ N(0, I) is a reasonable prior."""
+class PCAWhitener:
+    """
+    Projects the 512-d ambient font-embedding space down to a lower-
+    dimensional PCA subspace and whitens it (unit variance per component),
+    so the diffusion process operates where the data's real variance
+    actually lives instead of spending capacity on the ~450+ near-
+    degenerate ambient dimensions (effective_dimension.py measured
+    embeddings/all.json's participation ratio at ~57.6 out of 512) that
+    would otherwise just contribute accumulated noise to every sample.
+    Same idea utils/search.py's GridFeedbackSearch already uses (centre ->
+    PCA -> whiten) for the same anisotropic embedding space, applied here
+    to the diffusion target instead of a search index. transform/
+    inverseTransform work on both a single [ambientDim] vector and a
+    batch [N, ambientDim].
+    """
 
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
+    def __init__(self, mean, components, componentStd):
+        self.mean = mean                  # [ambientDim]
+        self.components = components      # [numComponents, ambientDim], PCA directions (rows)
+        self.componentStd = componentStd  # [numComponents], sqrt of each component's eigenvalue
 
     @staticmethod
-    def fit(fontEmbeddings, fontKeys):
-        values = np.stack([fontEmbeddings[k] for k in fontKeys], axis=0)
+    def fit(fontEmbeddings, fontKeys, numComponents=64):
+        from sklearn.decomposition import PCA
+
+        values = np.stack([fontEmbeddings[k] for k in fontKeys], axis=0).astype(np.float64)
         mean = values.mean(axis=0)
-        std = values.std(axis=0) + 1e-6
-        return EmbeddingStats(mean.astype(np.float32), std.astype(np.float32))
 
-    def normalize(self, x):
-        return (x - self.mean) / self.std
+        pca = PCA(n_components=numComponents)
+        pca.fit(values - mean)
+        componentStd = np.sqrt(pca.explained_variance_) + 1e-6
 
-    def denormalize(self, x):
-        return x * self.std + self.mean
+        return PCAWhitener(mean.astype(np.float32), pca.components_.astype(np.float32),
+                            componentStd.astype(np.float32))
+
+    def transform(self, x):
+        return ((x - self.mean) @ self.components.T) / self.componentStd
+
+    def inverseTransform(self, z):
+        return (z * self.componentStd) @ self.components + self.mean
 
     def save(self, path):
-        np.savez(path, mean=self.mean, std=self.std)
+        np.savez(path, mean=self.mean, components=self.components, componentStd=self.componentStd)
 
     @staticmethod
     def load(path):
         data = np.load(path)
-        return EmbeddingStats(data["mean"], data["std"])
+        return PCAWhitener(data["mean"], data["components"], data["componentStd"])
 
 
 class QueryFontDataset(Dataset):
-    """One item = one (query embedding, normalized visual embedding) pair,
+    """One item = one (query embedding, PCA-whitened visual embedding) pair,
     drawn from a font's train- or test-half query cache."""
 
-    def __init__(self, queryCache, fontEmbeddings, stats: EmbeddingStats):
+    def __init__(self, queryCache, fontEmbeddings, whitener: PCAWhitener):
         self.fontEmbeddings = fontEmbeddings
-        self.stats = stats
+        self.whitener = whitener
         self.index = [(name, i) for name, vectors in queryCache.items() for i in range(len(vectors))]
         self.queryCache = queryCache
 
@@ -130,7 +150,7 @@ class QueryFontDataset(Dataset):
     def __getitem__(self, i):
         name, vectorIndex = self.index[i]
         text = self.queryCache[name][vectorIndex]
-        visual = self.stats.normalize(self.fontEmbeddings[name])
+        visual = self.whitener.transform(self.fontEmbeddings[name]).astype(np.float32)
         return {
             "text": torch.from_numpy(np.asarray(text, dtype=np.float32)),
             "visual": torch.from_numpy(visual),

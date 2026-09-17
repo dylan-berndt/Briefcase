@@ -17,7 +17,7 @@ import numpy as np
 import torch
 
 from diffusion import DiffusionMLP, GaussianDiffusion
-from dataset import EmbeddingStats, loadFontEmbeddings, EMBEDDINGS_PATH
+from dataset import PCAWhitener, loadFontEmbeddings, EMBEDDINGS_PATH
 
 CHECKPOINT_DIR = os.path.join("checkpoints", "diffusion")
 K_VALUES = [1, 5, 10, 50, 100]
@@ -51,7 +51,7 @@ def main():
     with open(os.path.join(CHECKPOINT_DIR, "test_pairs.json")) as f:
         testPairs = json.load(f)
 
-    stats = EmbeddingStats.load(os.path.join(CHECKPOINT_DIR, "stats.npz"))
+    whitener = PCAWhitener.load(os.path.join(CHECKPOINT_DIR, "whitener.npz"))
     fontEmbeddings = loadFontEmbeddings(EMBEDDINGS_PATH)
     with open(cachePathFor(config["sentenceModel"]), "rb") as f:
         sentenceCache = pickle.load(f)
@@ -98,7 +98,7 @@ def main():
             for _ in range(args.samplesPerQuery)
         ], dim=0)
 
-        denorm = allSamples.cpu().numpy() * stats.std + stats.mean
+        denorm = whitener.inverseTransform(allSamples.cpu().numpy())
         denorm = denorm / (np.linalg.norm(denorm, axis=-1, keepdims=True) + 1e-8)
         denorm = torch.from_numpy(denorm.astype(np.float32)).to(device)
 

@@ -21,7 +21,7 @@ import pickle
 import numpy as np
 import torch
 
-from dataset import EmbeddingStats, loadFontEmbeddings, EMBEDDINGS_PATH
+from dataset import PCAWhitener, loadFontEmbeddings, EMBEDDINGS_PATH
 from diffusion import DiffusionMLP, GaussianDiffusion
 
 CHECKPOINT_DIR = os.path.join("checkpoints", "diffusion")
@@ -50,7 +50,7 @@ def main():
     with open(os.path.join(CHECKPOINT_DIR, "test_pairs.json")) as f:
         testPairs = json.load(f)
 
-    stats = EmbeddingStats.load(os.path.join(CHECKPOINT_DIR, "stats.npz"))
+    whitener = PCAWhitener.load(os.path.join(CHECKPOINT_DIR, "whitener.npz"))
     fontEmbeddings = loadFontEmbeddings(EMBEDDINGS_PATH)
     with open(cachePathFor(config["sentenceModel"]), "rb") as f:
         sentenceCache = pickle.load(f)
@@ -68,7 +68,7 @@ def main():
     diffusion = GaussianDiffusion(timesteps=config["timesteps"], device=device)
 
     x0 = torch.stack([
-        torch.from_numpy(stats.normalize(fontEmbeddings[p["font"]]))
+        torch.from_numpy(whitener.transform(fontEmbeddings[p["font"]]).astype(np.float32))
         for p in testPairs
     ]).to(device)
     text = torch.stack([
