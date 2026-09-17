@@ -1,0 +1,259 @@
+{
+  "args": {
+    "maxQueries": 100,
+    "numParticles": 40,
+    "numSteps": 50,
+    "noiseLevels": "0.0,0.1,0.2,0.3,0.4,0.5,0.7,1.0",
+    "maxModes": 4,
+    "minClusterSize": 2,
+    "persistFor": 4,
+    "maxRounds": 5,
+    "branchingFactor": 10,
+    "treeDepth": 5,
+    "minLeafSize": 5,
+    "treeCache": "checkpoints\\diffusion\\hierarchy.pkl",
+    "rebuildTree": false,
+    "acceptanceSize": 10,
+    "checkEvery": 1,
+    "minScheduleFraction": 0.1,
+    "topPerCluster": 10,
+    "numPreviews": 5,
+    "skipBaseline": false,
+    "seed": 1234,
+    "resultsOut": "experiments/diffusion-searches/branching_results.json"
+  },
+  "total": 100,
+  "baseline": {
+    "1": 0.0,
+    "5": 0.03,
+    "10": 0.04,
+    "50": 0.14,
+    "100": 0.22
+  },
+  "byNoiseLevel": {
+    "0.0": {
+      "meanRounds": 3.97,
+      "leafHasTarget": 0.05,
+      "leafHasAcceptable": 0.24,
+      "methods": {
+        "hard": {
+          "recall@1": 0.07,
+          "recall@5": 0.18,
+          "recall@10": 0.22,
+          "recall@50": 0.34,
+          "recall@100": 0.44
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.01,
+          "recall@50": 0.03,
+          "recall@100": 0.04
+        },
+        "combined": {
+          "recall@1": 0.08,
+          "recall@5": 0.22,
+          "recall@10": 0.26,
+          "recall@50": 0.39,
+          "recall@100": 0.48
+        }
+      }
+    },
+    "0.1": {
+      "meanRounds": 3.97,
+      "leafHasTarget": 0.04,
+      "leafHasAcceptable": 0.2,
+      "methods": {
+        "hard": {
+          "recall@1": 0.06,
+          "recall@5": 0.19,
+          "recall@10": 0.22,
+          "recall@50": 0.36,
+          "recall@100": 0.42
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.01,
+          "recall@50": 0.03,
+          "recall@100": 0.05
+        },
+        "combined": {
+          "recall@1": 0.06,
+          "recall@5": 0.19,
+          "recall@10": 0.24,
+          "recall@50": 0.36,
+          "recall@100": 0.44
+        }
+      }
+    },
+    "0.2": {
+      "meanRounds": 3.94,
+      "leafHasTarget": 0.04,
+      "leafHasAcceptable": 0.16,
+      "methods": {
+        "hard": {
+          "recall@1": 0.05,
+          "recall@5": 0.14,
+          "recall@10": 0.19,
+          "recall@50": 0.33,
+          "recall@100": 0.39
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.0,
+          "recall@50": 0.01,
+          "recall@100": 0.03
+        },
+        "combined": {
+          "recall@1": 0.05,
+          "recall@5": 0.16,
+          "recall@10": 0.19,
+          "recall@50": 0.3,
+          "recall@100": 0.41
+        }
+      }
+    },
+    "0.3": {
+      "meanRounds": 3.87,
+      "leafHasTarget": 0.04,
+      "leafHasAcceptable": 0.15,
+      "methods": {
+        "hard": {
+          "recall@1": 0.04,
+          "recall@5": 0.12,
+          "recall@10": 0.15,
+          "recall@50": 0.29,
+          "recall@100": 0.39
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.0,
+          "recall@50": 0.01,
+          "recall@100": 0.03
+        },
+        "combined": {
+          "recall@1": 0.03,
+          "recall@5": 0.11,
+          "recall@10": 0.14,
+          "recall@50": 0.25,
+          "recall@100": 0.35
+        }
+      }
+    },
+    "0.4": {
+      "meanRounds": 3.85,
+      "leafHasTarget": 0.04,
+      "leafHasAcceptable": 0.14,
+      "methods": {
+        "hard": {
+          "recall@1": 0.04,
+          "recall@5": 0.09,
+          "recall@10": 0.12,
+          "recall@50": 0.26,
+          "recall@100": 0.33
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.0,
+          "recall@50": 0.01,
+          "recall@100": 0.01
+        },
+        "combined": {
+          "recall@1": 0.04,
+          "recall@5": 0.09,
+          "recall@10": 0.1,
+          "recall@50": 0.24,
+          "recall@100": 0.31
+        }
+      }
+    },
+    "0.5": {
+      "meanRounds": 3.88,
+      "leafHasTarget": 0.02,
+      "leafHasAcceptable": 0.07,
+      "methods": {
+        "hard": {
+          "recall@1": 0.02,
+          "recall@5": 0.07,
+          "recall@10": 0.09,
+          "recall@50": 0.22,
+          "recall@100": 0.28
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.0,
+          "recall@50": 0.0,
+          "recall@100": 0.01
+        },
+        "combined": {
+          "recall@1": 0.03,
+          "recall@5": 0.04,
+          "recall@10": 0.05,
+          "recall@50": 0.18,
+          "recall@100": 0.25
+        }
+      }
+    },
+    "0.7": {
+      "meanRounds": 3.81,
+      "leafHasTarget": 0.01,
+      "leafHasAcceptable": 0.04,
+      "methods": {
+        "hard": {
+          "recall@1": 0.01,
+          "recall@5": 0.02,
+          "recall@10": 0.05,
+          "recall@50": 0.14,
+          "recall@100": 0.18
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.0,
+          "recall@50": 0.01,
+          "recall@100": 0.02
+        },
+        "combined": {
+          "recall@1": 0.0,
+          "recall@5": 0.01,
+          "recall@10": 0.03,
+          "recall@50": 0.14,
+          "recall@100": 0.19
+        }
+      }
+    },
+    "1.0": {
+      "meanRounds": 3.79,
+      "leafHasTarget": 0.0,
+      "leafHasAcceptable": 0.05,
+      "methods": {
+        "hard": {
+          "recall@1": 0.01,
+          "recall@5": 0.01,
+          "recall@10": 0.04,
+          "recall@50": 0.09,
+          "recall@100": 0.13
+        },
+        "belief": {
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.0,
+          "recall@50": 0.01,
+          "recall@100": 0.01
+        },
+        "combined": {
+          "recall@1": 0.0,
+          "recall@5": 0.02,
+          "recall@10": 0.03,
+          "recall@50": 0.08,
+          "recall@100": 0.1
+        }
+      }
+    }
+  }
+}

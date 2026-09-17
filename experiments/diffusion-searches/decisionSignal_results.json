@@ -1,0 +1,164 @@
+{
+  "args": {
+    "maxQueries": 80,
+    "numCompletions": 40,
+    "numSteps": 50,
+    "minSupport": 3,
+    "localPCADim": 5,
+    "checkpointDir": "checkpoints\\diffusion",
+    "seed": 1234,
+    "resultsOut": "decisionSignal_results.json"
+  },
+  "summaries": {
+    "real": {
+      "n": 80,
+      "tagGroupsFireRate": 0.9625,
+      "meanTagConcentration": 0.26875,
+      "meanNumDistinctFonts": 39.7375,
+      "gmmFireRate": 0.975,
+      "meanGmmDeltaBIC": 6.055332437042457,
+      "medianGmmDeltaBIC": 1.737124819802375,
+      "meanDipStat": 0.04901088039231781,
+      "dbscanFireRate": 0.725,
+      "meanDbscanClusters": 2.4
+    },
+    "scrambled": {
+      "n": 80,
+      "tagGroupsFireRate": 0.9625,
+      "meanTagConcentration": 0.1665625,
+      "meanNumDistinctFonts": 39.7875,
+      "gmmFireRate": 0.9375,
+      "meanGmmDeltaBIC": 20.76011830814185,
+      "medianGmmDeltaBIC": 20.39200446677677,
+      "meanDipStat": 0.0456617706665594,
+      "dbscanFireRate": 0.65,
+      "meanDbscanClusters": 2.2
+    },
+    "gaussian": {
+      "n": 80,
+      "tagGroupsFireRate": 0.9,
+      "meanTagConcentration": 0.20062499999999997,
+      "meanNumDistinctFonts": 39.75,
+      "gmmFireRate": 0.9125,
+      "meanGmmDeltaBIC": 17.989758410577004,
+      "medianGmmDeltaBIC": 12.6251931751151,
+      "meanDipStat": 0.048240798325941234,
+      "dbscanFireRate": 0.65,
+      "meanDbscanClusters": 2.025
+    }
+  },
+  "exampleGroups": [
+    {
+      "font": "alternate-gothic",
+      "interGroupDist": 11.817496299743652,
+      "groups": [
+        {
+          "tag": "sans-serif",
+          "count": 5
+        },
+        {
+          "tag": "Calm",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "font": "write-now",
+      "interGroupDist": 10.561450004577637,
+      "groups": [
+        {
+          "tag": "script",
+          "count": 8
+        },
+        {
+          "tag": "Handwritten",
+          "count": 7
+        }
+      ]
+    },
+    {
+      "font": "bowman",
+      "interGroupDist": 6.083744525909424,
+      "groups": [
+        {
+          "tag": "funny",
+          "count": 4
+        },
+        {
+          "tag": "handwrite",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "font": "clarendon",
+      "interGroupDist": 9.40786075592041,
+      "groups": [
+        {
+          "tag": "slab-serif",
+          "count": 11
+        },
+        {
+          "tag": "serif",
+          "count": 7
+        }
+      ]
+    },
+    {
+      "font": "andron-freefont",
+      "interGroupDist": 9.09326457977295,
+      "groups": [
+        {
+          "tag": "sans-serif",
+          "count": 4
+        },
+        {
+          "tag": "serif",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "font": "stinky-school-book",
+      "interGroupDist": 6.986257076263428,
+      "groups": [
+        {
+          "tag": "cartoon",
+          "count": 5
+        },
+        {
+          "tag": "child",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "font": "moon-corps",
+      "interGroupDist": 8.311416625976562,
+      "groups": [
+        {
+          "tag": "industrial",
+          "count": 5
+        },
+        {
+          "tag": "sans-serif",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "font": "clinica-pro",
+      "interGroupDist": 11.346399307250977,
+      "groups": [
+        {
+          "tag": "sans-serif",
+          "count": 32
+        },
+        {
+          "tag": "Calm",
+          "count": 4
+        }
+      ]
+    }
+  ]
+}

@@ -78,7 +78,8 @@ def main():
     nameToIndex = {n: i for i, n in enumerate(candidateNames)}
 
     model = DiffusionMLP(visualDim=config["visualDim"], textDim=config["textDim"],
-                          hiddenDim=config["hiddenDim"], depth=config["depth"]).to(device)
+                          hiddenDim=config["hiddenDim"], depth=config["depth"],
+                          conditioning=config.get("conditioning", "concat")).to(device)
     model.load_state_dict(torch.load(os.path.join(CHECKPOINT_DIR, "checkpoint.pt"), map_location=device))
     model.eval()
     diffusion = GaussianDiffusion(timesteps=config["timesteps"], device=device)

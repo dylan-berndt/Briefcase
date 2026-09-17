@@ -16,8 +16,10 @@ import pickle
 import numpy as np
 import torch
 
-from diffusion import DiffusionMLP, GaussianDiffusion
-from dataset import PCAWhitener, loadFontEmbeddings, EMBEDDINGS_PATH
+from diffusion import DiffusionMLP, TwoPhaseDiffusionMLP, GaussianDiffusion
+from dataset import (PCAWhitener, TextCenterer, loadFontEmbeddings, EMBEDDINGS_PATH,
+                      loadTagPresenceCache, concatenateTagPresence,
+                      loadTfidfFeatureCache, concatenateTfidfCache)
 
 CHECKPOINT_DIR = os.path.join("checkpoints", "diffusion")
 K_VALUES = [1, 5, 10, 50, 100]
@@ -38,6 +40,9 @@ def parseArgs():
     parser.add_argument("--maxQueries", type=int, default=None,
                          help="Evaluate on a random subset of test queries for a quick check.")
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--checkpointDir", default=CHECKPOINT_DIR,
+                         help="Point at a variant trained with train.py --checkpointDir to compare "
+                              "against the default (e.g. a --conditioning film run).")
     return parser.parse_args()
 
 
@@ -46,15 +51,24 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.seed)
 
-    with open(os.path.join(CHECKPOINT_DIR, "config.json")) as f:
+    with open(os.path.join(args.checkpointDir, "config.json")) as f:
         config = json.load(f)
-    with open(os.path.join(CHECKPOINT_DIR, "test_pairs.json")) as f:
+    with open(os.path.join(args.checkpointDir, "test_pairs.json")) as f:
         testPairs = json.load(f)
 
-    whitener = PCAWhitener.load(os.path.join(CHECKPOINT_DIR, "whitener.npz"))
+    whitener = PCAWhitener.load(os.path.join(args.checkpointDir, "whitener.npz"))
     fontEmbeddings = loadFontEmbeddings(EMBEDDINGS_PATH)
     with open(cachePathFor(config["sentenceModel"]), "rb") as f:
         sentenceCache = pickle.load(f)
+    if config.get("centerText"):
+        centerer = TextCenterer.load(os.path.join(args.checkpointDir, "textCenter.npz"))
+        sentenceCache = centerer.applyToCache(sentenceCache)
+    if config.get("tagConditioning"):
+        tagCache = loadTagPresenceCache()
+        sentenceCache = concatenateTagPresence(sentenceCache, tagCache)
+    if config.get("tfidfDim", 0) > 0:
+        tfidfCache = loadTfidfFeatureCache(config["tfidfDim"])
+        sentenceCache = concatenateTfidfCache(sentenceCache, tfidfCache)
 
     # Only pairs whose font still has a visual embedding (matches dataset.py's
     # matched set at train time) are valid candidates for eval too.
@@ -64,9 +78,16 @@ def main():
         rng = np.random.RandomState(args.seed)
         testPairs = [testPairs[i] for i in rng.choice(len(testPairs), args.maxQueries, replace=False)]
 
-    model = DiffusionMLP(visualDim=config["visualDim"], textDim=config["textDim"],
-                          hiddenDim=config["hiddenDim"], depth=config["depth"]).to(device)
-    model.load_state_dict(torch.load(os.path.join(CHECKPOINT_DIR, "checkpoint.pt"),
+    if config.get("architecture", "standard") == "shapeI":
+        model = TwoPhaseDiffusionMLP(visualDim=config["visualDim"], textDim=config["textDim"],
+                                      hiddenDim=config["hiddenDim"], timeDim=config.get("timeDim", 64),
+                                      numPlainBlocks=config.get("numPlainBlocks", 1),
+                                      numConditionedBlocks=config.get("numConditionedBlocks", 2)).to(device)
+    else:
+        model = DiffusionMLP(visualDim=config["visualDim"], textDim=config["textDim"],
+                              hiddenDim=config["hiddenDim"], depth=config["depth"],
+                              conditioning=config.get("conditioning", "concat")).to(device)
+    model.load_state_dict(torch.load(os.path.join(args.checkpointDir, "checkpoint.pt"),
                                       map_location=device))
     model.eval()
 

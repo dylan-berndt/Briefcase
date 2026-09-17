@@ -24,9 +24,11 @@ dataset.tar.gz
 /checkpoints/pretrain/*
 /checkpoints/retrieval/*
 /checkpoints/diffusion/*
+/checkpoints/diffusion_*/
 !/checkpoints/pretrain/best
 !/checkpoints/finetune/best
 !/checkpoints/finetune/latest
+/coverage_results.npz
 
 /venv
 
