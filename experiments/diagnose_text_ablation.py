@@ -93,9 +93,6 @@ def main():
 
             print(f"  [{loT:>4d},{hiT:>4d})  {len(testPairs):>6d}  {realLoss:>17.5f}  {shuffledLoss:>21.5f}")
 
-    print(f"\n(no-signal baseline -- predicting all-zero noise regardless of input -- is exactly 1.0,"
-          f" since target noise is unit-variance)")
-
 
 if __name__ == "__main__":
     main()
