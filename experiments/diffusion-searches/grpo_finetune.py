@@ -1,50 +1,66 @@
 """
-GRPO fine-tuning of the text-conditioned diffusion MLP, warm-started from
-an existing supervised checkpoint, directly optimizing OWN-TARGET
-DISTANCE (the actual own-target-precision metric this whole investigation
-has been chasing) instead of the proxy MSE-on-predicted-noise loss the
-base model was trained with.
+GRPO fine-tuning of the text-conditioned diffusion MLP toward the actual
+interactive-search task: given a text query AND the accumulated decision
+history of a branching session, learn to route particles into the
+CORRECT child of the corpus's hierarchical partition -- not just to
+minimize single-shot embedding distance.
 
-Formulation (DDPO -- Black et al. 2023 -- treats the reverse diffusion
-chain as a T-step MDP; GRPO -- Shao et al. 2024 -- replaces a learned
-value/critic baseline with a GROUP-RELATIVE advantage): at each reverse
-step, state=(x_t, t, text), action=x_{t-1}, policy=N(mean_theta(x_t,t,
-text), betaT). The Gaussian's log-density of the ACTUALLY SAMPLED action
-is closed-form and differentiable w.r.t. theta through `mean`. A "group"
-is G independent reverse-diffusion particles sharing one (font, query)
-conditioning vector -- exactly the existing particle-batch mechanism
-this project's branching search already uses, no new sampling
-infrastructure needed. Reward = -||finalX - trueTarget|| (whitened
-space); advantage = (reward - group_mean) / (group_std + eps), so no
-separate value network is trained at all.
+This is deliberately NOT single-shot RL fine-tuning (an earlier version
+of this script did that and measured no improvement -- see git history;
+that tested the wrong thing). The actual point, per the design this
+implements: a diffusion model conditioned only on text can't do better
+than its own per-level branch accuracy (measured ~32-34% pooled top-1
+this investigation), and the interactive search's hard, irreversible
+per-round commitment (branching.py's pruneAndResample) then compounds
+that into a much worse end-to-end result (see the compounding-error
+diagnostic: predicted and measured final survival matched almost
+exactly from the product of per-depth survival rates). Conditioning the
+model on WHERE THE SESSION HAS ALREADY NARROWED TO -- not just the
+original text -- lets it learn from real (including wrong) navigation
+history instead of only ever seeing the root-level problem.
 
-Two-phase per training step, standard for REINFORCE-style policy
-gradients on a stochastic multi-step process: (1) roll out full
-trajectories under the CURRENT (frozen at rollout time) policy, no_grad,
-recording every step's (x_t, t, xPrev) and the final reward; (2)
-recompute each step's `mean` with grad enabled (same weights as the
-rollout -- this is an on-policy, single-gradient-step update per batch,
-not multi-epoch PPO, so no importance-weighting/clipping is needed) and
-take one gradient step on -advantage * sum_t log p(xPrev_t | x_t, t).
-The deterministic final step (i==0, betaT effectively contributes no
-noise) is excluded from the log-prob sum -- there's no randomness there
-to attribute credit/blame to.
+Conditioning: the base model's text vector is augmented with the CURRENT
+tree node's centroid (already in the same whitened space the model
+operates in -- no new representation to learn). The warm-started model's
+textProjection input layer is surgically widened (extra columns
+zero-initialized) so it starts EXACTLY equivalent to the base checkpoint
+at iteration 0, then GRPO training teaches it to actually use the new
+signal.
+
+Rollout ("trained on the noisy oracle"): for each (font, query) training
+example, walk the REAL hierarchical corpus tree from the root using the
+KNOWN target's true path. At each level: condition on (text, current
+node centroid), roll out G particles (short respaced reverse diffusion,
+DDPO-style MDP -- see the closed-form Gaussian log-prob math below),
+assign each particle to the nearest CHILD of the current node. Reward is
+CORRECTNESS, not distance, per your direction: +1 if a particle's
+assigned child is the target's true child, -1 otherwise -- this directly
+optimizes "does the model send particles to the right region," which is
+what the search actually needs. GRPO's group-relative advantage
+(normalize reward within the G particles sharing this decision point,
+no value network) turns that into a policy gradient. The walk then
+advances to the TRUE child with probability (1-noiseProb) or a random
+WRONG child with probability noiseProb, simulating a real, imperfect
+oracle -- so the model also sees, and has to cope with, being on a
+wrong branch sometimes, not only ever the correct path.
 
     python3 experiments/diffusion-searches/grpo_finetune.py \
         --initCheckpoint checkpoints/diffusion_lr_5e-4 \
-        --checkpointDir checkpoints/diffusion_grpo
+        --checkpointDir checkpoints/diffusion_grpo \
+        --learningRate 1e-5
 """
 import argparse
 import json
 import math
 import os
+import pickle
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 
-from dataset import PCAWhitener, QueryFontDataset, loadRaw, splitQueryCache
-from diffusion import DiffusionMLP, TwoPhaseDiffusionMLP, GaussianDiffusion
+from corpus import FontCorpus, HierarchicalClusterIndex
+from dataset import PCAWhitener, loadRaw, splitQueryCache, EMBEDDINGS_PATH
+from diffusion import DiffusionMLP, GaussianDiffusion
 
 LOG_2PI = math.log(2 * math.pi)
 
@@ -55,45 +71,46 @@ def cachePathFor(modelName):
 
 def parseArgs():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--initCheckpoint", required=True,
-                         help="Existing supervised checkpoint dir to warm-start from (config.json, "
-                              "checkpoint.pt, whitener.npz -- all reused as-is).")
+    parser.add_argument("--initCheckpoint", required=True)
     parser.add_argument("--checkpointDir", required=True)
-    parser.add_argument("--groupSize", type=int, default=16, help="Particles per (font, query) group.")
-    parser.add_argument("--batchExamples", type=int, default=8, help="Distinct (font, query) pairs per step.")
-    parser.add_argument("--numSteps", type=int, default=20, help="Respaced reverse-diffusion steps per rollout.")
-    parser.add_argument("--iterations", type=int, default=200, help="GRPO gradient steps.")
-    parser.add_argument("--learningRate", type=float, default=1e-6,
-                         help="Deliberately much lower than supervised training's 2e-4-5e-4 -- RL fine-"
-                              "tuning a pretrained policy should nudge it, not overwrite it.")
+    parser.add_argument("--treeCache", default="tree_variant_15_15_5_5_15.pkl",
+                         help="Hierarchical corpus partition to navigate -- defaults to the validated "
+                              "variable-branching-factor tree ([15,15,5,5,15]), not the uniform-10 one.")
+    parser.add_argument("--groupSize", type=int, default=16, help="Particles per decision point.")
+    parser.add_argument("--batchExamples", type=int, default=4, help="Distinct (font, query) pairs per step.")
+    parser.add_argument("--numSteps", type=int, default=15, help="Respaced reverse-diffusion steps per rollout.")
+    parser.add_argument("--maxDepth", type=int, default=5, help="Tree levels walked per training example.")
+    parser.add_argument("--noiseProb", type=float, default=0.2,
+                         help="Probability of advancing to a random WRONG child instead of the true one "
+                              "after each level, simulating a real, imperfect oracle.")
+    parser.add_argument("--iterations", type=int, default=300)
+    parser.add_argument("--learningRate", type=float, default=1e-5)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--logEvery", type=int, default=10)
     return parser.parse_args()
 
 
-def loadModel(checkpointDir, config, device):
-    if config.get("architecture", "standard") == "shapeI":
-        model = TwoPhaseDiffusionMLP(visualDim=config["visualDim"], textDim=config["textDim"],
-                                      hiddenDim=config["hiddenDim"], timeDim=config.get("timeDim", 64),
-                                      numPlainBlocks=config.get("numPlainBlocks", 1),
-                                      numConditionedBlocks=config.get("numConditionedBlocks", 2))
-    else:
-        model = DiffusionMLP(visualDim=config["visualDim"], textDim=config["textDim"],
-                              hiddenDim=config["hiddenDim"], depth=config["depth"],
-                              conditioning=config.get("conditioning", "concat"))
-    model.load_state_dict(torch.load(os.path.join(checkpointDir, "checkpoint.pt"), map_location=device))
-    return model.to(device)
+def widenTextProjection(stateDict, oldTextDim, extraDim):
+    """
+    Surgically widens textProjection's input layer from oldTextDim to
+    oldTextDim+extraDim, zero-initializing the new columns so the warm-
+    started model is EXACTLY equivalent to the base checkpoint at
+    iteration 0 -- the new node-centroid conditioning contributes nothing
+    until GRPO training actually shapes those weights.
+    """
+    stateDict = dict(stateDict)
+    oldWeight = stateDict["textProjection.0.weight"]  # [hiddenDim, oldTextDim]
+    hiddenDim = oldWeight.shape[0]
+    newWeight = torch.zeros(hiddenDim, oldTextDim + extraDim, dtype=oldWeight.dtype)
+    newWeight[:, :oldTextDim] = oldWeight
+    stateDict["textProjection.0.weight"] = newWeight
+    return stateDict
 
 
-def rollout(diffusion, model, text, visualDim, steps, device):
-    """
-    text: [N, textDim], N = batchExamples * groupSize.
-    Returns finalX [N, visualDim] and a list of per-step dicts (x, t,
-    xPrev, alphaBarT, prevAlphaBarT, betaT -- all needed to recompute the
-    log-prob later with grad enabled), oldest-timestep-last i.e. in the
-    order steps were actually taken (T -> 0).
-    """
-    N = text.shape[0]
+def rollout(diffusion, model, cond, visualDim, steps, device):
+    """Same DDPO-style rollout as before: returns finalX and the per-step trajectory needed to
+    recompute log-probs with grad later."""
+    N = cond.shape[0]
     stepsTensor = torch.tensor(steps, device=diffusion.alphaBars.device)
     alphaBarAtStep = diffusion.alphaBars[stepsTensor]
     prevAlphaBar = torch.cat([torch.ones(1, device=alphaBarAtStep.device), alphaBarAtStep[:-1]])
@@ -107,7 +124,7 @@ def rollout(diffusion, model, text, visualDim, steps, device):
             betaT = 1.0 - (alphaBarT / prevAlphaBar[i])
             alphaT = 1.0 - betaT
 
-            predictedNoise = model(x, t, text)
+            predictedNoise = model(x, t, cond)
             mean = (1.0 / torch.sqrt(alphaT)) * (x - (betaT / torch.sqrt(1.0 - alphaBarT)) * predictedNoise)
 
             isLast = (i == 0)
@@ -120,13 +137,11 @@ def rollout(diffusion, model, text, visualDim, steps, device):
     return x, trajectory
 
 
-def stepLogProb(model, step, text):
-    """Recomputes `mean` WITH grad and returns log p(xPrev | x, t, text) per particle, or None on the
-    deterministic final step (no randomness to credit/blame)."""
+def stepLogProb(model, step, cond):
     if step["isLast"]:
         return None
     alphaT = 1.0 - step["betaT"]
-    predictedNoise = model(step["x"], step["t"], text)
+    predictedNoise = model(step["x"], step["t"], cond)
     mean = (1.0 / torch.sqrt(alphaT)) * (step["x"] - (step["betaT"] / torch.sqrt(1.0 - step["alphaBarT"])) * predictedNoise)
     var = step["betaT"]
     D = step["x"].shape[-1]
@@ -134,9 +149,17 @@ def stepLogProb(model, step, text):
     return -0.5 * (sqError / var) - 0.5 * D * (LOG_2PI + torch.log(var))
 
 
+def trueChildAt(node, targetIdx):
+    for i, child in enumerate(node.children):
+        if targetIdx in child.memberIndices:
+            return i, child
+    return None, None
+
+
 def main():
     args = parseArgs()
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    rng = np.random.RandomState(args.seed)
     torch.manual_seed(args.seed)
 
     with open(os.path.join(args.initCheckpoint, "config.json")) as f:
@@ -146,61 +169,94 @@ def main():
     names = sorted(fontEmbeddings.keys())
     trainCache, _ = splitQueryCache(sentenceCache, names, testFraction=config["testFraction"], seed=config["seed"])
     whitener = PCAWhitener.load(os.path.join(args.initCheckpoint, "whitener.npz"))
+    corpus = FontCorpus.load(whitener, EMBEDDINGS_PATH, device=device)
+    hier = HierarchicalClusterIndex.load(args.treeCache)
 
-    trainSet = QueryFontDataset(trainCache, fontEmbeddings, whitener)
-    trainLoader = DataLoader(trainSet, batch_size=args.batchExamples, shuffle=True,
-                              collate_fn=QueryFontDataset.collate, drop_last=True)
-    trainIter = iter(trainLoader)
+    trainPairs = [(name, i) for name, vectors in trainCache.items() for i in range(len(vectors))
+                  if name in corpus.nameToIndex]
+    print(f"{len(trainPairs)} training (font, query) pairs available")
 
-    model = loadModel(args.initCheckpoint, config, device)
+    baseTextDim = config["textDim"]
+    pcaDim = config["visualDim"]
+    newTextDim = baseTextDim + pcaDim
+
+    baseStateDict = torch.load(os.path.join(args.initCheckpoint, "checkpoint.pt"), map_location=device)
+    widenedStateDict = widenTextProjection(baseStateDict, baseTextDim, pcaDim)
+
+    model = DiffusionMLP(visualDim=config["visualDim"], textDim=newTextDim, hiddenDim=config["hiddenDim"],
+                          depth=config["depth"], conditioning=config.get("conditioning", "concat")).to(device)
+    model.load_state_dict(widenedStateDict)
+
     diffusion = GaussianDiffusion(timesteps=config["timesteps"], device=device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learningRate)
-
     steps = diffusion.respacedSteps(args.numSteps)
     G = args.groupSize
     os.makedirs(args.checkpointDir, exist_ok=True)
 
-    rewardHistory = []
+    correctnessHistory = []
     for iteration in range(args.iterations):
-        try:
-            batch = next(trainIter)
-        except StopIteration:
-            trainIter = iter(trainLoader)
-            batch = next(trainIter)
-
-        text = batch["text"].to(device)          # [B, textDim]
-        target = batch["visual"].to(device)      # [B, visualDim]
-        B = text.shape[0]
-
-        textGroup = text.repeat_interleave(G, dim=0)      # [B*G, textDim]
-        targetGroup = target.repeat_interleave(G, dim=0)  # [B*G, visualDim]
-
-        model.eval()
-        finalX, trajectory = rollout(diffusion, model, textGroup, config["visualDim"], steps, device)
-
-        dist = torch.norm(finalX - targetGroup, dim=-1)   # [B*G]
-        reward = -dist
-        rewardByGroup = reward.view(B, G)
-        advantage = (rewardByGroup - rewardByGroup.mean(dim=1, keepdim=True)) / (rewardByGroup.std(dim=1, keepdim=True) + 1e-6)
-        advantage = advantage.view(B * G).detach()
-
-        model.train()
+        batchIdx = rng.choice(len(trainPairs), args.batchExamples, replace=False)
         optimizer.zero_grad()
-        totalLogProb = torch.zeros(B * G, device=device)
-        for step in trajectory:
-            logProb = stepLogProb(model, step, textGroup)
-            if logProb is not None:
-                totalLogProb = totalLogProb + logProb
+        totalLoss = 0.0
+        numLevels = 0
+        correctCount, totalCount = 0, 0
 
-        loss = -(advantage * totalLogProb).mean()
-        loss.backward()
-        optimizer.step()
+        for idx in batchIdx:
+            name, qi = trainPairs[idx]
+            targetIdx = corpus.nameToIndex[name]
+            textVec = torch.from_numpy(np.asarray(sentenceCache[name][qi], dtype=np.float32)).to(device)
 
-        rewardHistory.append(-dist.mean().item())
+            node = hier.root
+            depth = 0
+            while node.children and depth < args.maxDepth:
+                trueIdx, trueChild = trueChildAt(node, targetIdx)
+                if trueIdx is None:
+                    break
+
+                centroid = torch.from_numpy(node.centroid.astype(np.float32)).to(device)
+                cond = torch.cat([textVec, centroid]).unsqueeze(0).expand(G, -1).contiguous()
+
+                model.eval()
+                finalX, trajectory = rollout(diffusion, model, cond, config["visualDim"], steps, device)
+
+                childCentroids = torch.from_numpy(
+                    np.stack([c.centroid for c in node.children]).astype(np.float32)).to(device)
+                assignments = torch.cdist(finalX, childCentroids).argmin(dim=1)  # [G]
+                correct = (assignments == trueIdx)
+                reward = torch.where(correct, torch.ones(G, device=device), -torch.ones(G, device=device))
+                advantage = (reward - reward.mean()) / (reward.std() + 1e-6)
+                advantage = advantage.detach()
+
+                correctCount += correct.sum().item()
+                totalCount += G
+
+                model.train()
+                totalLogProb = torch.zeros(G, device=device)
+                for step in trajectory:
+                    logProb = stepLogProb(model, step, cond)
+                    if logProb is not None:
+                        totalLogProb = totalLogProb + logProb
+                levelLoss = -(advantage * totalLogProb).mean()
+                totalLoss = totalLoss + levelLoss
+                numLevels += 1
+
+                if rng.random() < args.noiseProb and len(node.children) > 1:
+                    wrongOptions = [i for i in range(len(node.children)) if i != trueIdx]
+                    node = node.children[rng.choice(wrongOptions)]
+                else:
+                    node = trueChild
+                depth += 1
+
+        if numLevels > 0:
+            (totalLoss / numLevels).backward()
+            optimizer.step()
+
+        acc = correctCount / max(totalCount, 1)
+        correctnessHistory.append(acc)
         if (iteration + 1) % args.logEvery == 0:
-            recent = np.mean(rewardHistory[-args.logEvery:])
-            print(f"iter {iteration + 1}/{args.iterations}  meanOwnTargetDist(recent)={-recent:.4f}  "
-                  f"loss={loss.item():.4f}")
+            recent = np.mean(correctnessHistory[-args.logEvery:])
+            print(f"iter {iteration + 1}/{args.iterations}  particle-correct-child rate (recent)={recent:.3f}  "
+                  f"loss={(totalLoss / max(numLevels,1)).item():.4f}")
 
     torch.save(model.state_dict(), os.path.join(args.checkpointDir, "checkpoint.pt"))
     whitener.save(os.path.join(args.checkpointDir, "whitener.npz"))
@@ -210,12 +266,15 @@ def main():
         json.dump(testPairs, f)
 
     newConfig = dict(config)
-    newConfig.update({"grpoBase": args.initCheckpoint, "grpoGroupSize": G, "grpoNumSteps": args.numSteps,
-                       "grpoIterations": args.iterations, "grpoLearningRate": args.learningRate})
+    newConfig.update({"textDim": newTextDim, "baseTextDim": baseTextDim, "grpoBase": args.initCheckpoint,
+                       "grpoDecisionAware": True, "grpoTreeCache": args.treeCache,
+                       "grpoGroupSize": G, "grpoNumSteps": args.numSteps, "grpoMaxDepth": args.maxDepth,
+                       "grpoNoiseProb": args.noiseProb, "grpoIterations": args.iterations,
+                       "grpoLearningRate": args.learningRate})
     with open(os.path.join(args.checkpointDir, "config.json"), "w") as f:
         json.dump(newConfig, f, indent=2)
 
-    print(f"Saved GRPO-finetuned checkpoint to {args.checkpointDir}")
+    print(f"Saved decision-aware GRPO-finetuned checkpoint to {args.checkpointDir}")
 
 
 if __name__ == "__main__":
