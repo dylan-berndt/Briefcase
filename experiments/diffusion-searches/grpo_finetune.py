@@ -83,6 +83,13 @@ def parseArgs():
     parser.add_argument("--noiseProb", type=float, default=0.2,
                          help="Probability of advancing to a random WRONG child instead of the true one "
                               "after each level, simulating a real, imperfect oracle.")
+    parser.add_argument("--beamWidth", type=int, default=2,
+                         help="Independent noisy-oracle session replicates per training example, pooled "
+                              "into one group for the advantage calculation. A single noise draw per "
+                              "example would confound 'was the model's conditioning good' with 'did the "
+                              "simulated oracle get lucky/unlucky this specific draw' -- averaging over "
+                              "several independent replicates removes that confound without needing to "
+                              "track multiple simultaneously-alive tree nodes.")
     parser.add_argument("--iterations", type=int, default=300)
     parser.add_argument("--learningRate", type=float, default=1e-5)
     parser.add_argument("--seed", type=int, default=1234)
@@ -156,6 +163,24 @@ def trueChildAt(node, targetIdx):
     return None, None
 
 
+def gradedReward(finalX, corpus, targetIdx):
+    """
+    Terminal, whole-corpus reward, graded by which recall@k tier the true
+    target lands in for a given particle's final embedding -- much denser
+    than exact-match-only (which measured ZERO successes at all in early
+    testing, giving literally zero gradient), while still being purely a
+    function of the FINAL outcome, not per-level branch correctness.
+    """
+    dists = torch.cdist(finalX, corpus.whitenedMatrix)  # [N, numFonts]
+    targetDist = dists[:, targetIdx]
+    rank = (dists < targetDist.unsqueeze(1)).sum(dim=1)  # 0 = exact nearest match
+    reward = torch.full_like(targetDist, -1.0)
+    reward = torch.where(rank < 100, torch.full_like(reward, 0.1), reward)
+    reward = torch.where(rank < 10, torch.full_like(reward, 0.5), reward)
+    reward = torch.where(rank < 5, torch.full_like(reward, 1.0), reward)
+    return reward
+
+
 def main():
     args = parseArgs()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -198,70 +223,97 @@ def main():
     G = args.groupSize
     os.makedirs(args.checkpointDir, exist_ok=True)
 
-    correctnessHistory = []
+    def runReplicate(textVec, targetIdx):
+        """One noisy-oracle session replicate: walks the tree from root along the true path, diverging
+        to a random wrong child with probability noiseProb at each level. Returns (finalX, allSteps) for
+        this replicate's own G particles, or (None, []) if the true path ends immediately."""
+        node = hier.root
+        depth = 0
+        allSteps = []
+        finalX = None
+        while node.children and depth < args.maxDepth:
+            trueIdx, trueChild = trueChildAt(node, targetIdx)
+            if trueIdx is None:
+                break
+            centroid = torch.from_numpy(node.centroid.astype(np.float32)).to(device)
+            cond = torch.cat([textVec, centroid]).unsqueeze(0).expand(G, -1).contiguous()
+
+            model.eval()
+            finalX, trajectory = rollout(diffusion, model, cond, config["visualDim"], steps, device)
+            for step in trajectory:
+                allSteps.append((step, cond))
+
+            if rng.random() < args.noiseProb and len(node.children) > 1:
+                wrongOptions = [i for i in range(len(node.children)) if i != trueIdx]
+                node = node.children[rng.choice(wrongOptions)]
+            else:
+                node = trueChild
+            depth += 1
+        return finalX, allSteps
+
+    rewardHistory, top5History = [], []
     for iteration in range(args.iterations):
         batchIdx = rng.choice(len(trainPairs), args.batchExamples, replace=False)
         optimizer.zero_grad()
         totalLoss = 0.0
-        numLevels = 0
-        correctCount, totalCount = 0, 0
+        numExamples = 0
+        rewardSum, top5Count, totalParticles = 0.0, 0, 0
 
         for idx in batchIdx:
             name, qi = trainPairs[idx]
             targetIdx = corpus.nameToIndex[name]
             textVec = torch.from_numpy(np.asarray(sentenceCache[name][qi], dtype=np.float32)).to(device)
 
-            node = hier.root
-            depth = 0
-            while node.children and depth < args.maxDepth:
-                trueIdx, trueChild = trueChildAt(node, targetIdx)
-                if trueIdx is None:
-                    break
+            # beamWidth INDEPENDENT noisy-oracle replicates, pooled into one group for the advantage
+            # calculation -- averages out the effect of any single lucky/unlucky noise draw, instead of
+            # the gradient being fully at the mercy of one session's particular random path.
+            replicateFinalX, replicateSteps = [], []
+            for _ in range(args.beamWidth):
+                finalX, allSteps = runReplicate(textVec, targetIdx)
+                if finalX is None or not allSteps:
+                    continue
+                replicateFinalX.append(finalX)
+                replicateSteps.append(allSteps)
 
-                centroid = torch.from_numpy(node.centroid.astype(np.float32)).to(device)
-                cond = torch.cat([textVec, centroid]).unsqueeze(0).expand(G, -1).contiguous()
+            if not replicateFinalX:
+                continue
 
-                model.eval()
-                finalX, trajectory = rollout(diffusion, model, cond, config["visualDim"], steps, device)
+            allFinalX = torch.cat(replicateFinalX, dim=0)  # [beamWidth*G, visualDim]
+            reward = gradedReward(allFinalX, corpus, targetIdx)
+            advantage = (reward - reward.mean()) / (reward.std() + 1e-6)
+            advantage = advantage.detach()
 
-                childCentroids = torch.from_numpy(
-                    np.stack([c.centroid for c in node.children]).astype(np.float32)).to(device)
-                assignments = torch.cdist(finalX, childCentroids).argmin(dim=1)  # [G]
-                correct = (assignments == trueIdx)
-                reward = torch.where(correct, torch.ones(G, device=device), -torch.ones(G, device=device))
-                advantage = (reward - reward.mean()) / (reward.std() + 1e-6)
-                advantage = advantage.detach()
+            rewardSum += reward.sum().item()
+            top5Count += (reward >= 1.0).sum().item()
+            totalParticles += allFinalX.shape[0]
 
-                correctCount += correct.sum().item()
-                totalCount += G
-
-                model.train()
-                totalLogProb = torch.zeros(G, device=device)
-                for step in trajectory:
+            model.train()
+            exampleLoss = 0.0
+            offset = 0
+            for allSteps, finalXPart in zip(replicateSteps, replicateFinalX):
+                gCount = finalXPart.shape[0]
+                particleAdvantage = advantage[offset:offset + gCount]
+                offset += gCount
+                totalLogProb = torch.zeros(gCount, device=device)
+                for step, cond in allSteps:
                     logProb = stepLogProb(model, step, cond)
                     if logProb is not None:
                         totalLogProb = totalLogProb + logProb
-                levelLoss = -(advantage * totalLogProb).mean()
-                totalLoss = totalLoss + levelLoss
-                numLevels += 1
+                exampleLoss = exampleLoss + (-(particleAdvantage * totalLogProb).mean())
+            totalLoss = totalLoss + exampleLoss / len(replicateSteps)
+            numExamples += 1
 
-                if rng.random() < args.noiseProb and len(node.children) > 1:
-                    wrongOptions = [i for i in range(len(node.children)) if i != trueIdx]
-                    node = node.children[rng.choice(wrongOptions)]
-                else:
-                    node = trueChild
-                depth += 1
-
-        if numLevels > 0:
-            (totalLoss / numLevels).backward()
+        if numExamples > 0:
+            (totalLoss / numExamples).backward()
             optimizer.step()
 
-        acc = correctCount / max(totalCount, 1)
-        correctnessHistory.append(acc)
+        rewardHistory.append(rewardSum / max(totalParticles, 1))
+        top5History.append(top5Count / max(totalParticles, 1))
         if (iteration + 1) % args.logEvery == 0:
-            recent = np.mean(correctnessHistory[-args.logEvery:])
-            print(f"iter {iteration + 1}/{args.iterations}  particle-correct-child rate (recent)={recent:.3f}  "
-                  f"loss={(totalLoss / max(numLevels,1)).item():.4f}")
+            recentReward = np.mean(rewardHistory[-args.logEvery:])
+            recentTop5 = np.mean(top5History[-args.logEvery:])
+            print(f"iter {iteration + 1}/{args.iterations}  meanReward(recent)={recentReward:.4f}  "
+                  f"top5Rate(recent)={recentTop5:.4f}  loss={(totalLoss / max(numExamples,1)).item():.4f}")
 
     torch.save(model.state_dict(), os.path.join(args.checkpointDir, "checkpoint.pt"))
     whitener.save(os.path.join(args.checkpointDir, "whitener.npz"))
