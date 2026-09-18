@@ -143,6 +143,9 @@ def parseArgs():
     parser.add_argument("--baseCheckpoint", default="checkpoints/diffusion_lr_5e-4",
                          help="Only used for whitener.npz / config.json (pcaDim, textDim, testFraction).")
     parser.add_argument("--checkpointDir", default="checkpoints/nav_classifier")
+    parser.add_argument("--depthWeights", default=None,
+                         help="Comma-separated per-depth loss weight, e.g. '1,3,1,1,1' to upweight depth 1. "
+                              "Default: uniform (all depths weighted equally).")
     return parser.parse_args()
 
 
@@ -180,6 +183,10 @@ def main():
 
     model = NavigationClassifier(config["textDim"], config["visualDim"], args.hiddenDim).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learningRate)
+
+    depthWeights = None
+    if args.depthWeights:
+        depthWeights = torch.tensor([float(w) for w in args.depthWeights.split(",")], device=device)
 
     def evaluate(loader):
         model.eval()
@@ -221,9 +228,14 @@ def main():
             children = batch["children"].to(device)
             mask = batch["mask"].to(device)
             trueIdx = batch["trueIdx"].to(device)
+            depth = batch["depth"].to(device)
 
             scores = model(text, node, children, mask)
-            loss = nn.functional.cross_entropy(scores, trueIdx)
+            if depthWeights is not None:
+                perExample = nn.functional.cross_entropy(scores, trueIdx, reduction="none")
+                loss = (perExample * depthWeights[depth]).mean()
+            else:
+                loss = nn.functional.cross_entropy(scores, trueIdx)
 
             optimizer.zero_grad()
             loss.backward()
