@@ -4,15 +4,32 @@ landing in the correct leaf actually mean landing near the true font,
 or can a leaf contain fonts that aren't meaningfully similar to each
 other?
 
-CORRECTED: the first version of this script measured "fraction of
+CORRECTED (v2): the first version of this script measured "fraction of
 leaf-mates within a member's own top-10 nearest neighbors," which has
 a hidden ceiling effect the user caught directly -- with a FIXED
 top-10 neighbor set and a leaf of size N, that fraction can never
 exceed min(1, 10/(N-1)) regardless of actual similarity, so large
 leaves were mechanically penalized by their own size, not measured for
-coherence. This version instead computes direct pairwise cosine
-similarity among leaf members (no size-dependent ceiling) and compares
-it to same-size random-group baselines.
+coherence. v2 computed direct pairwise COSINE similarity instead.
+
+NOTE on metric choice, not yet resolved either direction: the tree
+itself (sklearn KMeans/MiniBatchKMeans in HierarchicalClusterIndex.fit)
+and every other distance computation in this pipeline (corpus.nearest's
+acceptance-set definition, rankInLeaf, oracleChoiceAmongChildren) use
+Euclidean distance in the whitened space, not cosine -- so this
+script's cosine-based measurement doesn't match what the tree was
+literally built to optimize. BUT the user pointed out these embeddings
+are designed to be operated on with cosine similarity in the first
+place, which flips the framing: Euclidean may be the thing introducing
+distortion pipeline-wide (it conflates style direction with a
+documented, unrelated per-font norm signal -- see
+diagnose_metric_choice.py, which measures this directly: whitened-space
+norms vary MORE than the raw embeddings' documented 0.70-1.00 spread,
+and Euclidean-vs-cosine top-10 neighbor overlap averages 0.85 but has a
+real tail down to 0.0 correlated with a font's own norm). This script's
+cosine-based leaf-coherence result may therefore be the more
+appropriate one, not a mismatch to fix -- left as cosine pending a
+decision on the broader metric-choice question.
 
     python3 experiments/diffusion-searches/diagnose_leaf_similarity.py \
         --treeCache tree_variant_4_4_4_5_5_15.pkl
