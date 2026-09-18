@@ -44,6 +44,11 @@ def parseArgs():
     parser.add_argument("--beamWidth", type=int, default=3,
                          help="Max live branches (1 primary + beamWidth-1 hedges). beamWidth=1 "
                               "reduces exactly to evaluate_classifier_branching.py's hard-commit behavior.")
+    parser.add_argument("--hedgeBranchWidth", type=int, default=1,
+                         help="How many of a hedge branch's own top children to spawn as new candidates "
+                              "each round (default 1 = collapse to top-1, original behavior). >1 lets "
+                              "hedge branches genuinely widen the search instead of each tracking a single "
+                              "path -- global pruning to beamWidth still applies afterward.")
     parser.add_argument("--maxRounds", type=int, default=5)
     parser.add_argument("--maxDepth", type=int, default=5)
     parser.add_argument("--acceptanceSize", type=int, default=10)
@@ -81,10 +86,12 @@ def runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device
             node = entry["node"]
             if node.children:
                 probs = scoreChildren(model, text, node, device)
-                top1 = int(np.argmax(probs))
-                newBeam.append({"node": node.children[top1],
-                                 "weight": entry["weight"] * float(probs[top1]),
-                                 "isPrimary": False})
+                kh = min(args.hedgeBranchWidth, len(node.children))
+                topIdx = np.argsort(-probs)[:kh].tolist()
+                for c in topIdx:
+                    newBeam.append({"node": node.children[c],
+                                     "weight": entry["weight"] * float(probs[c]),
+                                     "isPrimary": False})
             else:
                 newBeam.append(entry)
 
