@@ -33,6 +33,7 @@ import torch
 from corpus import FontCorpus, HierarchicalClusterIndex
 from dataset import PCAWhitener, EMBEDDINGS_PATH
 from train_navigation_classifier import NavigationClassifier
+from train_point_regressor import PointRegressor
 from evaluate_classifier_branching import scoreChildren, oracleChoiceAmongChildren, cachePathFor, K_VALUES, \
     leafSizeBucket
 
@@ -55,10 +56,18 @@ def parseArgs():
     parser.add_argument("--acceptanceSize", type=int, default=10)
     parser.add_argument("--noiseProb", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--autoThreshold", type=float, default=1.01,
+                         help="Auto-descend the primary branch without asking when top-1 confidence "
+                              "clears this (matches evaluate_classifier_branching.py's semantics). "
+                              "Default disables auto-descend.")
+    parser.add_argument("--autoThresholds", default=None,
+                         help="Comma-separated per-depth auto-descend threshold; overrides --autoThreshold.")
+    parser.add_argument("--leafRanking", choices=["centroid", "regressor"], default="centroid")
+    parser.add_argument("--regressorDir", default="checkpoints/point_regressor")
     return parser.parse_args()
 
 
-def runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device):
+def runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device, thresholdAt):
     beam = [{"node": hier.root, "weight": 1.0, "isPrimary": True}]
     depth = 0
     rounds = 0
@@ -70,12 +79,17 @@ def runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device
         node = primary["node"]
         if node.children:
             probs = scoreChildren(model, text, node, device)
-            k = min(args.maxOptions, len(node.children))
-            candidateIdx = np.argsort(-probs)[:k].tolist()
-            chosen = oracleChoiceAmongChildren(candidateIdx, node, acceptanceIdx, corpus,
-                                                 args.noiseProb, oracleRng)
-            optionsShown.append(len(candidateIdx))
-            rounds += 1
+            top1 = int(np.argmax(probs))
+            if probs[top1] >= thresholdAt(depth) or rounds >= args.maxRounds:
+                chosen = top1
+                candidateIdx = [top1]
+            else:
+                k = min(args.maxOptions, len(node.children))
+                candidateIdx = np.argsort(-probs)[:k].tolist()
+                chosen = oracleChoiceAmongChildren(candidateIdx, node, acceptanceIdx, corpus,
+                                                     args.noiseProb, oracleRng)
+                optionsShown.append(len(candidateIdx))
+                rounds += 1
             newBeam.append({"node": node.children[chosen], "weight": 1.0, "isPrimary": True})
             for c in candidateIdx:
                 if c != chosen:
@@ -104,9 +118,13 @@ def runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device
     return beam, rounds, optionsShown
 
 
-def rankPooledBeam(beam, corpus, acceptanceIdx):
+def rankPooledBeam(beam, corpus, acceptanceIdx, regressor=None, text=None):
     acceptanceSet = set(acceptanceIdx)
     ordered = sorted(beam, key=lambda e: (0 if e["isPrimary"] else 1, -e["weight"]))
+    predicted = None
+    if regressor is not None:
+        with torch.no_grad():
+            predicted = regressor(text.unsqueeze(0)).squeeze(0).to(corpus.device)
     orderedMembers = []
     seen = set()
     for entry in ordered:
@@ -114,8 +132,11 @@ def rankPooledBeam(beam, corpus, acceptanceIdx):
         if len(members) == 0:
             continue
         memberVecs = corpus.whitenedMatrix[members]
-        centroid = torch.from_numpy(entry["node"].centroid.astype(np.float32)).to(corpus.device)
-        dist = torch.norm(memberVecs - centroid.unsqueeze(0), dim=1)
+        if predicted is not None:
+            dist = torch.norm(memberVecs - predicted.unsqueeze(0), dim=1)
+        else:
+            centroid = torch.from_numpy(entry["node"].centroid.astype(np.float32)).to(corpus.device)
+            dist = torch.norm(memberVecs - centroid.unsqueeze(0), dim=1)
         order = dist.argsort()
         for i in order.cpu().numpy():
             m = members[i]
@@ -158,6 +179,22 @@ def main():
     model.load_state_dict(torch.load(os.path.join(args.classifierDir, "checkpoint.pt"), map_location=device))
     model.eval()
 
+    if args.autoThresholds:
+        thresholdSchedule = [float(t) for t in args.autoThresholds.split(",")]
+    else:
+        thresholdSchedule = [args.autoThreshold]
+
+    def thresholdAt(depth):
+        return thresholdSchedule[min(depth, len(thresholdSchedule) - 1)]
+
+    regressor = None
+    if args.leafRanking == "regressor":
+        with open(os.path.join(args.regressorDir, "config.json")) as f:
+            regConfig = json.load(f)
+        regressor = PointRegressor(regConfig["textDim"], regConfig["pcaDim"], regConfig["hiddenDim"]).to(device)
+        regressor.load_state_dict(torch.load(os.path.join(args.regressorDir, "checkpoint.pt"), map_location=device))
+        regressor.eval()
+
     hits = {k: 0 for k in K_VALUES}
     roundsList, optionsList, poolSizes = [], [], []
     primaryByBucket, anyByBucket = {}, {}
@@ -169,11 +206,12 @@ def main():
         acceptanceIdx = [corpus.nameToIndex[n] for n in acceptanceRows[0]]
 
         oracleRng = np.random.default_rng(args.seed * 100003 + qi)
-        beam, rounds, optionsShown = runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device)
+        beam, rounds, optionsShown = runSession(model, text, hier, corpus, acceptanceIdx, args, oracleRng, device,
+                                                   thresholdAt)
 
         roundsList.append(rounds)
         optionsList.extend(optionsShown)
-        leafHits, poolSize = rankPooledBeam(beam, corpus, acceptanceIdx)
+        leafHits, poolSize = rankPooledBeam(beam, corpus, acceptanceIdx, regressor, text)
         poolSizes.append(poolSize)
         primaryNode = beam[0]["node"]
         bucket = leafSizeBucket(len(primaryNode.memberIndices))

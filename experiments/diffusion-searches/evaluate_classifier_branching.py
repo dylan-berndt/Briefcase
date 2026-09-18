@@ -27,6 +27,7 @@ import torch.nn as nn
 from corpus import FontCorpus, HierarchicalClusterIndex
 from dataset import PCAWhitener, EMBEDDINGS_PATH
 from train_navigation_classifier import NavigationClassifier, MAX_CHILDREN
+from train_point_regressor import PointRegressor
 
 K_VALUES = [1, 5, 10, 50, 100]
 
@@ -42,14 +43,27 @@ def parseArgs():
     parser.add_argument("--maxOptions", type=int, default=3, help="Hard cap on options shown per decision.")
     parser.add_argument("--autoThreshold", type=float, default=1.01,
                          help="Auto-descend without asking when top-1 softmax probability clears this. "
-                              "Measured: any threshold below 1.0 (i.e. actually auto-descending on raw "
-                              "confidence instead of always using the oracle-consultation budget) makes "
-                              "recall@10 WORSE despite using fewer decisions -- default disables auto-descend.")
+                              "Measured (5-level tree): any threshold below 1.0 makes recall@10 WORSE "
+                              "despite using fewer decisions -- default disables auto-descend. On a deeper "
+                              "tree with genuinely easy shallow levels, a single global threshold triages "
+                              "poorly across levels with very different natural confidence -- use "
+                              "--autoThresholds instead for a per-depth schedule.")
+    parser.add_argument("--autoThresholds", default=None,
+                         help="Comma-separated per-depth auto-descend threshold, e.g. '0.9,0.9,0.7,0.7,0.7,1.01'. "
+                              "Overrides --autoThreshold when given; index 0 = the root's own decision, the "
+                              "last entry repeats for any depth beyond the list's length.")
     parser.add_argument("--maxRounds", type=int, default=5)
     parser.add_argument("--maxDepth", type=int, default=5)
     parser.add_argument("--acceptanceSize", type=int, default=10)
     parser.add_argument("--noiseProb", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--leafRanking", choices=["centroid", "classifier", "regressor"], default="centroid",
+                         help="How to rank a leaf's members once reached: 'centroid' (default, query-"
+                              "agnostic distance-to-leaf-centroid), 'classifier' (reuse the trained "
+                              "navigation classifier directly on individual members, text-conditioned), "
+                              "or 'regressor' (rank by distance to a direct text->point prediction from "
+                              "checkpoints/point_regressor).")
+    parser.add_argument("--regressorDir", default="checkpoints/point_regressor")
     return parser.parse_args()
 
 
@@ -102,6 +116,55 @@ def leafSizeBucket(size):
     return "51+"
 
 
+def rankInLeafByRegressor(regressor, text, node, corpus, acceptanceIdx, device):
+    """Ranks a leaf's members by distance to a direct text->point prediction (train_point_regressor.py)
+    instead of the query-agnostic leaf centroid -- the acceptance-set success criterion is purely
+    geometric (nearest neighbors in the whitened space, independent of text), so a text-conditioned
+    point to measure distance against is the natural fix once centroid-ranking plateaus."""
+    members = node.memberIndices
+    if len(members) == 0:
+        return {k: 0 for k in K_VALUES}, 0
+    memberVecs = corpus.whitenedMatrix[members]
+    with torch.no_grad():
+        predicted = regressor(text.unsqueeze(0)).squeeze(0).to(corpus.device)
+    dist = torch.norm(memberVecs - predicted.unsqueeze(0), dim=1)
+    order = dist.argsort()
+    orderedMembers = [members[i] for i in order.cpu().numpy()]
+    acceptanceSet = set(acceptanceIdx)
+    hits = {}
+    for k in K_VALUES:
+        topK = orderedMembers[:k]
+        hits[k] = int(any(m in acceptanceSet for m in topK))
+    return hits, len(members)
+
+
+def rankInLeafByClassifier(model, text, node, corpus, acceptanceIdx, device):
+    """Reuses the trained navigation classifier directly on a leaf's individual member fonts (each
+    treated as a singleton 'child') to get a text-conditioned ranking, instead of the query-agnostic
+    distance-to-centroid proxy. No retraining needed: the model's forward pass takes children.shape
+    dynamically (see NavigationClassifier.forward), so it isn't bound to the training-time MAX_CHILDREN
+    padding constant and can score however many members a leaf actually has."""
+    members = node.memberIndices
+    if len(members) == 0:
+        return {k: 0 for k in K_VALUES}, 0
+    memberVecs = corpus.whitenedMatrix[members]
+    n = len(members)
+    nodeT = torch.from_numpy(node.centroid.astype(np.float32)).unsqueeze(0).to(device)
+    childrenT = memberVecs.unsqueeze(0).to(device)
+    maskT = torch.ones(1, n, dtype=torch.bool, device=device)
+    textT = text.unsqueeze(0)
+    with torch.no_grad():
+        scores = model(textT, nodeT, childrenT, maskT).squeeze(0)
+    order = scores.argsort(descending=True)
+    orderedMembers = [members[i] for i in order.cpu().numpy()]
+    acceptanceSet = set(acceptanceIdx)
+    hits = {}
+    for k in K_VALUES:
+        topK = orderedMembers[:k]
+        hits[k] = int(any(m in acceptanceSet for m in topK))
+    return hits, len(members)
+
+
 def rankInLeaf(node, corpus, acceptanceIdx):
     members = node.memberIndices
     if len(members) == 0:
@@ -148,6 +211,22 @@ def main():
     model.load_state_dict(torch.load(os.path.join(args.classifierDir, "checkpoint.pt"), map_location=device))
     model.eval()
 
+    regressor = None
+    if args.leafRanking == "regressor":
+        with open(os.path.join(args.regressorDir, "config.json")) as f:
+            regConfig = json.load(f)
+        regressor = PointRegressor(regConfig["textDim"], regConfig["pcaDim"], regConfig["hiddenDim"]).to(device)
+        regressor.load_state_dict(torch.load(os.path.join(args.regressorDir, "checkpoint.pt"), map_location=device))
+        regressor.eval()
+
+    if args.autoThresholds:
+        thresholdSchedule = [float(t) for t in args.autoThresholds.split(",")]
+    else:
+        thresholdSchedule = [args.autoThreshold]
+
+    def thresholdAt(depth):
+        return thresholdSchedule[min(depth, len(thresholdSchedule) - 1)]
+
     hits = {k: 0 for k in K_VALUES}
     roundsList, optionsList, leafSizes = [], [], []
     leafSuccessesByBucket = {}
@@ -166,7 +245,7 @@ def main():
             probs = scoreChildren(model, text, node, device)
             top1 = int(np.argmax(probs))
 
-            if probs[top1] >= args.autoThreshold or rounds >= args.maxRounds:
+            if probs[top1] >= thresholdAt(depth) or rounds >= args.maxRounds:
                 chosen = top1
             else:
                 k = min(args.maxOptions, len(node.children))
@@ -180,7 +259,12 @@ def main():
             depth += 1
 
         roundsList.append(rounds)
-        leafHits, leafSize = rankInLeaf(node, corpus, acceptanceIdx)
+        if args.leafRanking == "classifier":
+            leafHits, leafSize = rankInLeafByClassifier(model, text, node, corpus, acceptanceIdx, device)
+        elif args.leafRanking == "regressor":
+            leafHits, leafSize = rankInLeafByRegressor(regressor, text, node, corpus, acceptanceIdx, device)
+        else:
+            leafHits, leafSize = rankInLeaf(node, corpus, acceptanceIdx)
         leafSizes.append(leafSize)
         success = int(trueIndex in set(node.memberIndices.tolist()))
         leafSuccessesByBucket.setdefault(leafSizeBucket(leafSize), []).append(success)
