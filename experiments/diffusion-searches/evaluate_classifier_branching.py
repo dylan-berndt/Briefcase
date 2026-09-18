@@ -90,6 +90,18 @@ def oracleChoiceAmongChildren(candidateIdx, node, acceptanceIdx, corpus, noisePr
     return best
 
 
+def leafSizeBucket(size):
+    if size <= 1:
+        return "1"
+    if size <= 5:
+        return "2-5"
+    if size <= 20:
+        return "6-20"
+    if size <= 50:
+        return "21-50"
+    return "51+"
+
+
 def rankInLeaf(node, corpus, acceptanceIdx):
     members = node.memberIndices
     if len(members) == 0:
@@ -138,6 +150,7 @@ def main():
 
     hits = {k: 0 for k in K_VALUES}
     roundsList, optionsList, leafSizes = [], [], []
+    leafSuccessesByBucket = {}
 
     for qi, pair in enumerate(queries):
         text = torch.from_numpy(np.asarray(sentenceCache[pair["font"]][pair["index"]], dtype=np.float32))
@@ -169,6 +182,8 @@ def main():
         roundsList.append(rounds)
         leafHits, leafSize = rankInLeaf(node, corpus, acceptanceIdx)
         leafSizes.append(leafSize)
+        success = int(trueIndex in set(node.memberIndices.tolist()))
+        leafSuccessesByBucket.setdefault(leafSizeBucket(leafSize), []).append(success)
         for k in K_VALUES:
             hits[k] += leafHits[k]
 
@@ -180,6 +195,14 @@ def main():
     print(f"mean options/decision: {np.mean(optionsList) if optionsList else 0:.2f}  "
           f"max: {max(optionsList) if optionsList else 0}")
     print(f"final leaf size: mean={np.mean(leafSizes):.1f}  median={np.median(leafSizes):.0f}")
+    allSuccesses = [s for vals in leafSuccessesByBucket.values() for s in vals]
+    print(f"leaf-success rate (true target's own font is a member of the final leaf): "
+          f"{np.mean(allSuccesses):.4f}  -- stratified by final leaf size (small leaves are a much "
+          f"stronger 'close enough' signal than large ones, see diagnose_leaf_similarity.py):")
+    for bucket in ["1", "2-5", "6-20", "21-50", "51+"]:
+        vals = leafSuccessesByBucket.get(bucket)
+        if vals:
+            print(f"    leaf size {bucket}: n={len(vals)}  success={np.mean(vals):.4f}")
     print(f"\nRecall@k (leaf ranked by distance-to-leaf-centroid), {total} queries:")
     for k in K_VALUES:
         print(f"  recall@{k}: {hits[k] / total:.4f}")

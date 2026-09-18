@@ -33,7 +33,8 @@ import torch
 from corpus import FontCorpus, HierarchicalClusterIndex
 from dataset import PCAWhitener, EMBEDDINGS_PATH
 from train_navigation_classifier import NavigationClassifier
-from evaluate_classifier_branching import scoreChildren, oracleChoiceAmongChildren, cachePathFor, K_VALUES
+from evaluate_classifier_branching import scoreChildren, oracleChoiceAmongChildren, cachePathFor, K_VALUES, \
+    leafSizeBucket
 
 
 def parseArgs():
@@ -159,6 +160,7 @@ def main():
 
     hits = {k: 0 for k in K_VALUES}
     roundsList, optionsList, poolSizes = [], [], []
+    primaryByBucket, anyByBucket = {}, {}
 
     for qi, pair in enumerate(queries):
         text = torch.from_numpy(np.asarray(sentenceCache[pair["font"]][pair["index"]], dtype=np.float32))
@@ -173,6 +175,11 @@ def main():
         optionsList.extend(optionsShown)
         leafHits, poolSize = rankPooledBeam(beam, corpus, acceptanceIdx)
         poolSizes.append(poolSize)
+        primaryNode = beam[0]["node"]
+        bucket = leafSizeBucket(len(primaryNode.memberIndices))
+        primaryByBucket.setdefault(bucket, []).append(int(trueIndex in set(primaryNode.memberIndices.tolist())))
+        anyByBucket.setdefault(bucket, []).append(
+            int(any(trueIndex in set(e["node"].memberIndices.tolist()) for e in beam)))
         for k in K_VALUES:
             hits[k] += leafHits[k]
 
@@ -184,6 +191,14 @@ def main():
     print(f"mean options/decision: {np.mean(optionsList) if optionsList else 0:.2f}  "
           f"max: {max(optionsList) if optionsList else 0}")
     print(f"pooled candidate set size: mean={np.mean(poolSizes):.1f}  median={np.median(poolSizes):.0f}")
+    allPrimary = [s for vals in primaryByBucket.values() for s in vals]
+    allAny = [s for vals in anyByBucket.values() for s in vals]
+    print(f"leaf-success rate: primary-branch={np.mean(allPrimary):.4f}  any-live-branch={np.mean(allAny):.4f}  "
+          f"-- stratified by primary leaf size (see diagnose_leaf_similarity.py for why this matters):")
+    for bucket in ["1", "2-5", "6-20", "21-50", "51+"]:
+        pVals, aVals = primaryByBucket.get(bucket), anyByBucket.get(bucket)
+        if pVals:
+            print(f"    leaf size {bucket}: n={len(pVals)}  primary={np.mean(pVals):.4f}  any={np.mean(aVals):.4f}")
     print(f"\nRecall@k (beam-pooled, primary-branch-first), {total} queries:")
     for k in K_VALUES:
         print(f"  recall@{k}: {hits[k] / total:.4f}")

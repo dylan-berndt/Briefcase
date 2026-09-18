@@ -2,31 +2,27 @@
 Validates the "leaf-success rate" metric before trusting it: does
 landing in the correct leaf actually mean landing near the true font,
 or can a leaf contain fonts that aren't meaningfully similar to each
-other? If leaf-mates aren't typically each other's near neighbors,
-leaf-success doesn't measure anything useful.
+other?
 
-Uses the SAME notion of similarity as the acceptance-set recall@k
-metric elsewhere in this investigation (top-10 nearest neighbors in
-the whitened space), not a new ad-hoc one: for each leaf member, what
-fraction of its OTHER leaf-mates are within ITS OWN top-K nearest
-neighbors in the full corpus? If leaf-mates are genuinely similar,
-this should be high; if the leaf is just a k-means bucket with no
-real coherence, it'll be low.
-
-Breaks results out by leaf-size bucket, since the tree's leaf sizes
-are bimodal (median 3, but a few outliers up to 150 -- a known
-k-means degenerate-cluster artifact from near-duplicate embeddings) --
-the concern is specifically whether those large leaves are genuinely
-tight clusters or a "junk drawer" that would make leaf-success
-misleading.
+CORRECTED: the first version of this script measured "fraction of
+leaf-mates within a member's own top-10 nearest neighbors," which has
+a hidden ceiling effect the user caught directly -- with a FIXED
+top-10 neighbor set and a leaf of size N, that fraction can never
+exceed min(1, 10/(N-1)) regardless of actual similarity, so large
+leaves were mechanically penalized by their own size, not measured for
+coherence. This version instead computes direct pairwise cosine
+similarity among leaf members (no size-dependent ceiling) and compares
+it to same-size random-group baselines.
 
     python3 experiments/diffusion-searches/diagnose_leaf_similarity.py \
         --treeCache tree_variant_4_4_4_5_5_15.pkl
 """
 import argparse
+import json
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from corpus import FontCorpus, HierarchicalClusterIndex
 from dataset import PCAWhitener, EMBEDDINGS_PATH
@@ -36,11 +32,8 @@ def parseArgs():
     parser = argparse.ArgumentParser()
     parser.add_argument("--treeCache", default="tree_variant_15_15_5_5_15.pkl")
     parser.add_argument("--baseCheckpoint", default="checkpoints/nav_classifier_v4")
-    parser.add_argument("--acceptanceSize", type=int, default=10,
-                         help="Same K as the recall@k acceptance set elsewhere in this investigation.")
-    parser.add_argument("--maxLeaves", type=int, default=500,
-                         help="Sample this many leaves (cheap, no need for all; kept small to bound the "
-                              "nearest-neighbor distance matrix's memory footprint).")
+    parser.add_argument("--maxLeaves", type=int, default=1000, help="Sample this many leaves (cheap, no need for all).")
+    parser.add_argument("--randomTrials", type=int, default=50, help="Random same-size groups per bucket, for the baseline.")
     parser.add_argument("--seed", type=int, default=1234)
     return parser.parse_args()
 
@@ -53,11 +46,32 @@ def collectLeaves(node, out):
             collectLeaves(c, out)
 
 
+def leafBucket(size):
+    if size <= 1:
+        return "1"
+    if size <= 5:
+        return "2-5"
+    if size <= 20:
+        return "6-20"
+    if size <= 50:
+        return "21-50"
+    return "51+"
+
+
+def meanPairwiseCosine(vecs):
+    n = vecs.shape[0]
+    if n <= 1:
+        return 1.0
+    normed = F.normalize(vecs, dim=1)
+    sim = normed @ normed.T
+    offDiagSum = sim.sum().item() - n  # diagonal is all 1.0
+    return offDiagSum / (n * (n - 1))
+
+
 def main():
     args = parseArgs()
     device = "cpu"
 
-    import json
     with open(f"{args.baseCheckpoint}/config.json") as f:
         clsConfig = json.load(f)
     whitener = PCAWhitener.load(f"{clsConfig['baseCheckpoint']}/whitener.npz")
@@ -72,57 +86,37 @@ def main():
     sample = leaves if len(leaves) <= args.maxLeaves else [leaves[i] for i in
                                                               rng.choice(len(leaves), args.maxLeaves, replace=False)]
 
-    K = args.acceptanceSize
-
-    # Only compute nearest-neighbor sets for fonts that actually appear as members of a sampled leaf --
-    # avoids materializing a full N x N distance matrix (39,421^2 floats would be several GB).
-    neededIdx = sorted({m for leaf in sample for m in leaf.memberIndices.tolist()})
-    neededVecs = corpus.whitenedMatrix[neededIdx]
-    _, neighborRows = corpus.nearest(neededVecs, k=K + 1)  # +1 since a member's own vector is its own nearest neighbor
-    neighborSets = {}
-    for pos, idx in enumerate(neededIdx):
-        names = [n for n in neighborRows[pos] if n != corpus.names[idx]][:K]
-        neighborSets[idx] = {corpus.nameToIndex[n] for n in names}
-
     buckets = {"1": [], "2-5": [], "6-20": [], "21-50": [], "51+": []}
-
-    def bucketFor(size):
-        if size <= 1:
-            return "1"
-        if size <= 5:
-            return "2-5"
-        if size <= 20:
-            return "6-20"
-        if size <= 50:
-            return "21-50"
-        return "51+"
-
-    randomBaselineHits = []
+    bucketSizes = {"1": [], "2-5": [], "6-20": [], "21-50": [], "51+": []}
     for leaf in sample:
-        members = leaf.memberIndices.tolist()
+        members = leaf.memberIndices
         size = len(members)
-        if size <= 1:
-            buckets[bucketFor(size)].append(1.0)  # trivially "similar to itself"
+        vecs = corpus.whitenedMatrix[members]
+        sim = meanPairwiseCosine(vecs)
+        bucket = leafBucket(size)
+        buckets[bucket].append(sim)
+        bucketSizes[bucket].append(size)
+
+    randomBaselines = {}
+    for bucket, sizes in bucketSizes.items():
+        if not sizes:
             continue
-        hitFracs = []
-        for m in members:
-            others = [o for o in members if o != m]
-            hits = sum(1 for o in others if o in neighborSets[m])
-            hitFracs.append(hits / len(others))
-        buckets[bucketFor(size)].append(float(np.mean(hitFracs)))
+        repSize = int(np.median(sizes))
+        repSize = max(repSize, 2)
+        trials = []
+        for _ in range(args.randomTrials):
+            idx = rng.choice(len(corpus.names), repSize, replace=False)
+            trials.append(meanPairwiseCosine(corpus.whitenedMatrix[idx]))
+        randomBaselines[bucket] = float(np.mean(trials))
 
-        # random-pairs baseline: same member count, random OTHER corpus indices instead of real leaf-mates
-        randomOthers = rng.choice(len(corpus.names), size - 1, replace=False)
-        m0 = members[0]
-        randHits = sum(1 for o in randomOthers if o in neighborSets[m0])
-        randomBaselineHits.append(randHits / (size - 1))
-
-    print(f"\nFraction of leaf-mates that are ALSO within a member's own top-{K} nearest neighbors "
-          f"(1.0 = leaf-mates are essentially always 'acceptance-set-equivalent' close; "
-          f"random-pairs baseline ~{np.mean(randomBaselineHits) if randomBaselineHits else 0:.4f}):")
-    for bucket, vals in buckets.items():
+    print("\nMean intra-leaf pairwise cosine similarity (whitened space), by leaf-size bucket "
+          "(no size-dependent ceiling, unlike the earlier top-10-membership version):")
+    for bucket in ["1", "2-5", "6-20", "21-50", "51+"]:
+        vals = buckets[bucket]
         if vals:
-            print(f"  leaf size {bucket}: n={len(vals)} leaves, mean fraction={np.mean(vals):.4f}")
+            base = randomBaselines.get(bucket, float("nan"))
+            print(f"  leaf size {bucket}: n={len(vals)} leaves, mean intra-leaf cosine={np.mean(vals):.4f}  "
+                  f"(random same-size-group baseline: {base:.4f})")
 
 
 if __name__ == "__main__":
