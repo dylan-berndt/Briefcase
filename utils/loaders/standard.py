@@ -124,7 +124,8 @@ def collectFontSetPaths(directory, fontSize, maps):
         try:
             imagesFromFont(fontPath, fontSize, imageSize, directory)
         except Exception as e:
-            print(fontPath, e)
+            message = f"{fontPath!r} {e!r}"
+            print(message.encode("ascii", "backslashreplace").decode("ascii"))
         print(f"\rFonts serialized: {f + 1}/{len(ttfPaths + otfPaths)}", end="")
 
     print()
