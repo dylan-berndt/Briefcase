@@ -113,7 +113,9 @@ def leafSizeBucket(size):
         return "6-20"
     if size <= 50:
         return "21-50"
-    return "51+"
+    if size <= 100:
+        return "51-100"
+    return "101+"
 
 
 def rankInLeafByRegressor(regressor, text, node, corpus, acceptanceIdx, device):
@@ -283,7 +285,7 @@ def main():
     print(f"leaf-success rate (true target's own font is a member of the final leaf): "
           f"{np.mean(allSuccesses):.4f}  -- stratified by final leaf size (small leaves are a much "
           f"stronger 'close enough' signal than large ones, see diagnose_leaf_similarity.py):")
-    for bucket in ["1", "2-5", "6-20", "21-50", "51+"]:
+    for bucket in ["1", "2-5", "6-20", "21-50", "51-100", "101+"]:
         vals = leafSuccessesByBucket.get(bucket)
         if vals:
             print(f"    leaf size {bucket}: n={len(vals)}  success={np.mean(vals):.4f}")

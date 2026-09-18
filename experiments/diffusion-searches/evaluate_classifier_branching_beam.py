@@ -233,7 +233,7 @@ def main():
     allAny = [s for vals in anyByBucket.values() for s in vals]
     print(f"leaf-success rate: primary-branch={np.mean(allPrimary):.4f}  any-live-branch={np.mean(allAny):.4f}  "
           f"-- stratified by primary leaf size (see diagnose_leaf_similarity.py for why this matters):")
-    for bucket in ["1", "2-5", "6-20", "21-50", "51+"]:
+    for bucket in ["1", "2-5", "6-20", "21-50", "51-100", "101+"]:
         pVals, aVals = primaryByBucket.get(bucket), anyByBucket.get(bucket)
         if pVals:
             print(f"    leaf size {bucket}: n={len(pVals)}  primary={np.mean(pVals):.4f}  any={np.mean(aVals):.4f}")

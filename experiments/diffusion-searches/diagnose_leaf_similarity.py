@@ -72,7 +72,9 @@ def leafBucket(size):
         return "6-20"
     if size <= 50:
         return "21-50"
-    return "51+"
+    if size <= 100:
+        return "51-100"
+    return "101+"
 
 
 def meanPairwiseCosine(vecs):
@@ -103,8 +105,8 @@ def main():
     sample = leaves if len(leaves) <= args.maxLeaves else [leaves[i] for i in
                                                               rng.choice(len(leaves), args.maxLeaves, replace=False)]
 
-    buckets = {"1": [], "2-5": [], "6-20": [], "21-50": [], "51+": []}
-    bucketSizes = {"1": [], "2-5": [], "6-20": [], "21-50": [], "51+": []}
+    buckets = {"1": [], "2-5": [], "6-20": [], "21-50": [], "51-100": [], "101+": []}
+    bucketSizes = {"1": [], "2-5": [], "6-20": [], "21-50": [], "51-100": [], "101+": []}
     for leaf in sample:
         members = leaf.memberIndices
         size = len(members)
@@ -128,7 +130,7 @@ def main():
 
     print("\nMean intra-leaf pairwise cosine similarity (whitened space), by leaf-size bucket "
           "(no size-dependent ceiling, unlike the earlier top-10-membership version):")
-    for bucket in ["1", "2-5", "6-20", "21-50", "51+"]:
+    for bucket in ["1", "2-5", "6-20", "21-50", "51-100", "101+"]:
         vals = buckets[bucket]
         if vals:
             base = randomBaselines.get(bucket, float("nan"))
