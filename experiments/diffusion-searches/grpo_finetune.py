@@ -176,16 +176,21 @@ def main():
                   if name in corpus.nameToIndex]
     print(f"{len(trainPairs)} training (font, query) pairs available")
 
-    baseTextDim = config["textDim"]
     pcaDim = config["visualDim"]
-    newTextDim = baseTextDim + pcaDim
+    alreadyDecisionAware = config.get("grpoDecisionAware", False)
+    baseTextDim = config["baseTextDim"] if alreadyDecisionAware else config["textDim"]
+    newTextDim = config["textDim"] if alreadyDecisionAware else baseTextDim + pcaDim
 
-    baseStateDict = torch.load(os.path.join(args.initCheckpoint, "checkpoint.pt"), map_location=device)
-    widenedStateDict = widenTextProjection(baseStateDict, baseTextDim, pcaDim)
+    stateDict = torch.load(os.path.join(args.initCheckpoint, "checkpoint.pt"), map_location=device)
+    if not alreadyDecisionAware:
+        stateDict = widenTextProjection(stateDict, baseTextDim, pcaDim)
+    else:
+        print(f"resuming from an already decision-aware checkpoint ({args.initCheckpoint}) -- "
+              f"no widening needed, textDim={newTextDim} already includes the node-centroid slot")
 
     model = DiffusionMLP(visualDim=config["visualDim"], textDim=newTextDim, hiddenDim=config["hiddenDim"],
                           depth=config["depth"], conditioning=config.get("conditioning", "concat")).to(device)
-    model.load_state_dict(widenedStateDict)
+    model.load_state_dict(stateDict)
 
     diffusion = GaussianDiffusion(timesteps=config["timesteps"], device=device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learningRate)
@@ -265,11 +270,13 @@ def main():
     with open(os.path.join(args.checkpointDir, "test_pairs.json"), "w") as f:
         json.dump(testPairs, f)
 
+    priorTotalIterations = config.get("grpoTotalIterations", 0) if alreadyDecisionAware else 0
     newConfig = dict(config)
     newConfig.update({"textDim": newTextDim, "baseTextDim": baseTextDim, "grpoBase": args.initCheckpoint,
                        "grpoDecisionAware": True, "grpoTreeCache": args.treeCache,
                        "grpoGroupSize": G, "grpoNumSteps": args.numSteps, "grpoMaxDepth": args.maxDepth,
                        "grpoNoiseProb": args.noiseProb, "grpoIterations": args.iterations,
+                       "grpoTotalIterations": priorTotalIterations + args.iterations,
                        "grpoLearningRate": args.learningRate})
     with open(os.path.join(args.checkpointDir, "config.json"), "w") as f:
         json.dump(newConfig, f, indent=2)
