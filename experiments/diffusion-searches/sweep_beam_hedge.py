@@ -91,7 +91,7 @@ def main():
             runArgs = SimpleNamespace(maxOptions=args.maxOptions, beamWidth=bw, hedgeBranchWidth=hbw,
                                         maxRounds=args.maxRounds, maxDepth=args.maxDepth,
                                         noiseProb=args.noiseProb)
-            primarySuccesses, anySuccesses = [], []
+            primarySuccesses, anySuccesses, poolSizes = [], [], []
             for qi, pair in enumerate(queries):
                 text = torch.from_numpy(np.asarray(sentenceCache[pair["font"]][pair["index"]], dtype=np.float32))
                 trueIndex = corpus.nameToIndex[pair["font"]]
@@ -102,14 +102,23 @@ def main():
                 primaryNode = beam[0]["node"]
                 primarySuccesses.append(int(trueIndex in set(primaryNode.memberIndices.tolist())))
                 anySuccesses.append(int(any(trueIndex in set(e["node"].memberIndices.tolist()) for e in beam)))
+                pooled = set()
+                for e in beam:
+                    pooled.update(e["node"].memberIndices.tolist())
+                poolSizes.append(len(pooled))
             primaryRate = float(np.mean(primarySuccesses))
             anyRate = float(np.mean(anySuccesses))
-            results.append((bw, hbw, primaryRate, anyRate))
+            meanPool = float(np.mean(poolSizes))
+            medianPool = float(np.median(poolSizes))
+            results.append((bw, hbw, primaryRate, anyRate, meanPool, medianPool))
             print(f"beamWidth={bw}  hedgeBranchWidth={hbw}  primary-leaf-success={primaryRate:.4f}  "
-                  f"any-leaf-success={anyRate:.4f}")
+                  f"any-leaf-success={anyRate:.4f}  pooled-set: mean={meanPool:.1f} median={medianPool:.0f}")
 
     best = max(results, key=lambda r: r[3])
-    print(f"\nBest: beamWidth={best[0]}  hedgeBranchWidth={best[1]}  any-leaf-success={best[3]:.4f}")
+    print(f"\nBest by any-leaf-success alone: beamWidth={best[0]}  hedgeBranchWidth={best[1]}  "
+          f"any-leaf-success={best[3]:.4f}  pooled-set mean={best[4]:.1f}")
+    print("(Choose the actual config by weighing leaf-success against pooled-set size -- "
+          "a bigger pool isn't free, it's a bigger final result set shown to the user.)")
 
 
 if __name__ == "__main__":
