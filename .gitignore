@@ -25,6 +25,7 @@ dataset.tar.gz
 /checkpoints/retrieval/*
 /checkpoints/diffusion/*
 /checkpoints/diffusion_*/
+/checkpoints/_archive_diffusion_experiments/
 !/checkpoints/pretrain/best
 !/checkpoints/finetune/best
 !/checkpoints/finetune/latest

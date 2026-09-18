@@ -66,7 +66,9 @@ def main():
     if config.get("tagConditioning"):
         tagCache = loadTagPresenceCache()
         sentenceCache = concatenateTagPresence(sentenceCache, tagCache)
-    if config.get("tfidfDim", 0) > 0:
+    if config.get("tfidfDim", 0) > 0 and config.get("tfidfOnly", False):
+        sentenceCache = loadTfidfFeatureCache(config["tfidfDim"])
+    elif config.get("tfidfDim", 0) > 0:
         tfidfCache = loadTfidfFeatureCache(config["tfidfDim"])
         sentenceCache = concatenateTfidfCache(sentenceCache, tfidfCache)
 

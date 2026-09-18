@@ -78,6 +78,13 @@ def parseArgs():
                               "(dataset.TfidfTextFeaturizer). 0 (default) disables it. A corpus-native, "
                               "presence/absence-based alternative to tag_conditioning.py's external-vocab "
                               "approach -- see TfidfTextFeaturizer's docstring for why that was rejected.")
+    parser.add_argument("--tfidfOnly", action="store_true",
+                         help="Use the LSA feature as the ONLY text conditioning (replacing the dense "
+                              "sentence embedding entirely) instead of concatenating it on. Only meaningful "
+                              "with --tfidfDim > 0. Motivated by the transferability check: the dense BGE "
+                              "embedding shows the WRONG sign of correlation with visual distance while LSA "
+                              "shows the correct sign -- concatenating them could dilute a real signal with "
+                              "an actively unhelpful one rather than adding a neutral extra.")
     parser.add_argument("--consistencyWeight", type=float, default=0.0,
                          help="Weight on an explicit same-font consistency loss (see diffusion.Gaussian"
                               "Diffusion.trainingLoss): penalizes the model's noise predictions for TWO "
@@ -118,7 +125,16 @@ def main():
         testCache = concatenateTagPresence(testCache, tagCache)
         print("sparse tag-presence vector concatenated onto text embeddings (--tagConditioning)")
 
-    if args.tfidfDim > 0:
+    if args.tfidfDim > 0 and args.tfidfOnly:
+        tfidfCache = loadTfidfFeatureCache(args.tfidfDim)
+        # Re-derive the SAME train/test partition splitQueryCache already produced for sentenceCache
+        # (same seed, same per-font query counts -- tfidfCache is aligned 1:1 with sentenceCache), rather
+        # than slicing tfidfCache directly, which would take the same leading entries for both train and
+        # test and leak data between them.
+        trainCache, testCache = splitQueryCache(tfidfCache, names, testFraction=args.testFraction, seed=args.seed)
+        print(f"text conditioning REPLACED with TF-IDF+SVD ({args.tfidfDim}-dim) LSA features alone "
+              f"(--tfidfOnly, no dense sentence embedding used at all)")
+    elif args.tfidfDim > 0:
         tfidfCache = loadTfidfFeatureCache(args.tfidfDim)
         trainCache = concatenateTfidfCache(trainCache, tfidfCache)
         testCache = concatenateTfidfCache(testCache, tfidfCache)
