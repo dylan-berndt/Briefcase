@@ -1,10 +1,20 @@
 """
 Joint sweep of beamWidth x hedgeBranchWidth for evaluate_classifier_branching_beam.py,
-loading the corpus/model ONCE and reusing them across all combinations (much cheaper
-than relaunching the full script per combination). Reports leaf-success (primary and
-any-live-branch) for each combo, at a fixed noiseProb/threshold schedule/classifier --
-leaf-success only depends on tree-navigation membership, not leaf-ranking, so this
-sweep doesn't need the point regressor at all.
+loading the corpus/model/regressor ONCE and reusing them across all combinations
+(much cheaper than relaunching the full script per combination).
+
+Reports TWO different things, since they answer different questions:
+  - leaf-success (any-live-branch): is the true target ANYWHERE in the searched
+    pool -- an upper bound on what's findable, independent of what's shown.
+  - recall@k against a SINGLETON acceptance set ({trueIndex} instead of the usual
+    10-nearest-neighbor set): is the true target within the top-K of the pool once
+    ranked. This is just rankPooledBeam's own existing recall@k machinery, called
+    with the target itself as the "acceptance set" of size 1 -- no new metric or
+    ranking code needed, despite an earlier version of this file reinventing a
+    duplicate ranking function to compute exactly this.
+  This decouples how WIDE the search looks (beamWidth, for thoroughness) from how
+  MUCH gets displayed (K) -- per the user's explicit constraint: don't push
+  beamWidth so high that hundreds of fonts end up shown to the user.
 
     python3 experiments/diffusion-searches/sweep_beam_hedge.py \
         --classifierDir checkpoints/nav_classifier_tree6 --maxDepth 6 \
@@ -22,8 +32,9 @@ import torch
 from corpus import FontCorpus, HierarchicalClusterIndex
 from dataset import PCAWhitener, EMBEDDINGS_PATH
 from train_navigation_classifier import NavigationClassifier
+from train_point_regressor import PointRegressor
 from evaluate_classifier_branching import cachePathFor
-from evaluate_classifier_branching_beam import runSession
+from evaluate_classifier_branching_beam import runSession, rankPooledBeam, K_VALUES
 
 
 def parseArgs():
@@ -34,6 +45,7 @@ def parseArgs():
     parser.add_argument("--maxRounds", type=int, default=5)
     parser.add_argument("--acceptanceSize", type=int, default=10)
     parser.add_argument("--autoThresholds", required=True)
+    parser.add_argument("--regressorDir", default="checkpoints/point_regressor")
     parser.add_argument("--noiseProb", type=float, default=0.1)
     parser.add_argument("--maxQueries", type=int, default=300)
     parser.add_argument("--seed", type=int, default=1234)
@@ -70,6 +82,12 @@ def main():
     model.load_state_dict(torch.load(os.path.join(args.classifierDir, "checkpoint.pt"), map_location=device))
     model.eval()
 
+    with open(os.path.join(args.regressorDir, "config.json")) as f:
+        regConfig = json.load(f)
+    regressor = PointRegressor(regConfig["textDim"], regConfig["pcaDim"], regConfig["hiddenDim"]).to(device)
+    regressor.load_state_dict(torch.load(os.path.join(args.regressorDir, "checkpoint.pt"), map_location=device))
+    regressor.eval()
+
     thresholdSchedule = [float(t) for t in args.autoThresholds.split(",")]
 
     def thresholdAt(depth):
@@ -78,20 +96,19 @@ def main():
     beamWidths = [int(x) for x in args.beamWidths.split(",")]
     hedgeBranchWidths = [int(x) for x in args.hedgeBranchWidths.split(",")]
 
-    # precompute acceptance sets once per query (independent of beamWidth/hedgeBranchWidth)
     accCache = {}
     for pair in queries:
         trueIndex = corpus.nameToIndex[pair["font"]]
         _, acceptanceRows = corpus.nearest(corpus.whitenedMatrix[trueIndex].unsqueeze(0), k=args.acceptanceSize)
         accCache[pair["font"]] = [corpus.nameToIndex[n] for n in acceptanceRows[0]]
 
-    results = []
     for bw in beamWidths:
         for hbw in hedgeBranchWidths:
             runArgs = SimpleNamespace(maxOptions=args.maxOptions, beamWidth=bw, hedgeBranchWidth=hbw,
                                         maxRounds=args.maxRounds, maxDepth=args.maxDepth,
                                         noiseProb=args.noiseProb)
-            primarySuccesses, anySuccesses, poolSizes = [], [], []
+            anySuccesses, poolSizes = [], []
+            targetHits = {k: 0 for k in K_VALUES}
             for qi, pair in enumerate(queries):
                 text = torch.from_numpy(np.asarray(sentenceCache[pair["font"]][pair["index"]], dtype=np.float32))
                 trueIndex = corpus.nameToIndex[pair["font"]]
@@ -99,26 +116,26 @@ def main():
                 oracleRng = np.random.default_rng(args.seed * 100003 + qi)
                 beam, rounds, optionsShown = runSession(model, text, hier, corpus, acceptanceIdx, runArgs,
                                                            oracleRng, device, thresholdAt)
-                primaryNode = beam[0]["node"]
-                primarySuccesses.append(int(trueIndex in set(primaryNode.memberIndices.tolist())))
                 anySuccesses.append(int(any(trueIndex in set(e["node"].memberIndices.tolist()) for e in beam)))
                 pooled = set()
                 for e in beam:
                     pooled.update(e["node"].memberIndices.tolist())
                 poolSizes.append(len(pooled))
-            primaryRate = float(np.mean(primarySuccesses))
+
+                # singleton "acceptance set" = the target itself -> recall@k IS target-success@k
+                hits, _ = rankPooledBeam(beam, corpus, [trueIndex], regressor, text)
+                for k in K_VALUES:
+                    targetHits[k] += hits[k]
+
             anyRate = float(np.mean(anySuccesses))
             meanPool = float(np.mean(poolSizes))
             medianPool = float(np.median(poolSizes))
-            results.append((bw, hbw, primaryRate, anyRate, meanPool, medianPool))
-            print(f"beamWidth={bw}  hedgeBranchWidth={hbw}  primary-leaf-success={primaryRate:.4f}  "
-                  f"any-leaf-success={anyRate:.4f}  pooled-set: mean={meanPool:.1f} median={medianPool:.0f}")
+            kStr = "  ".join(f"target@{k}={targetHits[k] / len(queries):.4f}" for k in K_VALUES)
+            print(f"beamWidth={bw}  hedgeBranchWidth={hbw}  any-leaf-success={anyRate:.4f}  "
+                  f"pooled-set: mean={meanPool:.1f} median={medianPool:.0f}  {kStr}")
 
-    best = max(results, key=lambda r: r[3])
-    print(f"\nBest by any-leaf-success alone: beamWidth={best[0]}  hedgeBranchWidth={best[1]}  "
-          f"any-leaf-success={best[3]:.4f}  pooled-set mean={best[4]:.1f}")
-    print("(Choose the actual config by weighing leaf-success against pooled-set size -- "
-          "a bigger pool isn't free, it's a bigger final result set shown to the user.)")
+    print("\n(target@K = is the EXACT target within the top-K of the ranked pool -- "
+          "recall@k with the target itself as a singleton acceptance set.)")
 
 
 if __name__ == "__main__":
