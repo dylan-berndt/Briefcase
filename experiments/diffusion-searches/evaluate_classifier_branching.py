@@ -172,8 +172,8 @@ def main():
         for k in K_VALUES:
             hits[k] += leafHits[k]
 
-        print(f"\r{qi + 1}/{len(queries)}", end="")
-    print()
+        if (qi + 1) % 100 == 0 or qi + 1 == len(queries):
+            print(f"{qi + 1}/{len(queries)}")
 
     total = len(queries)
     print(f"\nmean decision points/session: {np.mean(roundsList):.2f}  median: {np.median(roundsList):.1f}")

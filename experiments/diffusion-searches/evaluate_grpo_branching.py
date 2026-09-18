@@ -168,8 +168,8 @@ def main():
                 if rank < k:
                     hits[k] += 1
             roundsList.append(rounds)
-            print(f"\r noiseProb={level}: {qi + 1}/{len(queries)}", end="")
-        print()
+            if (qi + 1) % 100 == 0 or qi + 1 == len(queries):
+                print(f"noiseProb={level}: {qi + 1}/{len(queries)}")
 
         total = len(queries)
         print(f"noiseProb={level}: mean decision points/session={np.mean(roundsList):.2f}")
