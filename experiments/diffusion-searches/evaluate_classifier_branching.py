@@ -40,8 +40,11 @@ def parseArgs():
     parser.add_argument("--classifierDir", default="checkpoints/nav_classifier")
     parser.add_argument("--maxQueries", type=int, default=300)
     parser.add_argument("--maxOptions", type=int, default=3, help="Hard cap on options shown per decision.")
-    parser.add_argument("--autoThreshold", type=float, default=0.6,
-                         help="Auto-descend without asking when top-1 softmax probability clears this.")
+    parser.add_argument("--autoThreshold", type=float, default=1.01,
+                         help="Auto-descend without asking when top-1 softmax probability clears this. "
+                              "Measured: any threshold below 1.0 (i.e. actually auto-descending on raw "
+                              "confidence instead of always using the oracle-consultation budget) makes "
+                              "recall@10 WORSE despite using fewer decisions -- default disables auto-descend.")
     parser.add_argument("--maxRounds", type=int, default=5)
     parser.add_argument("--maxDepth", type=int, default=5)
     parser.add_argument("--acceptanceSize", type=int, default=10)
