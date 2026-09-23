@@ -3,6 +3,8 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from .config import *
 import numpy as np
 
+import hashlib
+import json
 import os
 import matplotlib.pyplot as plt
 
@@ -133,6 +135,9 @@ class FontData(Dataset):
 class PairedImageData(FontData):
     def __init__(self, config, training=False, limit=None):
         self.config = config
+        # optional dataset-config key: render/cache bitmaps in "bitmaps<suffix>"/"smallimage<suffix>"
+        # instead of the default folders, so a different fontSize never reuses stale-resolution files
+        cacheSuffix = config.cacheSuffix if "cacheSuffix" in config else ""
 
         imageSize = int(config.fontSize * 1.5)
 
@@ -146,17 +151,27 @@ class PairedImageData(FontData):
             letters = []
             paths = []
             if "myFonts" in config.directories:
-                data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize)
+                data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize, cacheSuffix=cacheSuffix)
                 names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
-                    data = collectFontSetPaths(directory, config.fontSize, config.maps)
+                    data = collectFontSetPaths(directory, config.fontSize, config.maps, cacheSuffix=cacheSuffix)
                     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
 
             names = np.concatenate(names, axis=0); letters = np.concatenate(letters, axis=0); paths = np.concatenate(paths, axis=0)
         else:
-            data = loadMyFontsImagePaths(config.directory, config.fontSize)
+            data = loadMyFontsImagePaths(config.directory, config.fontSize, cacheSuffix=cacheSuffix)
             names, letters, paths = data["names"], data["letters"], data["paths"]
+
+        # optional dataset-config key: drop glyphs belonging to fonts listed in a cached JSON file (a
+        # flat list of font names) -- e.g. near-duplicate fonts identified by experiments/embedding-
+        # geometry/ssim_duplicates.py, so training doesn't over-represent near-identical fonts as pairs.
+        if "excludeFontsFile" in config:
+            with open(config.excludeFontsFile) as f:
+                excluded = set(json.load(f))
+            keep = ~np.isin(names, list(excluded))
+            print(f"excludeFontsFile: dropping {len(excluded)} fonts ({(~keep).sum()} glyphs) from {config.excludeFontsFile}")
+            names, letters, paths = names[keep], letters[keep], paths[keep]
 
         self.names = names
         self.letters = letters
@@ -271,13 +286,22 @@ class PairedImageData(FontData):
 
     @staticmethod
     def split(dataset, config):
+        # Deterministic, per-font hash assignment instead of shuffling the whole font list: a font's
+        # train/test bucket depends only on its own name (+ a fixed salt), not on which OTHER fonts are
+        # present or in what order. This was previously np.random.shuffle with no seed, so every launch
+        # (and every resume) drew a different split, silently contaminating test metrics across restarts.
+        # Hashing per-name also means the split stays consistent across machines whose downloaded corpus
+        # (google/dafont/myfonts) differs slightly in exactly which fonts got fetched -- a font present on
+        # both machines lands in the same bucket on both, rather than the split depending on the full list.
+        trainFraction = config.trainFraction if "trainFraction" in config else 0.8
+        salt = config.splitSalt if "splitSalt" in config else "briefcase-split-v1"
+
+        def trainBucket(name):
+            digest = hashlib.sha256(f"{salt}:{name}".encode("utf-8")).hexdigest()
+            return (int(digest[:8], 16) / 0xFFFFFFFF) < trainFraction
+
         fonts = np.array(dataset.fonts)
-
-        np.random.shuffle(fonts)
-
-        split = int(len(fonts) * 0.8)
-
-        trainFonts = set(fonts[:split])
+        trainFonts = set(f for f in fonts if trainBucket(f))
 
         trainPairIndices = []
         testPairIndices = []

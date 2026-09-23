@@ -23,10 +23,7 @@ dataset.tar.gz
 /checkpoints/finetune/*
 /checkpoints/pretrain/*
 /checkpoints/retrieval/*
-/checkpoints/diffusion/*
-/checkpoints/diffusion_*/
-/checkpoints/_archive_diffusion_experiments/
-/checkpoints/nav_classifier*/
+/checkpoints/diffusion-searches/
 !/checkpoints/pretrain/best
 !/checkpoints/finetune/best
 !/checkpoints/finetune/latest
@@ -49,6 +46,11 @@ results/fontQueries.json
 
 embeddings/*
 !embeddings/all.json
+
+/experiments/embedding-geometry/data
+/experiments/embedding-geometry/ssim_candidates.pkl
+/experiments/embedding-geometry/ssim_duplicate_pairs.csv
+/experiments/embedding-geometry/*.pt
 
 experiments/pipeline.log
 experiments/effective_dimension.log

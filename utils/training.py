@@ -9,6 +9,20 @@ def sigreg_weak_loss(x, sketch_dim=2048):
     """
     Forces Covariance(x) ~ Identity.
     Matches the 2nd Moment (Spherical Cloud).
+
+    NOTE: only matching the covariance is a necessary but NOT sufficient
+    condition for isotropy -- a distribution can be a handful of tight,
+    locally-dense clusters positioned so the AGGREGATE covariance still
+    looks like identity, while nearest-neighbor cosine similarity (what
+    this project's whole retrieval pipeline actually depends on) stays
+    high. That's the measured, real failure mode here (experiments/
+    embedding-geometry/README.md): this loss genuinely converged and the
+    model's own recall genuinely improved, yet nearest-neighbor cosine
+    density across the corpus stayed at ~0.96. Prefer sigreg_strong_loss,
+    which tests the FULL marginal distribution (not just its 2nd moment)
+    and can't be satisfied by a clumpy-but-covariance-matched cloud --
+    this is also what LeVJEPA (arxiv.org/abs/2608.27395) actually uses,
+    not this weak variant.
     """
     N, C = x.size()
     # 1. Sketching (Optional for C=512, but good for consistency)
@@ -27,6 +41,49 @@ def sigreg_weak_loss(x, sketch_dim=2048):
 
     # 4. Off-diagonal suppression + Diagonal maintenance
     return torch.norm(cov - target, p='fro')
+
+
+# https://github.com/kreasof-ai/sigreg -- verbatim from the reference README's
+# sigreg_strong_loss(), the variant LeVJEPA actually validated at scale (M=1024
+# random projections there; this project calls it with sketch_dim=1024 to match).
+def sigreg_strong_loss(x, sketch_dim=64):
+    """
+    Forces ECF(x) ~ ECF(Gaussian).
+    Matches ALL Moments (Maximum Entropy Cloud).
+    Exact implementation of LeJEPA Algorithm 1.
+    """
+    N, C = x.size()
+
+    # 1. Projection (The Observer)
+    # Project channels down to sketch_dim random unit directions
+    A = torch.randn(C, sketch_dim, device=x.device)
+    A = A / (A.norm(p=2, dim=0, keepdim=True) + 1e-6)
+
+    # 2. Integration Points
+    t = torch.linspace(-5, 5, 17, device=x.device)
+
+    # 3. Theoretical Gaussian CF
+    exp_f = torch.exp(-0.5 * t**2)
+
+    # 4. Empirical CF
+    # proj: [N, sketch_dim]
+    proj = x @ A
+
+    # args: [N, sketch_dim, T]
+    args = proj.unsqueeze(2) * t.view(1, 1, -1)
+
+    # ecf: [sketch_dim, T] (Mean over batch)
+    ecf = torch.exp(1j * args).mean(dim=0)
+
+    # 5. Weighted L2 Distance
+    # |ecf - gauss|^2 * gauss_weight
+    diff_sq = (ecf - exp_f.unsqueeze(0)).abs().square()
+    err = diff_sq * exp_f.unsqueeze(0)
+
+    # 6. Integrate
+    loss = torch.trapz(err, t, dim=1) * N
+
+    return loss.mean()
 
 
 class MomentumEncoder(nn.Module):
@@ -110,10 +167,19 @@ def buildFalseNegativeMask(descriptions, fontNum, threshold=0.35, chunk=2048):
 
 
 class EmbeddingLoss(nn.Module):
-    def __init__(self, temperature=0.04, alpha=0.1):
+    def __init__(self, temperature=0.04, alpha=0.1, sigregVariant="strong", sigregSketchDim=1024):
         super().__init__()
         self.temperature = temperature
         self.alpha       = alpha
+        self.sigregVariant = sigregVariant
+        self.sigregSketchDim = sigregSketchDim
+
+    def sigreg(self, x):
+        if self.sigregVariant == "strong":
+            return sigreg_strong_loss(x, sketch_dim=self.sigregSketchDim)
+        elif self.sigregVariant == "weak":
+            return sigreg_weak_loss(x)
+        raise ValueError(f"unknown sigregVariant {self.sigregVariant!r}")
 
     def infoNCE(self, queries, keys, queryFamilies, keyFamilies, simMask=None):
         """
@@ -192,7 +258,7 @@ class EmbeddingLoss(nn.Module):
             loss2 = nn.functional.cross_entropy(logits.T, labels)
 
         infoLoss = 0.5 * (loss1 + loss2)
-        sigLoss  = 0.5 * (sigreg_weak_loss(x) + sigreg_weak_loss(y))
+        sigLoss  = 0.5 * (self.sigreg(x) + self.sigreg(y))
         return {"total": infoLoss + self.alpha * sigLoss, "info": infoLoss, "sig": sigLoss}
 
 
