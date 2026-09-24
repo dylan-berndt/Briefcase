@@ -329,3 +329,21 @@ Both papers read in full, not abstracts. **Neither actually attempts the task th
 ### Final verdict, reasoned seriously per the user's direct request, not hedged
 
 **No — the corpus, as rendered and measured this session, does not have enough intrinsic stylistic differentiation to support reliable single-shot, fine-grained (individual-font-level) text search across the full corpus.** This is a property of the domain/rendering (raw pixel PR=2.4–3.4 even at its most curated, unimproved by resolution), not a fixable training defect — every training-side lever tried this session (loss family, alpha, projector, resolution, dedup, RNC) hit the same wall, and the published literature the user recalled as counter-evidence turns out to have never attempted the same task. **What IS real and learnable**: coarse/neighborhood-level structure (split-half r=0.92; the deployed model's real 0.508 visual↔text correlation, beating the Flickr8k reference; this project's own grid-feedback/branching-search successes at narrowing, not exact-matching). The domain supports "these are in the right neighborhood," not "this is the one exact font from a sentence" — and that's exactly where this project's own prior work and this session's raw-pixel measurement now agree, from two independent directions.
+## Critical review (Sept 2026): why text→font retrieval is stuck
+
+Full write-up, numbers and scripts: `experiments/critical-review/README.md`. All measured, CPU, real data. Headlines, so they aren't re-derived or contradicted:
+
+- **The exact-font R@k benchmark on LLM captions is mostly label-limited, not model-limited.** Captions were generated blind from source labels (MyFonts tags; DaFont only `category`+`theme`, so DaFont is ~2% R@1-capped by construction). At 18.7k MyFonts fonts, perfect knowledge of each font's *strongly visual* tags reaches only R@10 ≈ 9–13%. Text→text over captions gets 51%; most identity info is in non-visual tags.
+- **The ViT backbone is near published SOTA on relevance benchmarks.** ICCV-2019 MyFonts-test mAP 20.5/11.4/11.0 (single-300/full/multi) vs ICCV SOTA 27.8/17.8/15.8. AMT 46.5% vs 47.5%. CLIP B/16 is only ~10–20% better. The old `retrieval.py` in-batch mAP reads ~2× the corpus-level mAP.
+- **Fonts are highly discriminable in the visual space.** 13-glyph vs disjoint-13-glyph identity R@1 = 94% among 4,962 fonts. NN cosine 0.96 is not a density problem. The "3–4 pixel PR" figure is an uncentered-PCA artifact (centered PR 15–18, comparable to MNIST).
+- **Real, fixable flaws:**
+  - Rendering pipeline confound: MyFonts is per-glyph scale-to-fit, Google/DaFont are metric-rendered. The same font, pipeline-swapped, self-matches at only 38% R@1, and tag transfer loses up to 0.26 AUC.
+  - Case-mixing bug: glyphs are keyed by `stem[-2]`, so `all.json` vectors mix upper and lower case per letter arbitrarily.
+  - ~1–1.5k prefix mis-pairings.
+  - Finetune aspect/rotation augmentations contradict width/slant captions.
+- **This contradicts the "Final verdict" of the SIGReg/embedding-geometry section above; the evidence here supersedes it.**
+  - That verdict's raw-pixel PR of 2.4–3.4 matches what `e11_pr.py` gets *without* mean-centering: 3.3 on font glyphs, 5.0 on MNIST. With centering it is 15–18, in MNIST's regime (MNIST centered PR is 30; 1-NN accuracy 92%).
+  - Its own split-half r = 0.92, and the 94% identity R@1 here, show fonts are finely separable visually.
+  - What fails is getting enough *visual* information through the text labels, not the corpus.
+  - (`raw_pixel_differentiation.py` wasn't in the repo to check directly.)
+- **On the user's recalled `retrieval.py` mAP:** commit `8b28fb1` computes it *inside 256-item batches*. That reads ~2× the corpus-level mAP (21.6 vs 11.4 for the same predictions; `e16_batchmap.py`).
