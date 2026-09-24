@@ -200,15 +200,49 @@ the other domain from all the human tag supervision.
   augmentations randomize the very attributes the text asserts. The pretraining loader uses
   ratio (1, 1).
 
+### 6. Tag-bottleneck search engine: what actually helps (`e19_search.py`)
+
+Setup: query → tag weights; font vector → tag logits from an MLP tagger trained on MyFonts train
+fonts only; rank by the weighted sum of per-tag z-scores. Three query parsers:
+- **lexical**: query words phrase-matched to tag names, `log1p(idf)` weights (approximates
+  TagSearch, without spaCy synonym vectors);
+- **learned kNN**: tag distribution of the 50 most similar MyFonts *training* captions, as lift
+  over the tag prior;
+- **learned linear**: TF-IDF → tags.
+
+| eval | lexical | learned kNN | learned linear | lexical + kNN |
+|---|---|---|---|---|
+| A. ICCV multi-tag queries as text (1000), MyFonts test, mAP | **10.2** | 5.8 | 1.3 | 7.1 |
+| B. held-out natural captions (1582), top-10 visual-tag Jaccard (random 0.041) | **0.142** | 0.123 | 0.056 | 0.127 |
+| B. same, exact-font R@10 in 1866 | **11.4%** | 7.8% | 1.1% | 8.6% |
+| C. DaFont, its 36 category/theme names as queries, metric render, mAP | 13.3 | 10.3 | 5.4 | 11.3 |
+| C. DaFont, same fonts **MyFonts-style render**, mAP | **26.5** | 21.0 | 6.1 | 24.3 |
+
+Section A: for single-tag queries, lexical 12.5 vs. oracle tags 12.8. For multi-tag, lexical
+equals the oracle (10.2 vs. 10.0).
+
+Read:
+- **Learning query→tag from the generated captions did not beat lexical matching**, even on
+  natural-language queries. The hypothesis is rejected. (The linear model is likely
+  undertrained, but the kNN version is a fair test.)
+- **The biggest measured lever for searching DaFont with MyFonts-trained models is rendering.**
+  Same fonts, same models, same queries: mAP 13.3 → 26.5, P@10 0.20 → 0.34.
+- Caveat: DaFont's labels are coarse and noisy, so section C is a transfer sanity check, not a
+  precise score. Primary validation is the MyFonts test split (A, B).
+
 ## What this implies (recommendations, untested unless stated)
 
 1. **Stop using exact-font R@k on LLM captions as the success metric.** With these labels even a
    perfect visual tagger stays near R@10 ≈ 10% at 18.7k fonts. Use relevance metrics instead:
    ICCV mAP/NDCG and AMT. On those, the existing backbone is already between the 2019 baselines
    and SOTA.
-2. **Unify rendering.** Render Google and DaFont through the same tight-crop, scale-to-fit
-   pipeline as the MyFonts PNGs (`render.myfontsStyleFromFont`), fix the case bug, and
-   re-embed. Measured effect on tag transfer: up to +0.26 AUC.
+2. **Unify rendering, in the only direction possible.** The MyFonts dataset ships only glyph
+   PNGs, no font files. So "matched rendering" here means rendering DaFont/Google *font files*
+   through a simulation of the MyFonts pipeline (`render.myfontsStyleFromFont`: large render,
+   tight crop, then the exact `loadRochesterImage` scale-to-fit), not the reverse.
+   - A myfonts-vs-dafont source classifier trained on `all.json` labels 1.6% of metric-rendered
+     DaFont fonts as MyFonts, versus 86.5% of the same fonts rendered this way.
+   - Measured effect on tag transfer: up to +0.26 AUC. Measured effect on search: see finding 6.
 3. **Text search: use text where the text is.** For fonts with human metadata (MyFonts tags,
    Google tags/descriptions), plain TF-IDF text→text beats every visual route by an order of
    magnitude on these queries. This is optimistic, since the queries are derived from that same

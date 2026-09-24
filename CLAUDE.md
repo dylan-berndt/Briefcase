@@ -346,4 +346,8 @@ Full write-up, numbers and scripts: `experiments/critical-review/README.md`. All
   - Its own split-half r = 0.92, and the 94% identity R@1 here, show fonts are finely separable visually.
   - What fails is getting enough *visual* information through the text labels, not the corpus.
   - (`raw_pixel_differentiation.py` wasn't in the repo to check directly.)
+- **Tag-bottleneck search (`e19_search.py`):**
+  - Lexical query→tag matching beat a query→tag mapping learned from the generated captions (kNN/linear) on every eval, including natural-language queries. Don't re-suggest LSA or learned parsing over captions as the fix.
+  - Rendering DaFont through a *simulation* of the MyFonts pipeline (MyFonts ships no font files, so only this direction is possible) doubled DaFont category/theme search: mAP 13.3→26.5.
+  - `CombinedQueryData` now drops DaFont generated captions (4,504 in `fontQueries.json`) unless the config sets `keepDaFontCaptions`.
 - **On the user's recalled `retrieval.py` mAP:** commit `8b28fb1` computes it *inside 256-item batches*. That reads ~2× the corpus-level mAP (21.6 vs 11.4 for the same predictions; `e16_batchmap.py`).

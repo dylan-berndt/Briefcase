@@ -95,6 +95,20 @@ class CombinedQueryData:
                     if not any(k.lower().startswith(prefix) for prefix in GENERIC_FONTS)
                 }
 
+            # DaFont's only real labels are category + theme, so its generated captions are LLM
+            # invention on top of two words -- drop them unless explicitly kept. DaFont images still
+            # load; they just have no caption to pair with (and are skipped when training=True).
+            if "keepDaFontCaptions" not in config and "directories" in config \
+                    and "standard" in config.directories and "dafont" in config.directories.standard:
+                dafontKeys = set(loadDaFontDescriptions("dafont").keys())
+                myFontsKeys = set()
+                if "myFonts" in config.directories:
+                    myFontsKeys = set(os.listdir(os.path.join(config.directories.myFonts, "taglabel")))
+                before = len(self.descriptions)
+                self.descriptions = {k: v for k, v in self.descriptions.items()
+                                     if k not in dafontKeys or k in myFontsKeys}
+                print(f"Dropped {before - len(self.descriptions)} DaFont generated-caption entries")
+
         print(len(self.names), len(self.descriptions), len(self.paths))
 
         trie = CharTrie()
