@@ -69,10 +69,38 @@ class FontCorpus:
 
 
 class ClusterNode:
-    def __init__(self, centroid, memberIndices, children):
-        self.centroid = centroid            # [pcaDim] numpy
+    def __init__(self, centroid, memberIndices, children, textCentroid=None):
+        self.centroid = centroid            # [pcaDim] numpy -- VISUAL only, every geometric consumer
+                                             # (corpus.nearest-adjacent distance ops, rankInLeaf,
+                                             # labelHardness, wrong-turn-geometry diagnostics) depends on
+                                             # this staying dimensionally compatible with
+                                             # corpus.whitenedMatrix, so it is never touched by auxMatrix.
         self.memberIndices = memberIndices  # np.array of corpus indices under this node (all descendants)
         self.children = children            # list[ClusterNode], empty at leaves
+        self.textCentroid = textCentroid    # [auxDim] numpy or None -- raw mean of this node's members'
+                                             # auxMatrix rows (e.g. per-font mean BGE embedding), purely
+                                             # an extra CLASSIFIER input feature (see train_navigation_
+                                             # classifier.py's --nodeTextWeight): lets the model directly
+                                             # compare a query against a child's own aggregate descriptive
+                                             # language, on top of the existing text-to-visual mapping it
+                                             # already learns. Never consumed by any geometric/ranking code.
+
+
+def nodeVector(node, textWeight=0.0, textDim=0):
+    """
+    node.centroid, optionally with node.textCentroid appended (scaled by
+    textWeight) as an extra classifier input feature -- see ClusterNode's
+    textCentroid docstring for the motivation. textDim is the expected
+    aux width, used as a zero-fallback for any node with no textCentroid
+    (a tree built without auxMatrix, or a node whose members happened to
+    have zero text coverage) so every node produces a consistently-
+    shaped vector regardless. textWeight<=0 or textDim==0 returns plain
+    node.centroid unchanged (the original, pre-this-feature behavior).
+    """
+    if textWeight <= 0 or textDim == 0:
+        return node.centroid.astype(np.float32)
+    aux = node.textCentroid if node.textCentroid is not None else np.zeros(textDim, dtype=np.float32)
+    return np.concatenate([node.centroid, textWeight * aux]).astype(np.float32)
 
 
 class HierarchicalClusterIndex:
@@ -103,7 +131,8 @@ class HierarchicalClusterIndex:
         self.root = root
 
     @staticmethod
-    def fit(corpus, branchingFactor=10, maxDepth=5, minLeafSize=5, randomState=0):
+    def fit(corpus, branchingFactor=10, maxDepth=5, minLeafSize=5, randomState=0, metric="euclidean",
+            splitAlgorithm="kmeans", auxMatrix=None, auxWeight=0.0):
         """
         branchingFactor: either a single int (uniform fanout at every
         depth, original behavior) or a list/tuple giving a PER-DEPTH
@@ -120,10 +149,71 @@ class HierarchicalClusterIndex:
         depth to reach the same total addressable resolution -- an
         explicit, testable trade against the uniform baseline, not
         assumed to help.
+
+        metric: "euclidean" (original behavior, sklearn KMeans directly
+        on the whitened vectors) or "cosine" -- a direct test of the
+        open Euclidean-vs-cosine question (diagnose_metric_choice.py):
+        whitened-space norms vary far more than the raw embeddings'
+        documented spread, so Euclidean k-means can split on a font's
+        own norm (an unrelated per-font consistency signal) rather than
+        style direction. "cosine" L2-normalizes each vector before
+        fitting (the standard spherical-k-means-via-normalization trick
+        -- for unit vectors, ||a-b||^2 = 2-2cos(a,b), so Euclidean
+        k-means on normalized inputs is equivalent to clustering by
+        cosine similarity) but still stores each node's centroid as the
+        mean of the RAW (un-normalized) whitened member vectors, so
+        every downstream consumer (the navigation classifier,
+        corpus.nearest, rankInLeaf, oracleChoiceAmongChildren) is
+        unaffected -- this isolates the effect of the SPLIT itself from
+        the separate, larger question of switching the whole pipeline's
+        distance metric.
+
+        splitAlgorithm: "kmeans" (original behavior) or "bisecting" --
+        sklearn's BisectingKMeans with bisecting_strategy="largest_cluster",
+        which repeatedly 2-way-splits whichever piece currently has the
+        most MEMBERS (not the most inertia) until k pieces exist. Plain
+        k-means has no balance term at all and can (measured, not
+        assumed: diagnose_split_coherence.py) leave one child with over
+        3x the mean sibling size while another sits near the minimum --
+        bisecting-by-largest-cluster makes a single runaway mega-cluster
+        structurally impossible, independent of and complementary to the
+        metric choice above.
+
+        auxMatrix / auxWeight: an optional [N, auxDim] array (row i
+        aligned to corpus.names[i], zero rows allowed for fonts with no
+        signal) concatenated onto the fitting data with weight auxWeight,
+        e.g. a per-font mean TEXT embedding. Motivation: plain k-means
+        (any metric/splitAlgorithm above) only ever sees visual-embedding
+        geometry, so it can lump fonts together whose real-world
+        descriptions are quite distinct -- diagnose_split_coherence.py's
+        mega-cluster is a case of exactly this (visually adjacent
+        "decorative/grunge/whimsical" fonts that DO have separable text
+        descriptions, per that diagnostic's own printed samples). Mixing
+        in text at split time lets the tree separate them even when
+        their visual embeddings alone would not. Both blocks are
+        L2-normalized per row before concatenation (so auxWeight=1.0
+        means "equal footing", not raw-scale-dependent) -- this only
+        changes ASSIGNMENT; centroid storage stays visual-only, so
+        classifier training/evaluation code is unaffected by this
+        argument entirely.
         """
-        from sklearn.cluster import KMeans, MiniBatchKMeans
+        from sklearn.cluster import KMeans, MiniBatchKMeans, BisectingKMeans
+        import torch.nn.functional as tf
 
         whitened = corpus.whitenedMatrix.cpu().numpy()
+        if metric == "cosine":
+            visualBlock = tf.normalize(corpus.whitenedMatrix, dim=1).cpu().numpy()
+        elif metric == "euclidean":
+            visualBlock = whitened
+        else:
+            raise ValueError(f"unknown metric {metric!r}")
+
+        if auxMatrix is not None and auxWeight > 0:
+            auxNorms = np.linalg.norm(auxMatrix, axis=1, keepdims=True)
+            auxNormalized = np.divide(auxMatrix, auxNorms, out=np.zeros_like(auxMatrix), where=auxNorms > 1e-8)
+            fitSource = np.concatenate([visualBlock, auxWeight * auxNormalized], axis=1).astype(np.float32)
+        else:
+            fitSource = visualBlock
 
         def branchingAt(depth):
             if isinstance(branchingFactor, (list, tuple)):
@@ -132,15 +222,23 @@ class HierarchicalClusterIndex:
 
         def buildNode(indices, depth):
             centroid = whitened[indices].mean(axis=0)
+            textCentroid = auxMatrix[indices].mean(axis=0) if auxMatrix is not None else None
             if depth >= maxDepth or len(indices) <= minLeafSize:
-                return ClusterNode(centroid, indices, [])
+                return ClusterNode(centroid, indices, [], textCentroid=textCentroid)
             k = min(branchingAt(depth), max(2, len(indices) // 3))
-            estimator = (MiniBatchKMeans(n_clusters=k, n_init=3, random_state=randomState, batch_size=2048)
-                         if len(indices) > 5000 else KMeans(n_clusters=k, n_init=3, random_state=randomState))
-            labels = estimator.fit_predict(whitened[indices])
+            if splitAlgorithm == "bisecting":
+                estimator = BisectingKMeans(n_clusters=k, random_state=randomState,
+                                             bisecting_strategy="largest_cluster")
+            elif splitAlgorithm == "kmeans":
+                estimator = (MiniBatchKMeans(n_clusters=k, n_init=3, random_state=randomState, batch_size=2048)
+                             if len(indices) > 5000 else KMeans(n_clusters=k, n_init=3, random_state=randomState))
+            else:
+                raise ValueError(f"unknown splitAlgorithm {splitAlgorithm!r}")
+            fitData = fitSource[indices]
+            labels = estimator.fit_predict(fitData)
             children = [buildNode(indices[labels == c], depth + 1)
                         for c in range(k) if np.any(labels == c)]
-            return ClusterNode(centroid, indices, children)
+            return ClusterNode(centroid, indices, children, textCentroid=textCentroid)
 
         return HierarchicalClusterIndex(buildNode(np.arange(len(corpus.names)), 0))
 

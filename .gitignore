@@ -1,12 +1,6 @@
-/data/bitmaps
-/data/sdf
-/data/fonts
-/google/bitmaps
-/google/sdf
-/google/fonts
-/windows/bitmaps
-/windows/sdf
-/windows/fonts
+/data
+/google
+/windows
 /dataset
 /dafont
 
@@ -52,9 +46,7 @@ embeddings/*
 /experiments/embedding-geometry/ssim_duplicate_pairs.csv
 /experiments/embedding-geometry/*.pt
 
-experiments/pipeline.log
-experiments/effective_dimension.log
-experiments/character_variance.log
+**/*.log
 
 /results/*.html
 /site/frontend/public/*.html
