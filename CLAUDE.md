@@ -357,6 +357,8 @@ Full write-up, numbers and scripts: `experiments/critical-review/README.md`. All
   - Every rated query had ≥2 acceptable fonts in the top 8. The user judged this good enough to build a style search on.
   - Queries 13–30 were left unrated; their zeros in the export are not misses.
 
+- **Cross-domain comparison (`e21_top50.py`, README section 7):** on the music-tagging protocol (top-50 tags, macro ROC-AUC), MyFonts tagging scores 0.795. Published reference points: music 0.83–0.91 (MTG-Jamendo, Million Song Dataset, MagnaTagATune), AudioSet 0.973. So fonts sit near the low end of music mood/genre tagging. Image mAPs (NUS-WIDE 65.2, COCO 86.6) are not comparable because they depend on tag prevalence.
+
 ### Future work queue (agreed with the user, not started)
 
 Rendering and embeddings:

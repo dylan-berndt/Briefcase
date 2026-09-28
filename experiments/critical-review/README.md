@@ -253,3 +253,22 @@ Read:
 5. **If richer text is wanted, caption from pixels.** Have a VLM describe rendered specimens
    instead of paraphrasing tags. This is the only way to put more *visual* bits into the text
    side.
+
+### 7. How font tagging compares with other tag-based domains (`e21_top50.py`)
+
+Protocol matched to music auto-tagging (Won et al., SMC 2020): the 50 most frequent tags, macro ROC-AUC and macro PR-AUC on the held-out test split. MyFonts uses the frozen ViT and a small MLP head. Other rows are published numbers, checked against the papers' own tables.
+
+| domain / dataset | labels | macro ROC-AUC | macro PR-AUC / mAP |
+|---|---|---|---|
+| **Fonts / MyFonts (this repo)** | top-50 foundry tags | **0.795** | **0.370** (random 0.117) |
+| Music / MTG-Jamendo (Won 2020 best) | top-50 genre/mood/instrument | 0.832 | 0.298 |
+| Music / Million Song Dataset (Last.fm crowd tags) | top-50 | 0.890 | 0.330 |
+| Music / MagnaTagATune | top-50 | 0.913 | 0.461 |
+| Audio events / AudioSet (PANNs CNN14) | 527 classes | 0.973 | 0.431 (random 0.005) |
+| Images / NUS-WIDE (ASL, 2021) | 81 Flickr concepts | — | 0.652 |
+| Images / MS-COCO (ASL, 2021) | 80 object classes | — | 0.866 |
+
+How to read the table:
+- PR-AUC/mAP depends on how common each tag is, so it is not comparable across rows.
+- ROC-AUC is. On ROC-AUC, font tagging sits just below music mood/genre tagging and well below object/event tagging.
+- The music rows are end-to-end trained models, while the font row is a frozen backbone plus a probe. ICCV-2019's end-to-end font model scores ~50% higher mAP than this probe on the full-vocabulary protocol, so the font row understates what is reachable.
