@@ -377,6 +377,14 @@ Search:
 12. **TagSearch query→tags.** Replace spaCy vector-synonym matching with an offline, reviewed **alias table** (phrase → canonical tag + weight, drafted once by an LLM over the canonical vocab), matched deterministically at query time. For words with no alias, fall back to high-threshold embedding similarity, shown to the user as removable tag chips. Keep negation handling.
 13. **TagSearch font scoring.** It currently ranks by a raw dot product of mean sigmoid probabilities, which favors fonts that score high on common tags. Score per tag as a z-score (or log-odds lift over the tag prior) instead, as `e19_search.py`/`e20_live.py` do. Weight each query tag by its visual-coherence effect size from `results/descriptorGrounding.json`: use the `score` field, not `z`. `z` rises with tag frequency (Spearman 0.40 with n) because its baseline std shrinks with group size, so it would reinforce the common-tag bias. `score` is nearly frequency-independent (−0.14) and tracks tagger AUC better (0.56 vs 0.38). Recompute it on the unified-rendering embeddings once those exist.
 
+14. **Human trial design, modeled on two documented precedents (verified from the papers):**
+    - *TRECVID Ad-hoc Video Search (NIST, 2016–):* free-text queries over ~600 h of video. Top systems map query words to a bank of ~15–16k visual concept detectors, which is the same structure as tag search. NIST assessors judge sampled pools of each system's top results, scored as mean xinfAP.
+      - VIREO 2019: automatic query→concept selection scored xinfAP 0.067. Letting a person delete unrelated or unspecific concepts from the selected list raised it to 0.118. This is direct support for editable tag chips (item 12).
+    - *O'Donovan et al., SIGGRAPH 2014 (Exploratory Font Selection Using Crowdsourced Attributes):* 1,278 fonts, 37 crowdsourced attributes. MTurk plus in-person studies against a random-order list baseline, with a 2-minute limit per task.
+      - Font matching (find a shown font): exact-match rate 5% baseline vs 15% attribute interface.
+      - Design task (pick a font for a poster): judged by 2AFC votes. Raters agreed only ~74% of the time.
+    - Proposed protocol: participants free-type their own queries. Conditions: automatic tags, editable tag chips, and a baseline (DaFont's category browsing or a random list). Measure pooled blind relevance of the top k (TRECVID-style, extending `build_page.py`), plus O'Donovan-style timed tasks: find-this-font (exact rate, embedding distance) and pick-for-a-design (2AFC).
+
 Site / presentation:
 
 8. **Specimen images, not font files.** Pre-render one WebP/PNG specimen per font; measured PNG tiles average 2.3 KB, ~40 MB for all of DaFont. For custom preview text, render server-side on demand and cache. Don't serve fonts via `@font-face` (that distributes the files).
