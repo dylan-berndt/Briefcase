@@ -373,6 +373,10 @@ Search:
 6. **Dingbat filter.** Drop DaFont category `Dingbats` (and symbol fonts generally) from search results; they leaked into results.
 7. **Finish the blind trial.** Rate queries 13–30 in the trial page to confirm the re-render's win over current vectors (p≈0.13 on the first 12).
 
+11. **Tag vocabulary for search (`e22_vocab.py`).** MyFonts has 1,824 tags; 1,191 have ≥20 train fonts, 658 have ≥50. The tagger's ROC-AUC does *not* degrade with rarity (median 0.78–0.82 in every band down to 20–50 fonts), so keep all ≥20-font tags for *training*. For *search*, expose a curated canonical set: merge spelling/synonym variants (sans/sans-serif/sanserif, sci-fi/scifi, art-deco/artdeco…) and drop low-AUC usage tags. 481 tags have ≥50 fonts and AUC≥0.75 before merging. Benchmark on top-50 (music convention) plus the ICCV full set for comparability.
+12. **TagSearch query→tags.** Replace spaCy vector-synonym matching with an offline, reviewed **alias table** (phrase → canonical tag + weight, drafted once by an LLM over the canonical vocab), matched deterministically at query time. For words with no alias, fall back to high-threshold embedding similarity, shown to the user as removable tag chips. Keep negation handling.
+13. **TagSearch font scoring.** It currently ranks by a raw dot product of mean sigmoid probabilities, which favors fonts that score high on common tags. Score per tag as a z-score (or log-odds lift over the tag prior) instead, as `e19_search.py`/`e20_live.py` do.
+
 Site / presentation:
 
 8. **Specimen images, not font files.** Pre-render one WebP/PNG specimen per font; measured PNG tiles average 2.3 KB, ~40 MB for all of DaFont. For custom preview text, render server-side on demand and cache. Don't serve fonts via `@font-face` (that distributes the files).
