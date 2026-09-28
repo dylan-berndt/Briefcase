@@ -351,3 +351,28 @@ Full write-up, numbers and scripts: `experiments/critical-review/README.md`. All
   - Rendering DaFont through a *simulation* of the MyFonts pipeline (MyFonts ships no font files, so only this direction is possible) doubled DaFont category/theme search: mAP 13.3→26.5.
   - `CombinedQueryData` now drops DaFont generated captions (4,504 in `fontQueries.json`) unless the config sets `keepDaFontCaptions`.
 - **On the user's recalled `retrieval.py` mAP:** commit `8b28fb1` computes it *inside 256-item batches*. That reads ~2× the corpus-level mAP (21.6 vs 11.4 for the same predictions; `e16_batchmap.py`).
+- **Blind human trial (`e20_live.py`, `build_page.py`):**
+  - Setup: the user rated the top 8 results per query, blind, over 16,797 DaFont fonts.
+  - Results on the 11 rated, unambiguous queries: the MyFonts-style re-render was accepted 70/88 (80%), current `all.json` vectors ~55%, random fonts 4%.
+  - Every rated query had ≥2 acceptable fonts in the top 8. The user judged this good enough to build a style search on.
+  - Queries 13–30 were left unrated; their zeros in the export are not misses.
+
+### Future work queue (agreed with the user, not started)
+
+Rendering and embeddings:
+1. **Unify rendering on the MyFonts pipeline.** Re-render DaFont and Google font files with `experiments/critical-review/render.py::myfontsStyleFromFont` (tight crop + `loadRochesterImage` scale-to-fit). Use lowercase only, which also removes the case-mixing bug. Then re-embed (`embed_dafont_mf.py` does DaFont) and retrain the tag head on MyFonts.
+2. **Fix the case-mixing bug at the source.** Key glyph paths by letter *and* case in `collectFontSetPaths` / `loadMyFontsImagePaths` (currently `stem[-2]`), so `generateEmbeddings` stops mixing `al`/`au`.
+3. **Fix the prefix mis-pairing.** The longest-prefix trie in `CombinedQueryData`/`matchEmbeddingsToDescriptions` matches without a word boundary (`'3'`→`'32 pages'`, `'Acid'`→`'AcidDreamer'`). Require a word boundary or an exact family match.
+4. **Remove label-contradicting finetune augmentations.** `CombinedQueryData` uses `RandomResizedCrop(ratio=(0.75,1.333))` + `RandomRotation(25)`, which randomize the width and slant the captions describe.
+
+Search:
+
+5. **Query parser.** Use TagSearch's spaCy lemma/synonym matching plus negation. The trial's plain lexical parser has no negation ("not bold") and no synonym coverage ("children's storybook" matched nothing).
+6. **Dingbat filter.** Drop DaFont category `Dingbats` (and symbol fonts generally) from search results; they leaked into results.
+7. **Finish the blind trial.** Rate queries 13–30 in the trial page to confirm the re-render's win over current vectors (p≈0.13 on the first 12).
+
+Site / presentation:
+
+8. **Specimen images, not font files.** Pre-render one WebP/PNG specimen per font; measured PNG tiles average 2.3 KB, ~40 MB for all of DaFont. For custom preview text, render server-side on demand and cache. Don't serve fonts via `@font-face` (that distributes the files).
+9. **Link out, no scraping.** DaFont page URL + creator for 12,761 families are in the dafonts-free repo's `cache/font_list.json` (join on `name` = `info.csv` `base_font_name`; Feb 2022 snapshot, some links may be dead). Google Fonts: `fonts.google.com/specimen/<Family>`. MyFonts fonts are training-only (paid, no files); don't list them.
+10. **Corpus scope.** Launch with the dafonts-free subset (DaFont's "100% Free" + "Public domain / GPL / OFL" fonts) plus Google Fonts. DaFont's `robots.txt` disallows automated downloads (`/dl.php`, `/download/`). Covering the rest of DaFont needs their permission, not a scrape.
