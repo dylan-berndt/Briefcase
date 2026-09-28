@@ -1,10 +1,11 @@
 # Draft canonical tag vocabulary + alias table for tag search (future-work items 11-12 in CLAUDE.md).
 #
-# Source vocabulary: MyFonts tags with >=50 training fonts (658 tags, see e22_vocab.py). Each canonical
+# Source vocabulary: MyFonts tags with >=20 training fonts (see e22_vocab.py). All >=50-font tags and the
+# 20-49-font tags with AUC >= 0.75 are decided by hand below; the rest of the 20-49 band is left out. Each canonical
 # tag lists the raw MyFonts tags merged into it ("members"; the training label is the OR of members),
 # the phrases a user might type ("aliases", weight 1.0 = means exactly this tag, 0.8 = close synonym,
 # 0.5-0.6 = loose/related), broader tags it implies, and a facet for grouping in the UI.
-# Every one of the 658 candidates is either a member of exactly one canonical tag or listed in DROPPED
+# Every decided candidate is either a member of exactly one canonical tag or listed in DROPPED
 # with a reason; the script asserts this.
 #
 #   python experiments/critical-review/build_tag_vocabulary.py --candidates candidates.tsv
@@ -47,7 +48,7 @@ CANONICAL = {
     "blackletter": ("classification", ["blackletter", "fraktur", "textura"],
                     {"blackletter": 1.0, "black letter": 1.0, "fraktur": 1.0, "textura": 1.0, "old english": 1.0,
                      "gothic": 0.8, "gothic script": 0.8, "german": 0.5}, []),
-    "uncial": ("classification", ["uncial", "irish"], {"uncial": 1.0, "celtic": 0.8, "irish": 0.8}, []),
+    "uncial": ("classification", ["uncial", "irish"], {"uncial": 1.0, "celtic": 0.6, "irish": 0.8}, []),
     "script": ("classification", ["script", "cursive", "connect"],
                {"script": 1.0, "cursive": 1.0, "joined": 0.8, "connected": 0.8, "joined up": 0.8,
                 "flowing": 0.6}, []),
@@ -98,7 +99,7 @@ CANONICAL = {
              {"bold": 1.0, "heavy": 1.0, "black": 0.6, "thick": 1.0, "heavyweight": 1.0}, []),
     "ultra-bold": ("weight", ["ultra-bold", "ultra-black", "fat", "chunky", "plump", "ultra"],
                    {"ultra bold": 1.0, "extra bold": 1.0, "extra-bold": 1.0, "ultra black": 1.0, "fat": 1.0,
-                    "fat face": 1.0, "chunky": 1.0, "plump": 1.0, "very bold": 1.0, "super bold": 1.0},
+                    "chunky": 1.0, "plump": 1.0, "very bold": 1.0, "super bold": 1.0},
                    ["bold"]),
     "thin": ("weight", ["thin", "light", "hairline"],
              {"thin": 1.0, "light": 0.8, "hairline": 1.0, "lightweight": 1.0, "fine": 0.6, "skinny strokes": 0.8}, []),
@@ -126,7 +127,7 @@ CANONICAL = {
 
     # ---- shape ----
     "rounded": ("shape", ["round", "soft"],
-                {"rounded": 1.0, "round": 1.0, "rounded corners": 1.0, "soft": 0.8, "bubbly": 0.6,
+                {"rounded": 1.0, "round": 1.0, "rounded corners": 1.0, "soft": 0.8,
                  "bubble": 0.6}, []),
     "square": ("shape", ["square", "squarish", "rectangular", "block", "octagonal", "polygonal", "chamfer"],
                {"square": 1.0, "squared": 1.0, "squarish": 1.0, "boxy": 1.0, "blocky": 1.0, "block": 0.8,
@@ -166,7 +167,7 @@ CANONICAL = {
     "layered": ("effect", ["layer", "chromatic"], {"layered": 1.0, "chromatic": 1.0, "multicolor": 0.8,
                                                    "color font": 0.6}, []),
     "stencil": ("effect", ["stencil"], {"stencil": 1.0, "stenciled": 1.0, "stencilled": 1.0}, []),
-    "dotted": ("effect", ["dot"], {"dotted": 1.0, "dots": 1.0, "dot matrix": 1.0, "polka dot": 0.6}, []),
+    "dotted": ("effect", ["dot"], {"dotted": 1.0, "dots": 1.0, "polka dot": 0.6}, []),
     "neon": ("effect", ["neon"], {"neon": 1.0, "neon sign": 1.0, "glowing": 0.6}, []),
     "distorted": ("effect", ["distort"], {"distorted": 1.0, "warped": 0.8, "glitch": 0.6, "glitchy": 0.6}, []),
     "cut-out": ("effect", ["cutup", "scrap"],
@@ -235,7 +236,7 @@ CANONICAL = {
     "sign-painting": ("era", ["sign-painting", "showcard"],
                       {"sign painting": 1.0, "sign painter": 1.0, "signwriting": 1.0, "showcard": 1.0}, []),
     "graffiti": ("era", ["graffiti", "grafitti", "street"],
-                 {"graffiti": 1.0, "grafitti": 1.0, "street art": 1.0, "tag": 0.5, "spray paint": 0.8}, []),
+                 {"graffiti": 1.0, "grafitti": 1.0, "street art": 1.0, "tag": 0.5, "spray paint": 0.6}, []),
     "urban": ("era", ["urban"], {"urban": 1.0, "street": 0.6}, []),
     "tattoo": ("era", ["tattoo"], {"tattoo": 1.0, "tattoos": 1.0}, []),
     "rock": ("era", ["heavy-metal", "metal", "rock"], {"heavy metal": 1.0, "metal": 0.8, "rock": 0.8,
@@ -252,9 +253,8 @@ CANONICAL = {
                {"horror": 1.0, "scary": 1.0, "spooky": 1.0, "creepy": 1.0, "evil": 1.0, "monster": 1.0,
                 "ghost": 1.0, "zombie": 0.8, "blood": 0.8, "bloody": 0.8, "dark": 0.6, "gothic horror": 1.0}, []),
     "halloween": ("theme", ["halloween"], {"halloween": 1.0}, ["horror"]),
-    "fantasy": ("theme", ["fantasy", "fairytale", "magic", "mysterious"],
-                {"fantasy": 1.0, "fairytale": 1.0, "fairy tale": 1.0, "magic": 1.0, "magical": 1.0,
-                 "mystical": 1.0, "mysterious": 0.8, "enchanted": 0.8, "wizard": 0.8}, []),
+    "fantasy": ("theme", ["fantasy", "magic", "mysterious"],
+                {"fantasy": 1.0, "magic": 1.0, "mystical": 1.0, "mysterious": 0.8, "wizard": 0.8}, []),
     "pirate": ("theme", ["pirate"], {"pirate": 1.0, "nautical": 0.6}, []),
     "christmas": ("theme", ["christmas", "xmas", "winter"],
                   {"christmas": 1.0, "xmas": 1.0, "holiday": 0.6, "winter": 0.8, "snow": 0.8, "festive": 0.6}, []),
@@ -394,6 +394,157 @@ drop("merged into a canonical it lowered the AUC of (validate_tag_vocabulary.py)
 drop("family-specific (AUC 0.96 from one or two families), not a style", "realist")
 
 
+
+# ---- additions from the 20-49-font band (reviewed after the round-2 trial's "cute bubbly" miss) ----
+# Band tags are noisier (AUC measured on 5-25 held-out positives), so they mostly join an existing
+# canonical as extra members; new canonicals only where the style has no home yet.
+def extend(canon, members=(), aliases=None):
+    facet, m, a, implies = CANONICAL[canon]
+    CANONICAL[canon] = (facet, m + list(members), {**a, **(aliases or {})}, implies)
+
+extend("serif", ["antiqua", "roman-serif"], {"antiqua": 0.8})
+extend("grotesque", ["neo-grotesque"])
+extend("sans-serif", ["linear-sans"])
+extend("humanist", ["humanistic"], {"humanistic": 1.0})
+extend("geometric", ["circular"])
+extend("slab-serif", ["egyptienne"], {"egyptienne": 0.8})
+extend("didone", ["didot", "neoclassical"], {"neoclassical": 0.8})
+extend("transitional", ["baskerville", "scotch"], {"scotch roman": 1.0, "scotch": 0.6})
+extend("oldstyle", ["garamond"])
+extend("flared", ["flared-serif", "stressed-sans"], {"stressed sans": 1.0, "optima": 0.8})
+extend("semi-serif", ["tiny-serif"], {"tiny serifs": 1.0, "micro serifs": 1.0})
+extend("inscriptional", ["lapidary"], {"lapidary": 1.0})
+extend("script", ["join", "all-connecting", "casual-script"], {"casual script": 1.0, "all connecting": 1.0})
+extend("calligraphy", ["nib", "fountain"], {"nib": 0.8, "pen nib": 0.8, "fountain pen": 0.8, "dip pen": 0.8})
+extend("hand-drawn", ["freehand"], {"freehand": 1.0, "free hand": 1.0})
+extend("brush", ["brush-font", "brush-lettering", "brushstroke"], {"brushstroke": 1.0, "brush stroke": 1.0,
+                                                                   "brush lettering": 1.0})
+extend("chalk", ["chalkboard"])
+extend("sketchy", ["scratchy"], {"scratchy": 0.8})
+extend("monospace", ["code"], {"coding": 0.8, "code": 0.8, "programming": 1.0, "programmer": 1.0})
+extend("dingbat", ["pictogram", "clip-art", "silhouette", "fleuron", "fleurons"],
+       {"pictogram": 1.0, "pictograms": 1.0, "clip art": 1.0, "clipart": 1.0, "silhouettes": 0.8,
+        "fleuron": 1.0, "fleurons": 1.0, "printer ornaments": 1.0})
+extend("ultra-bold", ["extra-bold"])
+extend("monoline", ["monolinear"], {"monolinear": 1.0})
+extend("condensed", ["ultra-narrow"], {"ultra narrow": 1.0, "extra condensed": 1.0, "compact": 0.6})
+extend("wide", ["expand"])
+extend("italic", ["true-italic"])
+extend("square", ["blocky", "boxy", "eurostile"], {"blocky": 1.0, "boxy": 1.0, "eurostile": 0.8})
+extend("swash", ["swirly"], {"swirly": 1.0})
+extend("irregular", ["wobbly"], {"wobbly": 1.0, "wonky": 0.8, "shaky": 0.8})
+extend("grunge", ["destroy", "destruct", "trash"], {"destroyed": 1.0, "trashed": 0.8, "wrecked": 0.8})
+extend("cut-out", ["cut-out"])
+extend("letterpress", ["rubber-stamp"], {"rubber stamp": 1.0})
+extend("neon", ["tube"], {"neon tube": 1.0})
+extend("ribbon", ["streamer"], {"streamer": 0.8})
+extend("art-nouveau", ["jugendstil"], {"jugendstil": 1.0})
+extend("constructivist", ["soviet"], {"soviet": 1.0, "ussr": 0.8})
+extend("victorian", ["1880s"], {"1880s": 1.0})
+extend("early-1900s", ["edwardian"])
+extend("medieval", ["monastic", "manuscript", "incunabula"],
+       {"monastic": 0.8, "illuminated manuscript": 1.0, "manuscript": 0.8, "incunabula": 0.8})
+extend("psychedelic", ["groovy"])
+extend("futuristic", ["scifi", "robotic"], {"robotic": 1.0})
+extend("techno", ["hi-tech", "high-tech"], {"hi tech": 1.0, "high tech": 1.0})
+extend("technical", ["industrial-sans", "machinery", "mechanic", "railroad"],
+       {"machinery": 0.8, "machine": 0.8, "railroad": 0.6, "railway": 0.6})
+extend("signage", ["highway", "traffic", "metro"],
+       {"highway": 1.0, "road sign": 1.0, "traffic sign": 1.0, "metro": 0.8, "subway": 0.8, "transit": 0.8})
+extend("urban", ["hip-hop"], {"hip hop": 1.0, "rap": 0.8})
+extend("tattoo", ["tatoo"])
+extend("asian-style", ["far-east"], {"far east": 1.0, "bamboo": 0.8})
+extend("faux-cyrillic", ["old-russian"], {"old russian": 1.0})
+extend("horror", ["spooky", "creepy", "vampire", "death", "skull", "skeleton", "blood"],
+       {"vampire": 1.0, "skull": 0.8, "skeleton": 0.8, "death": 0.8})
+extend("halloween", ["witch"], {"witch": 0.8, "witches": 0.8})
+extend("fantasy", ["wizard"], {"wizard": 0.8})
+extend("christmas", ["snow", "snowflake"], {"snowflake": 0.8, "snowy": 0.8})
+extend("sport", ["basketball", "hockey"], {"basketball": 1.0, "hockey": 1.0})
+extend("tropical", ["tiki"], {"tiki": 1.0, "hawaiian": 0.8})
+extend("corporate", ["corporative", "professional"])
+extend("magazine", ["magazin"])
+extend("fashion", ["perfums"])
+extend("cute", ["adorable"], {"adorable": 1.0})
+extend("funny", ["comedy"], {"comedy": 1.0, "comedic": 1.0})
+extend("quirky", ["offbeat"], {"offbeat": 1.0})
+extend("clean", ["minimalist"])
+extend("wedding", [], {"save the date": 1.0, "anniversary": 0.6})
+extend("menu", [], {"recipe": 0.6, "diner": 0.6, "gourmet": 0.6})
+extend("romantic", [], {"sensual": 0.6})
+
+CANONICAL.update({
+    "bubble": ("shape", ["bubble", "bubbly", "bulbous"],
+               {"bubble": 1.0, "bubbles": 1.0, "bubbly": 1.0, "bulbous": 1.0, "puffy": 0.8, "balloon": 0.8,
+                "inflated": 0.8}, []),
+    "fat-face": ("classification", ["fat-face"], {"fat face": 1.0, "fatface": 1.0}, ["ultra-bold", "high-contrast"]),
+    "reverse-contrast": ("weight", ["reverse-contrast"],
+                         {"reverse contrast": 1.0, "reversed contrast": 1.0, "reverse stress": 1.0}, []),
+    "chancery": ("classification", ["chancery"], {"chancery": 1.0, "chancery italic": 1.0, "italic hand": 0.8},
+                 ["calligraphy"]),
+    "modern-calligraphy": ("classification", ["modern-calligraphy"],
+                           {"modern calligraphy": 1.0, "brush calligraphy": 0.8}, ["calligraphy"]),
+    "ink-traps": ("shape", ["ink-traps"], {"ink traps": 1.0, "ink trap": 1.0, "inktraps": 1.0}, []),
+    "lowercase": ("case", ["lowercase"], {"lowercase": 1.0, "lower case": 1.0, "all lowercase": 1.0,
+                                          "no capitals": 1.0}, []),
+    "dot-matrix": ("classification", ["dot-matrix"], {"dot matrix": 1.0, "dotmatrix": 1.0, "led": 0.6,
+                                                      "receipt": 0.6}, []),
+    "ocr": ("classification", ["ocr"], {"ocr": 1.0, "machine readable": 1.0, "ocr a": 1.0, "ocr b": 1.0}, []),
+    "user-interface": ("theme", ["ui", "user-interface", "interface", "apps"],
+                       {"ui": 1.0, "user interface": 1.0, "interface": 1.0, "app": 0.8, "apps": 0.8,
+                        "dashboard": 0.6}, []),
+    "stitched": ("texture", ["stitch", "needlework"],
+                 {"stitch": 1.0, "stitched": 1.0, "stitching": 1.0, "embroidery": 1.0, "embroidered": 1.0,
+                  "cross stitch": 1.0, "needlework": 1.0, "sewing": 0.8, "sewn": 0.8}, []),
+    "watercolor": ("texture", ["watercolor"], {"watercolor": 1.0, "watercolour": 1.0}, []),
+    "crayon": ("texture", ["crayon"], {"crayon": 1.0, "crayons": 1.0, "wax crayon": 1.0}, []),
+    "spray-paint": ("texture", ["spray-paint", "spray"],
+                    {"spray paint": 1.0, "spray painted": 1.0, "spraypaint": 1.0, "aerosol": 1.0, "spray": 0.8}, []),
+    "spatter": ("texture", ["spatter"], {"spatter": 1.0, "spattered": 1.0, "ink splatter": 0.8}, []),
+    "chrome": ("effect", ["chrome"], {"chrome": 1.0, "metallic": 0.8, "shiny": 0.6}, []),
+    "marquee": ("effect", ["marquee"], {"marquee": 1.0, "light bulbs": 1.0, "marquee lights": 1.0,
+                                        "broadway": 0.6}, []),
+    "striped": ("effect", ["multi-line", "stripe", "strip"],
+                {"striped": 1.0, "stripes": 1.0, "stripe": 1.0, "multi line": 1.0, "multiline": 1.0,
+                 "parallel lines": 1.0}, []),
+    "streamline": ("era", ["streamline"], {"streamline": 1.0, "streamlined": 1.0, "streamline moderne": 1.0},
+                   ["art-deco"]),
+    "early-modern": ("era", ["1500s", "1600s"],
+                     {"1500s": 1.0, "1600s": 1.0, "16th century": 1.0, "17th century": 1.0}, []),
+    "celtic": ("theme", ["celtic"], {"celtic": 1.0, "irish": 0.6, "gaelic": 0.8, "insular": 0.8}, []),
+    "runic": ("theme", ["rune"], {"rune": 1.0, "runes": 1.0, "runic": 1.0, "viking": 0.6, "norse": 0.6}, []),
+    "occult": ("theme", ["occult"], {"occult": 1.0, "witchcraft": 0.8, "tarot": 0.8, "esoteric": 0.8,
+                                     "mystic": 0.6}, []),
+    "fairy-tale": ("theme", ["fairytale", "fairy", "fairy-tale", "tale", "magical"],
+                   {"fairy tale": 1.0, "fairytale": 1.0, "fairy": 1.0, "fairies": 1.0, "enchanted": 0.8,
+                    "magical": 0.8}, []),
+    "folk": ("theme", ["folk"], {"folk": 1.0, "folk art": 1.0, "folksy": 0.8}, []),
+})
+
+drop("20-49 band: language, place or character-set support",
+     "%d0%ba%d0%b8%d1%80%d0%b8%d0%bb%d0%bb%d0%b8%d1%86%d0%b0", "cyr", "bulgarian", "central-europe", "polish",
+     "romanian", "slovak", "urdu", "persian", "vietnamese", "eszett", "british", "italy", "paris", "america",
+     "cuba", "chile", "chilean", "latin-american", "japan", "chinese")
+drop("20-49 band: foundry, family or product metadata (or >=50% one foundry prefix)",
+     "bluemlein", "bluemlein-script-collection", "scrapper", "teacher", "dandy", "software", "latinotype",
+     "daniel-hernandez", "viergutz", "rsz", "pap", "pack", "bundle", "companion", "fav", "favorite", "feature",
+     "opentype-features", "old-style-figures", "tabular", "number", "glyph", "element", "letterbat", "motif",
+     "personal-text", "generic", "standard", "normal", "medium", "universal", "tech-pubs", "seduce", "creamy",
+     "no-baseline", "no-counter", "bi-form", "grayletter", "lead", "century")
+drop("20-49 band: usage context or subject, not a visual style",
+     "action", "adventure", "alcohol", "beer", "cocktail", "tea", "chocolate", "meal", "recipe", "gourmet",
+     "diner", "anniversary", "save-the-date", "dinner-invitation", "badge", "bible", "booklet", "catalogue",
+     "cartography", "halftone", "bamboo", "gift", "shop", "retail", "money", "math", "science", "infographic", "fax", "printer",
+     "memo", "diary", "people", "bird", "plant", "tree", "sun", "cross", "spring", "zodiac", "vignette",
+     "gangster", "fiction", "history", "period", "teen", "teenage", "teenager", "scrapbooking", "body",
+     "character", "funeral", "tool", "economical", "compact", "sixty", "textile", "vector", "drop", "reverse", "hands-on")
+drop("20-49 band: mood or quality word too vague to search as a tag",
+     "agile", "alive", "bounce", "loud", "eye-catcher", "sensationalist", "personality", "spontaneous",
+     "relax", "serious", "fine", "fanciful", "movement", "raw", "coarse", "rocky", "rigid", "regal", "sensual",
+     "boho", "shabby-chic", "human", "large-aperture", "informal-text", "mono", "slim", "loop", "spiral",
+     "feather", "wire", "hand-cut", "hand-painted", "inky", "upright-italic", "expressionist", "vernacular")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--candidates", required=True)
@@ -408,12 +559,17 @@ def main():
     memberOf = {}
     for canon, (facet, members, aliases, implies) in CANONICAL.items():
         for m in members:
-            assert m in stats, f"{canon}: member {m!r} is not a >=50-font MyFonts tag"
+            assert m in stats, f"{canon}: member {m!r} is not a >=20-font MyFonts tag"
             assert m not in memberOf, f"{m!r} is in both {memberOf[m]} and {canon}"
             memberOf[m] = canon
         for parent in implies:
             assert parent in CANONICAL, f"{canon} implies unknown {parent!r}"
 
+    # Tags with >=50 fonts, and 20-49-font tags whose AUC is >=0.75, must each be decided explicitly;
+    # the rest of the 20-49 band is left out automatically.
+    for t, st in stats.items():
+        if st["trainFonts"] < 50 and st["auc"] < 0.75 and t not in memberOf:
+            DROPPED.setdefault(t, "20-49 band: tagger AUC < 0.75")
     dropped = {t: r for t, r in DROPPED.items() if t in stats and t not in memberOf}
     missing = sorted(set(stats) - set(memberOf) - set(dropped))
     assert not missing, f"undecided candidate tags: {missing}"
