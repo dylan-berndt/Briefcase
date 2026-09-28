@@ -375,7 +375,16 @@ Search:
 
 11. **Tag vocabulary for search (`e22_vocab.py`).** MyFonts has 1,824 tags; 1,191 have ≥20 train fonts, 658 have ≥50. The tagger's ROC-AUC does *not* degrade with rarity (median 0.78–0.82 in every band down to 20–50 fonts), so keep all ≥20-font tags for *training*. For *search*, expose a curated canonical set: merge spelling/synonym variants (sans/sans-serif/sanserif, sci-fi/scifi, art-deco/artdeco…) and drop low-AUC usage tags. 481 tags have ≥50 fonts and AUC≥0.75 before merging. Benchmark on top-50 (music convention) plus the ICCV full set for comparability.
 12. **TagSearch query→tags.** Replace spaCy vector-synonym matching with an offline, reviewed **alias table** (phrase → canonical tag + weight, drafted once by an LLM over the canonical vocab), matched deterministically at query time. For words with no alias, fall back to high-threshold embedding similarity, shown to the user as removable tag chips. Keep negation handling.
-13. **TagSearch font scoring.** It currently ranks by a raw dot product of mean sigmoid probabilities, which favors fonts that score high on common tags. Score per tag as a z-score (or log-odds lift over the tag prior) instead, as `e19_search.py`/`e20_live.py` do. Weight each query tag by its visual-coherence effect size from `results/descriptorGrounding.json`: use the `score` field, not `z`. `z` rises with tag frequency (Spearman 0.40 with n) because its baseline std shrinks with group size, so it would reinforce the common-tag bias. `score` is nearly frequency-independent (−0.14) and tracks tagger AUC better (0.56 vs 0.38). Recompute it on the unified-rendering embeddings once those exist.
+13. **TagSearch font scoring.** It currently ranks by a raw dot product of mean sigmoid probabilities, which favors fonts that score high on common tags. Score per tag as a z-score (or log-odds lift over the tag prior) instead, as `e19_search.py`/`e20_live.py` do. Weight each query tag by its visual-coherence effect size from `results/descriptorGrounding.json`: use the `score` field, not `z`. `z` rises with tag frequency (Spearman 0.40 with n) because its baseline std shrinks with group size, so it would reinforce the common-tag bias. `score` is nearly frequency-independent (−0.14) and tracks tagger AUC better (0.56 vs 0.38). Recompute it on the unified-rendering embeddings once those exist. **Measured alternative (`e23_scoring.py`, oracle query tags, ICCV test protocol):** Turnbull et al. 2008's "semantic multinomial" fixes the same generic-item bias they documented as "track bias". It normalizes each font's tag probabilities to sum to 1 over the vocabulary, then ranks multi-word queries by −KL(query distribution ‖ font distribution).
+
+| scoring | multi-tag mAP | multi-tag P@10 | single-tag mAP |
+|---|---|---|---|
+| raw (current TagSearch) | 8.92 | 0.065 | 11.67 |
+| per-tag z-score | 10.19 | 0.069 | 11.67 |
+| semantic multinomial | 11.98 | 0.063 | 11.28 |
+| z-score + multinomial | ~5 | — | ~5 |
+
+The semantic multinomial also gives the most query-specific top-10s. Stacking both normalizations collapses results, so don't. Prefer the semantic multinomial for multi-word queries.
 
 14. **Human trial design, modeled on two documented precedents (verified from the papers):**
     - *TRECVID Ad-hoc Video Search (NIST, 2016–):* free-text queries over ~600 h of video. Top systems map query words to a bank of ~15–16k visual concept detectors, which is the same structure as tag search. NIST assessors judge sampled pools of each system's top results, scored as mean xinfAP.
