@@ -1,13 +1,16 @@
-checkpoints/**
-!checkpoints/finetune/
-!checkpoints/finetune/best
+# Only the site goes into the image: the frontend source, the backend with its search bundle, and the parser and
+# vocabulary the backend shares with the research code (see the Dockerfile).
+*
+!site/backend
+!site/frontend
+!utils/tagVocabulary.py
+!configs/tagVocabulary.json
 
-**/node_modules/**
-node_modules
-
-__pycache__
-*.pyc
-.git
-
-.env
-*.log
+**/node_modules
+site/frontend/build
+site/backend/tests
+site/backend/data-dev
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+site/backend/pytest.ini

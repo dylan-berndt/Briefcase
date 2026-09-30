@@ -19,8 +19,6 @@ dataset.tar.gz
 /checkpoints/retrieval/*
 /checkpoints/diffusion-searches/
 !/checkpoints/pretrain/best
-!/checkpoints/finetune/best
-!/checkpoints/finetune/latest
 /coverage_results.npz
 
 /venv
@@ -31,6 +29,10 @@ dataset.tar.gz
 **/__pycache__
 
 /site/backend/fonts
+
+# Search bundle tooling: intermediate files from site/tools, and a fake bundle for local development
+/build/
+/site/backend/data-dev/
 
 **/password.txt
 

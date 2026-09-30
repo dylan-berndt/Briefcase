@@ -39,9 +39,9 @@ def rochesterFile(path):
     a=np.array(Image.open(path).convert("RGB"),dtype=np.float32)
     return rochesterFromGray(1.0-a[:,:,0]/255.0)
 
-def myfontsStyleFromFont(fontPath, char, px=200):
+def myfontsStyleFromFont(fontPath, char, px=200, fontSize=32):
     """Simulate a MyFonts-dataset source image from a font file: large render, glyph = ink."""
     font=ImageFont.truetype(fontPath,px); mask=font.getmask(char)
     if mask.size==(0,0): return None
     g=np.asarray(Image.Image()._new(mask),dtype=np.float32)/255.0
-    return rochesterFromGray(g)
+    return rochesterFromGray(g, fontSize)

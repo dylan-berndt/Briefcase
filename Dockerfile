@@ -23,20 +23,14 @@ WORKDIR /app
 RUN mkdir -p /data
 ENV SQLITE_PATH=/app/backend/fontsearch.db
 
-# System deps (safe baseline for ML/vector DBs)
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Python deps
-COPY requirements.txt .
+COPY site/backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install torch torchvision  
 
-# Backend code
+# Backend code, with the search bundle in backend/data (built by site/tools, committed through git-lfs)
 COPY site/backend ./backend
-COPY utils ./backend/utils
-COPY checkpoints ./backend/checkpoints
+# The query parser and its reviewed vocabulary are shared with the research code, which owns them
+COPY utils/tagVocabulary.py ./backend/tagVocabulary.py
+COPY configs/tagVocabulary.json ./backend/configs/tagVocabulary.json
 
 # Inject React build into Flask static folder
 COPY --from=frontend-build /frontend/build ./backend/static
@@ -48,6 +42,9 @@ COPY --from=frontend-build /frontend/build ./backend/static
 # RUN find /app -name "*.html"
 
 WORKDIR /app/backend
+
+# Fail the build, rather than the deploy, if the bundle is missing or is an unpulled git-lfs pointer
+RUN python -c "from bundle import Bundle; b = Bundle('data'); print('search bundle:', len(b.fonts), 'fonts,', len(b.vocab), 'tags')"
 
 EXPOSE 8000
 

@@ -26,12 +26,25 @@ def normalize(text):
     return text.split()
 
 
+# Model tags that are not in the reviewed vocabulary can still be searched by their own name, unless it is junk
+# (URL-encoded non-Latin entries show up in the MyFonts vocab)
+PLAIN_TAG = re.compile(r"[a-z0-9][a-z0-9 \-]*")
+
+
 class TagVocabulary:
-    def __init__(self, path=os.path.join("configs", "tagVocabulary.json")):
+    def __init__(self, path=os.path.join("configs", "tagVocabulary.json"), extraTags=None):
+        """extraTags: every tag the tagger predicts. Those the reviewed vocabulary neither merges into a canonical
+        nor drops become single-member canonicals named after themselves, so all of the model's tags are searchable."""
         with open(path) as f:
             data = json.load(f)
         self.canonical = data["canonical"]
         self.dropped = data.get("dropped", {})
+
+        if extraTags is not None:
+            known = {m for entry in self.canonical.values() for m in entry["members"]} | set(self.dropped)
+            for tag in extraTags:
+                if tag not in known and tag not in self.canonical and PLAIN_TAG.fullmatch(tag):
+                    self.canonical[tag] = {"facet": "other", "members": [tag], "aliases": {}, "implies": []}
 
         # phrase (tuple of normalized tokens) -> list of (canonical, weight)
         self.aliases = {}
