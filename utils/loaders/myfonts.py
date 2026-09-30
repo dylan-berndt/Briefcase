@@ -113,8 +113,10 @@ def loadMyFontsImagePaths(directory, fontSize, cacheSuffix="", processes=30):
     names, letters, paths = [], [], []
     for p in imagePaths:
         name = os.path.basename(p).removesuffix(".bmp")
+        # names end "<letter><l|u>": keep the case in the letter so al/au get different keys
+        letter = name[-2].upper() if name[-1] == "u" else name[-2]
         names.append(name[:-3])
-        letters.append(name[-2])
+        letters.append(letter)
         paths.append(p)
 
     return {"names": np.array(names), "letters": np.array(letters), "paths": np.array(paths)}

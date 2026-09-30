@@ -173,7 +173,8 @@ class CombinedQueryData:
         leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
         # leftImage = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
 
-        letter = self.letters[imageIndex] if (i % 2 == 0) else self.letters[imageIndex].upper()
+        # letters carry the glyph's real case (loaders/standard.py, loaders/myfonts.py)
+        letter = self.letters[imageIndex]
         # Bastard: "ԵՒ" 
         if letter in characters:
             num = characters.index(letter)

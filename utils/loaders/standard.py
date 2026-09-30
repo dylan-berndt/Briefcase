@@ -176,10 +176,19 @@ def collectFontSetPaths(directory, fontSize, maps, cacheSuffix=""):
     names, letters, paths = [], [], []
     for basename, path in available.items():
         stem = basename.removesuffix(ext)
-        char = stem[-2]
+        # filenames end "<char.lower()><l|u>" (see imagesFromFont): the last character is the case, the
+        # one before it the glyph. The letter keeps its case so the lowercase and uppercase glyph of a
+        # font get different (name, letter) keys instead of overwriting each other in dict lookups.
+        case, char = stem[-1], stem[-2]
 
         if "ԵՒ" in stem:
             continue
+
+        if case not in ("l", "u"):
+            continue
+
+        if case == "u":
+            char = char.upper()
 
         if char not in characters:
             continue

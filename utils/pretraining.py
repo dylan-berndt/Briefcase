@@ -259,8 +259,9 @@ class PairedImageData(FontData):
         leftImage = self._jiggle(torch.tensor(leftImage, dtype=torch.float32))
         rightImage = self._jiggle(torch.tensor(rightImage, dtype=torch.float32))
 
-        letter = self.letters[leftIndex] if (i % 2 == 0) else self.letters[leftIndex].upper()
-        # Bastard: "ԵՒ" 
+        # letters carry the glyph's real case (loaders/standard.py, loaders/myfonts.py)
+        letter = self.letters[leftIndex]
+        # Bastard: "ԵՒ"
         if letter in characters:
             num = characters.index(letter)
         else:
