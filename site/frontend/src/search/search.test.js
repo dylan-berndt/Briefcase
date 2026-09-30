@@ -13,8 +13,7 @@ function queryHandler(total = 100, extra = {}) {
 }
 
 async function search(text) {
-	userEvent.type(screen.getByLabelText("Describe a font"), text);
-	userEvent.click(screen.getByRole("button", { name: "Search" }));
+	userEvent.type(screen.getByLabelText("Describe a font"), text + "{enter}");
 }
 
 describe("pageWindow", () => {
@@ -41,9 +40,8 @@ describe("searching", () => {
 	test("empty or blank submissions do nothing", () => {
 		const calls = installFetch({});
 		render(<SearchPage username={null} />);
-		userEvent.click(screen.getByRole("button", { name: "Search" }));
-		userEvent.type(screen.getByLabelText("Describe a font"), "   ");
-		userEvent.click(screen.getByRole("button", { name: "Search" }));
+		userEvent.type(screen.getByLabelText("Describe a font"), "{enter}");
+		userEvent.type(screen.getByLabelText("Describe a font"), "   {enter}");
 		expect(calls).toHaveLength(0);
 	});
 
@@ -98,11 +96,9 @@ describe("searching", () => {
 		const makePageResponse = q => ({ ok: true, status: 200, json: () => Promise.resolve(makePage({ query: q, total: 5, tags: [{ tag: q, weight: 1 }] })) });
 		render(<SearchPage username={null} />);
 		const box = screen.getByLabelText("Describe a font");
-		userEvent.type(box, "first");
-		userEvent.click(screen.getByRole("button", { name: "Search" }));
+		userEvent.type(box, "first{enter}");
 		userEvent.clear(box);
-		userEvent.type(box, "second");
-		userEvent.click(screen.getByRole("button", { name: "Search" }));
+		userEvent.type(box, "second{enter}");
 		expect(await screen.findByText("Searching for: second")).toBeInTheDocument();
 		await act(async () => { releaseFirst(); });
 		expect(screen.getByText("Searching for: second")).toBeInTheDocument();
@@ -150,8 +146,7 @@ describe("pagination", () => {
 		userEvent.click(await screen.findByRole("button", { name: "Next" }));
 		await screen.findByText("Page 2 of 12 · 288 fonts");
 		userEvent.clear(screen.getByLabelText("Describe a font"));
-		userEvent.type(screen.getByLabelText("Describe a font"), "bold");
-		userEvent.click(screen.getByRole("button", { name: "Search" }));
+		userEvent.type(screen.getByLabelText("Describe a font"), "bold{enter}");
 		await screen.findByText("Page 1 of 12 · 288 fonts");
 		expect(calls[calls.length - 1].params).toMatchObject({ query: "bold", page: "1" });
 	});

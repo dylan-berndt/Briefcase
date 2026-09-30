@@ -365,7 +365,7 @@ def test_server_does_not_import_torch():
     code = ("import os, sys; os.environ['SECRET_KEY']='x'\n"
             "from fakeBundle import makeFakeBundle; import tempfile\n"
             "d = tempfile.mkdtemp(); makeFakeBundle(d, 20)\n"
-            "from server import createApp\n"
+            "from app import createApp\n"
             "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db'})\n"
             "bad = [m for m in ('torch', 'transformers', 'sqlite_vec', 'requests', 'cv2') if m in sys.modules]\n"
             "assert not bad, bad")

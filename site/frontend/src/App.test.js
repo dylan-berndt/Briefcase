@@ -96,8 +96,7 @@ test("a vote while logged out opens the login box", async () => {
 		"/api/font/query": () => jsonResponse(require('./testUtils').makePage({ total: 3 })),
 	});
 	render(<App />);
-	userEvent.type(screen.getByLabelText("Describe a font"), "serif");
-	userEvent.click(screen.getByRole("button", { name: "Search" }));
+	userEvent.type(screen.getByLabelText("Describe a font"), "serif{enter}");
 	const yes = (await screen.findAllByRole("button", { name: "This font matches my search" }))[0];
 	userEvent.click(yes);
 	expect(await screen.findByLabelText("Username:")).toBeInTheDocument();

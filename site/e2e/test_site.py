@@ -9,7 +9,7 @@ from conftest import shot
 
 def search(page, text):
     page.get_by_label("Describe a font").fill(text)
-    page.get_by_role("button", name="Search", exact=True).click()
+    page.get_by_label("Describe a font").press("Enter")
 
 
 def names(page):

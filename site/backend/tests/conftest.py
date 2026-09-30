@@ -5,7 +5,7 @@ import pytest
 os.environ.setdefault("SECRET_KEY", "test-secret-test-secret-test-secret-0123")
 
 from fakeBundle import makeFakeBundle  # noqa: E402
-from server import createApp  # noqa: E402
+from app import createApp  # noqa: E402
 
 
 @pytest.fixture(scope="session")

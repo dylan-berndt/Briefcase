@@ -44,7 +44,7 @@ npm test
 
 ### Backend (`site/backend`)
 
-Flask app (`app.py` -> `server.py`) serving the tag-search API + the built frontend as static files. Search is a numpy ranking over a prebuilt bundle (`site/backend/data`, built by `site/tools`); SQLite holds only users, votes, ratings and descriptions. No torch, transformers or sqlite-vec on the server. Requires `SECRET_KEY`. See `site/README.md` for the bundle format, how to build it, the API and the tests.
+Flask app (`app.py`, a `createApp()` factory so tests can build isolated apps; `gunicorn app:app` builds it on first access) serving the tag-search API + the built frontend as static files. Search is a numpy ranking over a prebuilt bundle (`site/backend/data`, built by `site/tools`); SQLite holds only users, votes, ratings and descriptions. No torch, transformers or sqlite-vec on the server. Requires `SECRET_KEY`. See `site/README.md` for the bundle format, how to build it, the API and the tests.
 
 ### Docker / deploy
 
@@ -83,7 +83,7 @@ Local pygame UIs for trying these interactively: `search.py` (TagSearch/FontSear
 
 ### Site (`site/`)
 
-`site/backend`: tag search over the precomputed bundle (`bundle.py` loads/validates it, `tagsearch.py` parses queries with `utils/tagVocabulary.py` and scores with a semantic multinomial, `server.py` has the routes and accounts/votes/ratings/descriptions). `site/tools`: the offline build (`listFonts.py` -> `scoreFonts.py` with a swappable tagger adapter, default `finetuneTags` -> `assembleBundle.py`). The old text-embedding search (CLIP text tower + UNet image embeddings in a `vec0` table, torch on the server) is gone; `FontSearch`/`CLIPTextEmbedder` in `utils/` remain as research code only. `site/frontend`: Create React App (react-scripts 5), with route-like sections under `src/{search,map,about}`, each with its own `index.js` + `main.css`. `src/map` visualizes font embeddings spatially — `findCycle.py` generates the path data it walks (a greedy/evolutionary search for smooth tours through embedding space, used to pick which Google Fonts to feature on the front page).
+`site/backend`: tag search over the precomputed bundle (`bundle.py` loads/validates it, `tagsearch.py` parses queries with `utils/tagVocabulary.py` and scores with a semantic multinomial, `app.py` has the routes and accounts/votes/ratings/descriptions). `site/tools`: the offline build (`listFonts.py` -> `scoreFonts.py` with a swappable tagger adapter, default `finetuneTags` -> `assembleBundle.py`). The old text-embedding search (CLIP text tower + UNet image embeddings in a `vec0` table, torch on the server) is gone; `FontSearch`/`CLIPTextEmbedder` in `utils/` remain as research code only. `site/frontend`: Create React App (react-scripts 5), with route-like sections under `src/{search,map,about}`, each with its own `index.js` + `main.css`. `src/map` visualizes font embeddings spatially — `findCycle.py` generates the path data it walks (a greedy/evolutionary search for smooth tours through embedding space, used to pick which Google Fonts to feature on the front page).
 
 ## Working in this repo
 

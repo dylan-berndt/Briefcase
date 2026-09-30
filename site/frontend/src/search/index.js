@@ -220,7 +220,6 @@ export default function SearchPage({ username, onNeedLogin = () => {} }) {
 		<form className="SearchForm" onSubmit={e => { e.preventDefault(); if (text.trim()) navigate(text.trim(), 1); }}>
 			<input type="text" name="description" aria-label="Describe a font" value={text}
 				onChange={e => setText(e.target.value)} maxLength={200} />
-			<button type="submit">Search</button>
 		</form>
 
 		<div ref={topRef} className="ResultsTop"></div>

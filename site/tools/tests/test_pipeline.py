@@ -216,7 +216,7 @@ def test_command_line_pipeline_builds_a_bundle_the_server_accepts(tmp_path):
     assert sorted(f["key"] for f in bundle.fonts) == ["dafont:Wobbly", "google:Heavy", "google:Thin"]
     assert bundle.manifest["model"]["path"].endswith("2026-09-28 19-25")
 
-    from server import createApp
+    from app import createApp
     app = createApp({"BUNDLE_DIR": str(tmp_path / "data"), "DATABASE": str(tmp_path / "t.db"), "RATELIMIT_ENABLED": False})
     body = app.test_client().get("/api/font/query?query=bold").json
     assert body["total"] == 3 and {r["name"] for r in body["results"]} == {"Heavy", "Thin", "Wobbly"}
