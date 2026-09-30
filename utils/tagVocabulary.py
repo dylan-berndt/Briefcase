@@ -106,7 +106,10 @@ class TagVocabulary:
 
     def inferredGroups(self, word):
         """Tag groups the caption table associates with a word (or its base form), best first; [] if none."""
-        for form in [word] + baseForms(word):
+        # only plurals: other base forms are safe for the reviewed phrases (the base must itself be a phrase) but not
+        # here, where every caption word is a key ("slimy" -> "slim" would pick up condensed / thin)
+        forms = [word] + ([word[:-2], word[:-1]] if word.endswith("es") else [word[:-1]] if word.endswith("s") else [])
+        for form in forms:
             if form in self.wordTags:
                 return self.wordTags[form]
         return []

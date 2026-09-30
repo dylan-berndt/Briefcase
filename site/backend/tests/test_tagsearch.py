@@ -175,5 +175,39 @@ def test_inferred_words_can_be_ignored_and_negated(index):
     assert index.parseDetailed(word, ignore={word}) == ([], [word], [])
     _, _, inferred = index.parseDetailed("not " + word)
     assert inferred[0][2] == -0.5
-    order, _, _, inferred = index.searchDetailed(word)
+    order, _, _, inferred, _ = index.searchDetailed(word)
     assert len(order) == index.numFonts and inferred
+
+
+
+@pytest.fixture(scope="module")
+def withSynonyms(fake):
+    pytest.importorskip("en_core_web_md")
+    index = TagIndex(Bundle(fake[0]), synonymModel="en_core_web_md")
+    assert index.suggester is not None
+    return index
+
+
+def test_unknown_words_get_suggestions_not_scores(withSynonyms):
+    # "ghastly" is not a phrase or a caption word; its neighbours (horror words) are suggested, not searched
+    order, terms, unmatched, inferred, suggested = withSynonyms.searchDetailed("ghastly")
+    assert terms == [] and inferred == [] and unmatched == ["ghastly"] and len(order) == 0
+    assert suggested and suggested[0][0] == "ghastly"
+    for group, via, similarity in suggested[0][1]:
+        assert group in withSynonyms.groups and similarity >= withSynonyms.suggester.minSimilarity
+
+
+def test_suggestions_skip_tags_already_in_the_query(withSynonyms):
+    _, terms, _, _, suggested = withSynonyms.searchDetailed("horror ghastly")
+    assert ("horror", 1.0) in terms
+    assert all(group != "horror" for _, options in suggested for group, _, _ in options)
+
+
+def test_added_tags_join_the_query(withSynonyms):
+    order, terms, unmatched, _, _ = withSynonyms.searchDetailed("ghastly", tags=[("horror", 1.0), ("no-such-tag", 1.0)])
+    assert ("horror", 1.0) in terms and "no-such-tag" in unmatched and len(order) == withSynonyms.numFonts
+
+
+def test_suggestions_off_without_a_model(fake):
+    index = TagIndex(Bundle(fake[0]), synonymModel="")
+    assert index.suggester is None and index.searchDetailed("ghastly")[4] == []

@@ -23,7 +23,8 @@ def makeApp(tmp_path, fake):
         (static / "index.html").write_text("<html>index</html>")
         (static / "hello.txt").write_text("hi")
         config = {"DATABASE": str(tmp_path / "test.db"), "BUNDLE_DIR": fake[0], "STATIC_DIR": str(static),
-                  "COOKIE_SECURE": False, "RATELIMIT_ENABLED": False, "TESTING": True}
+                  "COOKIE_SECURE": False, "RATELIMIT_ENABLED": False, "TESTING": True,
+                  "SYNONYM_MODEL": ""}  # spaCy loads in ~2 s per app; the suggestion tests turn it on themselves
         config.update(overrides)
         return createApp(config)
     return make

@@ -54,6 +54,14 @@ informative Dirichlet prior, Monroe et al. 2008; `configs/wordTagsExclude.txt` h
 held-out single-word aliases of the reviewed vocabulary, 61% are in the table and, of those, 79% get the right tag
 first and 90% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
 
+**Suggested tags.** A word that still matches nothing gets up to five suggested tags from a plain synonym check
+(`site/backend/synonyms.py`): spaCy word vectors (`en_core_web_md`) compared with the words the search knows (the
+single-word aliases and the caption-table words), keeping the tags of neighbours above 0.55 cosine ("slimy" ~ dirty ->
+distressed, grunge). They are returned under `suggested` and do not affect the ranking; the page can offer them as
+unselected chips and send a chosen one back in `tags=`. Word vectors put antonyms together ("wet" ~ dry), and the medium
+model shares one vector between many rare words, so suggestions are noisy by design. `SYNONYM_MODEL=` (empty) turns
+them off; they are also off when spaCy or the model is not installed.
+
 ## Building the bundle
 
 Run from the repo root, with the research environment (`requirements.txt`) and the datasets in place.
@@ -105,13 +113,14 @@ SECRET_KEY=dev BUNDLE_DIR=data-dev SQLITE_PATH=/tmp/fontsearch.db COOKIE_SECURE=
 ```
 
 Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, descriptions), `BUNDLE_DIR`,
-`STATIC_DIR`, `TAG_VOCABULARY`, `COOKIE_SECURE=0` for plain http, `VERIFY_BUNDLE=1` to check sha256s at startup.
+`STATIC_DIR`, `TAG_VOCABULARY`, `COOKIE_SECURE=0` for plain http, `VERIFY_BUNDLE=1` to check sha256s at startup,
+`SYNONYM_MODEL` (default `en_core_web_md`, empty for no suggested tags).
 
 ## API
 
 | | |
 |---|---|
-| `GET /api/font/query?query=&page=1&pageSize=24&ignore=` | `{results, page, pageSize, total, totalPages, tags, unmatched, inferred}`; `pageSize` 1-100; a page past the end is empty. `inferred` is `[{word, tags, weight}]` for words matched only through the caption table; `ignore` is a comma-separated list of such words not to infer. Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
+| `GET /api/font/query?query=&page=1&pageSize=24&ignore=&tags=` | `{results, page, pageSize, total, totalPages, tags, unmatched, inferred}`; `pageSize` 1-100; a page past the end is empty. `inferred` is `[{word, tags, weight}]` for words matched only through the caption table; `ignore` is a comma-separated list of such words not to infer. `suggested` is `[{word, tags: [{tag, via, similarity}]}]` for words that matched nothing (not used in the ranking); `tags` is a comma-separated list of tags to add to the query, `-name` to exclude one (unknown names come back in `unmatched`). Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query (queries are lower-cased and whitespace-collapsed) |
 | `POST /api/font/rate` `{fontKey, rating}` | is this a good font: 1-5, or 0 to clear. Per user, per font |

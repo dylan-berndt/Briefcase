@@ -34,6 +34,8 @@ def createApp(overrides=None):
         VERIFY_BUNDLE=os.getenv("VERIFY_BUNDLE") == "1",
         STATIC_DIR=os.getenv("STATIC_DIR", os.path.join(HERE, "static")),
         VOCABULARY=os.getenv("TAG_VOCABULARY"),
+        # spaCy vectors model for suggested tags on unknown words; "" turns suggestions off
+        SYNONYM_MODEL=os.getenv("SYNONYM_MODEL", "en_core_web_md"),
         COOKIE_SECURE=os.getenv("COOKIE_SECURE", "1") == "1",
         RATELIMIT_ENABLED=True,
     )
@@ -50,7 +52,7 @@ def createApp(overrides=None):
     app.limiter = limiter  # Flask-Limiter only keeps a weak reference to itself
 
     bundle = Bundle(app.config["BUNDLE_DIR"], verify=app.config["VERIFY_BUNDLE"])
-    index = TagIndex(bundle, app.config["VOCABULARY"])
+    index = TagIndex(bundle, app.config["VOCABULARY"], app.config["SYNONYM_MODEL"])
     specimenType = bundle.manifest["specimen"]["mimetype"]
     initializeDB(app.config["DATABASE"])
 
@@ -190,7 +192,12 @@ def createApp(overrides=None):
             return jsonify({"message": f"page must be >= 1 and pageSize 1-{MAX_PAGE_SIZE}"}), 400
 
         ignore = {w.strip().lower() for w in request.args.get("ignore", "").split(",") if w.strip()}
-        order, terms, unmatched, inferred = index.searchDetailed(query, ignore)
+        # tags the user added from the chips, "-name" to exclude one
+        added = []
+        for name in (t.strip().lower() for t in request.args.get("tags", "").split(",")):
+            if name:
+                added.append((name[1:], -1.0) if name.startswith("-") else (name, 1.0))
+        order, terms, unmatched, inferred, suggested = index.searchDetailed(query, ignore, added)
         total = len(order)
         ids = [int(i) for i in order[(page - 1) * pageSize: page * pageSize]]
         keys = [bundle.fonts[i]["key"] for i in ids]
@@ -237,6 +244,8 @@ def createApp(overrides=None):
             "unmatched": unmatched,
             "inferred": [{"word": word, "tags": groups, "weight": round(float(weight), 3)}
                          for word, groups, weight in inferred],
+            "suggested": [{"word": word, "tags": [{"tag": g, "via": via, "similarity": sim} for g, via, sim in options]}
+                          for word, options in suggested],
         }), 200
 
     @app.route("/api/font/specimen/<int:i>", methods=["GET"])

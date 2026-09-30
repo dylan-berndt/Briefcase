@@ -373,7 +373,9 @@ def test_server_does_not_import_torch():
             "from fakeBundle import makeFakeBundle; import tempfile\n"
             "d = tempfile.mkdtemp(); makeFakeBundle(d, 20)\n"
             "from app import createApp\n"
-            "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db'})\n"
+            # suggestions off: spaCy imports requests at load time, and torch too wherever torch happens to be
+            # installed (the server image has none); this checks the server's own imports
+            "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db', 'SYNONYM_MODEL': ''})\n"
             "bad = [m for m in ('torch', 'transformers', 'sqlite_vec', 'requests', 'cv2') if m in sys.modules]\n"
             "assert not bad, bad")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
@@ -397,3 +399,18 @@ def test_query_reports_inferred_tags(client):
     # every response carries the caption-table guesses; a word nothing knows is inferred as nothing
     body = query(client, "zzqx").json
     assert body["inferred"] == [] and body["unmatched"] == ["zzqx"]
+
+
+def test_query_takes_added_tags(client):
+    body = query(client, "zzqx", tags="serif,-bold").json
+    assert {"tag": "serif", "weight": 1.0} in body["tags"] and {"tag": "bold", "weight": -1.0} in body["tags"]
+    assert body["total"] > 0 and "suggested" in body
+
+
+def test_query_suggests_tags_for_unknown_words(makeApp):
+    pytest.importorskip("en_core_web_md")
+    body = makeApp(SYNONYM_MODEL="en_core_web_md").test_client().get(
+        "/api/font/query", query_string={"query": "ghastly"}).json
+    assert body["unmatched"] == ["ghastly"] and body["total"] == 0
+    assert body["suggested"] and body["suggested"][0]["word"] == "ghastly"
+    assert set(body["suggested"][0]["tags"][0]) == {"tag", "via", "similarity"}
