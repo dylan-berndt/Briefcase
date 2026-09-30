@@ -1,0 +1,135 @@
+<title>Blind Font Search Trial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#EEF1F4; --surface:#FFFFFF; --ink:#18202B; --muted:#5B6675; --line:#D5DBE3;
+  --accent:#0E6B6B; --accent-soft:#D6EDEC; --hit:#0E6B6B; --specimen:#FFFFFF;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#11161D; --surface:#1A212B; --ink:#E4E8EE; --muted:#9AA5B4; --line:#2C3542;
+    --accent:#5CC0BE; --accent-soft:#16373A; --hit:#5CC0BE; --specimen:#F4F6F8; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#11161D; --surface:#1A212B; --ink:#E4E8EE; --muted:#9AA5B4; --line:#2C3542;
+  --accent:#5CC0BE; --accent-soft:#16373A; --hit:#5CC0BE; --specimen:#F4F6F8; color-scheme:dark;
+}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:28px 64px;display:flex;flex-direction:column;gap:28px}
+header{display:flex;flex-direction:column;gap:10px;max-width:68ch}
+h1{font-size:28px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+header p{margin:0;color:var(--muted)}
+.status{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--ground);padding-block:10px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.status .count{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+button{font:inherit;font-weight:500;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);padding:7px 14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}
+button:focus-visible,.tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+section.q{display:flex;flex-direction:column;gap:12px;padding-block:8px 20px;border-bottom:1px solid var(--line)}
+.qhead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.qnum{font-family:var(--mono);color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.qtext{font-size:21px;font-weight:600;text-wrap:balance}
+.tags{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:900px){.panels{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.plabel{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+.plabel .who{color:var(--accent);font-weight:600}
+.grid{display:grid;grid-template-columns:1fr;gap:6px}
+.tile{display:block;padding:0;border:2px solid transparent;border-radius:5px;background:var(--specimen);cursor:pointer;position:relative}
+.tile img{display:block;width:100%;height:auto}
+.tile[aria-pressed="true"]{border-color:var(--hit);box-shadow:0 0 0 2px var(--accent-soft)}
+.tile[aria-pressed="true"]::after{content:"✓";position:absolute;right:6px;top:4px;font-weight:700;color:#0E6B6B;font-size:15px}
+.empty{color:var(--muted);font-size:13px;padding:12px 4px}
+#results{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.score{display:flex;flex-direction:column;gap:2px}
+.score .v{font-family:var(--mono);font-size:26px;font-variant-numeric:tabular-nums}
+.score .n{color:var(--muted);font-size:13px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;font-size:13px;width:100%}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+textarea{width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;min-height:120px;background:var(--ground);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<div class="wrap">
+  <header>
+    <h1>Blind font search trial</h1>
+    <p>Each query below was run against __GALLERY__ DaFont fonts. The three sets per query come from two search systems and one random sample, in shuffled order. Nothing tells you which is which.</p>
+    <p>Click every font that you would accept as a result for that query. Leave the rest. When you are done, reveal the results to see how each system scored.</p>
+  </header>
+  <div class="status"><span class="count" id="progress"></span><button id="reveal" type="button">Reveal results</button><button id="reset" type="button" class="ghost">Clear my marks</button></div>
+  <main id="queries"></main>
+  <section id="results" hidden></section>
+</div>
+<script>
+const DATA=__DATA__;
+const NAMES={A:"Current (all.json)",B:"MyFonts-style re-render",R:"Random fonts"};
+const KEY="font-trial-marks-v1";
+let marks={}; try{marks=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){marks={}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(marks))}catch(e){}}
+function order(i){ // deterministic shuffle per query
+  let a=["A","B","R"],s=(i+1)*2654435761>>>0;
+  for(let j=2;j>0;j--){s=(s*1103515245+12345)>>>0;const k=s%(j+1);[a[j],a[k]]=[a[k],a[j]]}
+  return a;
+}
+let revealed=false;
+function render(){
+  const root=document.getElementById("queries"); root.innerHTML="";
+  DATA.forEach((d,i)=>{
+    const sec=document.createElement("section"); sec.className="q";
+    sec.innerHTML=`<div class="qhead"><span class="qnum">${String(i+1).padStart(2,"0")}/${DATA.length}</span><span class="qtext"></span></div><div class="tags"></div><div class="panels"></div>`;
+    sec.querySelector(".qtext").textContent="“"+d.q+"”";
+    sec.querySelector(".tags").textContent=d.tags.length?"query words matched tags: "+d.tags.join(", "):"no query words matched a tag";
+    const panels=sec.querySelector(".panels");
+    order(i).forEach((s,pi)=>{
+      const p=document.createElement("div"); p.className="panel";
+      const hits=d.sys[s].filter((_,t)=>marks[`${i}|${s}|${t}`]).length;
+      p.innerHTML=`<div class="plabel"><span>Set ${pi+1}</span>${revealed?`<span class="who">${NAMES[s]} · ${hits}/${d.sys[s].length}</span>`:""}</div><div class="grid"></div>`;
+      const g=p.querySelector(".grid");
+      if(!d.sys[s].length){g.innerHTML='<div class="empty">No results for this query.</div>'}
+      d.sys[s].forEach((src,t)=>{
+        const id=`${i}|${s}|${t}`,b=document.createElement("button");
+        b.type="button"; b.className="tile"; b.setAttribute("aria-pressed",marks[id]?"true":"false");
+        b.setAttribute("aria-label",`Set ${pi+1} font ${t+1}`);
+        b.innerHTML=`<img alt="" src="${src}">`;
+        b.onclick=()=>{marks[id]=!marks[id]; if(!marks[id])delete marks[id]; b.setAttribute("aria-pressed",marks[id]?"true":"false"); save(); progress(); if(revealed)results()};
+        g.appendChild(b);
+      });
+      panels.appendChild(p);
+    });
+    root.appendChild(sec);
+  });
+  progress();
+}
+function progress(){
+  const touched=DATA.filter((d,i)=>Object.keys(marks).some(k=>k.startsWith(i+"|"))).length;
+  document.getElementById("progress").textContent=`${touched} of ${DATA.length} queries marked`;
+}
+function results(){
+  const el=document.getElementById("results"); el.hidden=false;
+  const tot={A:[0,0],B:[0,0],R:[0,0]}, rows=[];
+  DATA.forEach((d,i)=>{
+    const row={q:d.q};
+    ["A","B","R"].forEach(s=>{const n=d.sys[s].length,h=d.sys[s].filter((_,t)=>marks[`${i}|${s}|${t}`]).length; row[s]=n?`${h}/${n}`:"–"; tot[s][0]+=h; tot[s][1]+=n});
+    rows.push(row);
+  });
+  const pct=s=>tot[s][1]?(100*tot[s][0]/tot[s][1]).toFixed(1)+"%":"–";
+  el.innerHTML=`<h2 style="margin:0;font-size:20px">Results</h2>
+  <div class="scores">${["B","A","R"].map(s=>`<div class="score"><span class="n">${NAMES[s]}</span><span class="v">${pct(s)}</span><span class="n">${tot[s][0]} of ${tot[s][1]} shown fonts accepted</span></div>`).join("")}</div>
+  <div class="tablewrap"><table><thead><tr><th>Query</th><th>${NAMES.B}</th><th>${NAMES.A}</th><th>${NAMES.R}</th></tr></thead><tbody>${rows.map(r=>`<tr><td></td><td class="num">${r.B}</td><td class="num">${r.A}</td><td class="num">${r.R}</td></tr>`).join("")}</tbody></table></div>
+  <p style="margin:0;color:var(--muted)">Copy this summary and paste it back into the chat:</p>
+  <textarea id="summary" readonly></textarea><div><button id="copy" type="button">Copy summary</button></div>`;
+  el.querySelectorAll("tbody tr td:first-child").forEach((td,i)=>td.textContent=rows[i].q);
+  const txt=["system\taccepted\tshown",...["B","A","R"].map(s=>`${NAMES[s]}\t${tot[s][0]}\t${tot[s][1]}`),"","query\tB\tA\tR",...rows.map(r=>`${r.q}\t${r.B}\t${r.A}\t${r.R}`)].join("\n");
+  const ta=document.getElementById("summary"); ta.value=txt;
+  document.getElementById("copy").onclick=()=>{navigator.clipboard.writeText(txt).then(()=>{document.getElementById("copy").textContent="Copied"}).catch(()=>{ta.focus();ta.select()})};
+}
+document.getElementById("reveal").onclick=()=>{revealed=true;render();results();document.getElementById("results").scrollIntoView({behavior:"smooth"})};
+document.getElementById("reset").onclick=()=>{marks={};save();render();if(revealed)results()};
+render();
+</script>

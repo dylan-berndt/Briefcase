@@ -95,6 +95,20 @@ class CombinedQueryData:
                     if not any(k.lower().startswith(prefix) for prefix in GENERIC_FONTS)
                 }
 
+            # DaFont's only real labels are category + theme, so its generated captions are LLM
+            # invention on top of two words -- drop them unless explicitly kept. DaFont images still
+            # load; they just have no caption to pair with (and are skipped when training=True).
+            if "keepDaFontCaptions" not in config and "directories" in config \
+                    and "standard" in config.directories and "dafont" in config.directories.standard:
+                dafontKeys = set(loadDaFontDescriptions("dafont").keys())
+                myFontsKeys = set()
+                if "myFonts" in config.directories:
+                    myFontsKeys = set(os.listdir(os.path.join(config.directories.myFonts, "taglabel")))
+                before = len(self.descriptions)
+                self.descriptions = {k: v for k, v in self.descriptions.items()
+                                     if k not in dafontKeys or k in myFontsKeys}
+                print(f"Dropped {before - len(self.descriptions)} DaFont generated-caption entries")
+
         print(len(self.names), len(self.descriptions), len(self.paths))
 
         trie = CharTrie()
@@ -159,7 +173,8 @@ class CombinedQueryData:
         leftImage = self._jiggle(torch.tensor(image, dtype=torch.float32))
         # leftImage = torch.tensor(image, dtype=torch.float32).unsqueeze(-1)
 
-        letter = self.letters[imageIndex] if (i % 2 == 0) else self.letters[imageIndex].upper()
+        # letters carry the glyph's real case (loaders/standard.py, loaders/myfonts.py)
+        letter = self.letters[imageIndex]
         # Bastard: "ԵՒ" 
         if letter in characters:
             num = characters.index(letter)

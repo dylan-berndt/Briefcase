@@ -46,7 +46,7 @@ def imageWrapper(args):
         print(args[0], e)
 
 
-def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
+def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters, bitmapDir="bitmaps"):
     if not os.path.isfile(fontData):
         return
 
@@ -61,7 +61,7 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
     fontName, fontStyle = font.getname()
 
     if save is not None:
-        imagePath = os.path.join(save, "bitmaps", f"{fontName} {fontStyle} al.bmp")
+        imagePath = os.path.join(save, bitmapDir, f"{fontName} {fontStyle} al.bmp")
         if os.path.exists(imagePath):
             return font, fontName, fontStyle, []
 
@@ -71,7 +71,7 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
         name = f"{fontName} {fontStyle} {char.lower()}{case}"
 
         if save is not None:
-            path = os.path.join(save, "bitmaps", name + ".bmp")
+            path = os.path.join(save, bitmapDir, name + ".bmp")
             if os.path.exists(path):
                 continue
 
@@ -98,18 +98,37 @@ def imagesFromFont(fontData, fontSize, imageSize, save=None, chars=characters):
     return font, fontName, fontStyle, canvases
 
 
+def cacheCompleteMarker(directory, cacheSuffix):
+    """Marker written by experiments/embedding-geometry/build_bitmap_cache.py once a suffixed
+    cache is fully built. Lives in `directory`, NOT inside the bitmap folder (that folder is
+    globbed and every file in it is parsed as a glyph)."""
+    return os.path.join(directory, f"_cache_complete{cacheSuffix}")
+
+
 # TODO: Combine this and loadFontSet
-def collectFontSetPaths(directory, fontSize, maps):
+# cacheSuffix lets several rendering resolutions coexist. Cached bitmap filenames encode font,
+# style, glyph and case but NOT canvas size, and the "already rendered" checks key on filename
+# alone, so a different fontSize into the same folder would silently reuse stale images.
+# cacheSuffix="" keeps the original "bitmaps"/"sdf" folders and behavior exactly.
+def collectFontSetPaths(directory, fontSize, maps, cacheSuffix=""):
     print(f"\nCollecting font paths from {directory} {'=' * 20}")
 
-    if not os.path.exists(os.path.join(directory, "bitmaps")):
-        os.mkdir(os.path.join(directory, "bitmaps"))
-    if not os.path.exists(os.path.join(directory, "sdf")):
-        os.mkdir(os.path.join(directory, "sdf"))
+    bitmapDir = "bitmaps" + cacheSuffix
+    sdfDir = "sdf" + cacheSuffix
+    mapsDir = sdfDir if maps == "sdf" else bitmapDir
+
+    if not os.path.exists(os.path.join(directory, bitmapDir)):
+        os.mkdir(os.path.join(directory, bitmapDir))
+    if not os.path.exists(os.path.join(directory, sdfDir)):
+        os.mkdir(os.path.join(directory, sdfDir))
 
     imageSize = int(fontSize * 1.5)
     ttfPaths = glob(os.path.join(directory, "fonts", "**", "*.ttf"), recursive=True)
     otfPaths = glob(os.path.join(directory, "fonts", "**", "*.otf"), recursive=True)
+    if os.path.exists(cacheCompleteMarker(directory, cacheSuffix)):
+        # fully built by build_bitmap_cache.py: skip the per-font-file open/parse pass, which
+        # costs ~20 minutes per launch even when every bitmap already exists
+        ttfPaths, otfPaths = [], []
 
     # tasks = [(path, fontSize, imageSize, directory) for path in (ttfPaths + otfPaths)]
 
@@ -122,18 +141,19 @@ def collectFontSetPaths(directory, fontSize, maps):
         if not os.path.isfile(fontPath):
             continue
         try:
-            imagesFromFont(fontPath, fontSize, imageSize, directory)
+            imagesFromFont(fontPath, fontSize, imageSize, directory, bitmapDir=bitmapDir)
         except Exception as e:
-            print(fontPath, e)
+            message = f"{fontPath!r} {e!r}"
+            print(message.encode("ascii", "backslashreplace").decode("ascii"))
         print(f"\rFonts serialized: {f + 1}/{len(ttfPaths + otfPaths)}", end="")
 
     print()
 
     if maps == "sdf":
-        imagePaths = glob(os.path.join(directory, "bitmaps", "*"))
+        imagePaths = glob(os.path.join(directory, bitmapDir, "*"))
         for i, imagePath in enumerate(imagePaths):
             try:
-                sdfPath = os.path.join(directory, "sdf",
+                sdfPath = os.path.join(directory, sdfDir,
                               os.path.basename(imagePath).removesuffix(".bmp") + ".npy")
                 if os.path.exists(sdfPath):
                     continue
@@ -150,16 +170,25 @@ def collectFontSetPaths(directory, fontSize, maps):
     ext = ".npy" if maps == "sdf" else ".bmp"
 
     # Build a set of available filenames for quick sibling lookup
-    allPaths = glob(os.path.join(directory, maps, "*"))
+    allPaths = glob(os.path.join(directory, mapsDir, "*"))
     available = {os.path.basename(p): p for p in allPaths}
 
     names, letters, paths = [], [], []
     for basename, path in available.items():
         stem = basename.removesuffix(ext)
-        char = stem[-2]
+        # filenames end "<char.lower()><l|u>" (see imagesFromFont): the last character is the case, the
+        # one before it the glyph. The letter keeps its case so the lowercase and uppercase glyph of a
+        # font get different (name, letter) keys instead of overwriting each other in dict lookups.
+        case, char = stem[-1], stem[-2]
 
         if "ԵՒ" in stem:
             continue
+
+        if case not in ("l", "u"):
+            continue
+
+        if case == "u":
+            char = char.upper()
 
         if char not in characters:
             continue

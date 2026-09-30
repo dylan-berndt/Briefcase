@@ -1,0 +1,66 @@
+{
+ "fonts": {
+  "train": 15049,
+  "val": 1875,
+  "test": 1876
+ },
+ "tags": 1824,
+ "val": {
+  "top50RocAuc": 0.7674627671090662,
+  "top50PrAuc": 0.32964852653947185
+ },
+ "top50RocAuc": 0.7691574154095389,
+ "top50PrAuc": 0.33855503267774767,
+ "iccvSingle300": {
+  "mAP": 16.895407597891136,
+  "NDCG": 59.34108423703485,
+  "queries": 300,
+  "skippedOutOfVocab": 0
+ },
+ "iccvSingleFull": {
+  "mAP": 8.575669751018342,
+  "NDCG": 33.6364107382757,
+  "queries": 1684,
+  "skippedOutOfVocab": 0
+ },
+ "iccvMulti": {
+  "mAP": 7.2866022495019624,
+  "NDCG": 28.079924189638934,
+  "queries": 5465,
+  "skippedOutOfVocab": 0
+ },
+ "amt": {
+  "accuracy": 0.4644149577804584,
+  "groups": 1658
+ },
+ "tag": "full_control_64px_patch8_all",
+ "args": {
+  "ckpt": null,
+  "control": "checkpoints/pretrain/strong-sigreg-64px-patch8",
+  "glyphs": "all",
+  "bitmap64": true,
+  "mode": "full",
+  "sparseViews": 8,
+  "keep": 0.1,
+  "inkFrac": 0.75,
+  "inkThreshold": 0.1,
+  "data": "dataset\\levjepa",
+  "datasetDir": "dataset",
+  "minGlyphs": 26,
+  "maxFonts": null,
+  "batch": 16,
+  "epochs": 40,
+  "seed": 0,
+  "device": "cuda",
+  "vramFraction": 0.6,
+  "minFreeGB": 2.5,
+  "tag": "full_control_64px_patch8_all",
+  "wandb": false,
+  "follow": null,
+  "total": 59000,
+  "followPoll": 300.0
+ },
+ "embedSeconds": 2197.883854150772,
+ "peakGpuGiB": 0.8786783218383789,
+ "totalSeconds": 2257.7554473876953
+}
