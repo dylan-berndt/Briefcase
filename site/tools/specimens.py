@@ -20,7 +20,8 @@ def supportedChars(fontPath):
         cmap = TTFont(fontPath, lazy=True, fontNumber=0).getBestCmap() or {}
     except Exception:
         return set()
-    return set(chr(code) for code in cmap)
+    # some cmaps hold codes outside the Unicode range, which chr() rejects
+    return set(chr(code) for code in cmap if 0 <= code <= 0x10FFFF)
 
 
 def fitLine(fontPath, text, maxWidth, maxSize):

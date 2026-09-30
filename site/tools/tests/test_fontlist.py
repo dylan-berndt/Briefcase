@@ -82,3 +82,15 @@ def test_preferred_file():
 
 def test_no_sources(tmp_path):
     assert listFonts(None, None, None) == ([], {})
+
+
+def test_real_dafonts_free_page_list(tmp_path):
+    """The real cache/font_list.json: a dict holding a `font_info` list with `dafont_link` and `creator`."""
+    dafont, pages = buildDafont(tmp_path)
+    with open(pages, "w") as file:
+        json.dump({"dataset_name": "dafonts-free", "date": "2022-02-27", "font_info": [
+            {"name": "Wobbly", "dafont_link": "https://www.dafont.com/wobbly.font", "creator": "Ann",
+             "download": "https://dl.dafont.com/dl/?f=wobbly", "category": "Fancy", "theme": "Various"}]}, file)
+    fonts, skipped = listFonts(None, dafont, pages)
+    assert [(f["key"], f["url"], f["creator"]) for f in fonts] == [("dafont:Wobbly", "https://www.dafont.com/wobbly.font", "Ann")]
+    assert skipped == {"dingbat or icon font": 1, "no page to link to": 1}

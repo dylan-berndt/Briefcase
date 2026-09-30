@@ -20,7 +20,7 @@ from fontTools.ttLib import TTFont
 LOWERCASE = set("abcdefghijklmnopqrstuvwxyz")
 EXCLUDED_CATEGORY = re.compile(r"dingbat|icon|symbol", re.I)
 EXCLUDED_NAME = re.compile(r"\b(icons?|symbols?|emoji|dingbats?)\b", re.I)
-URL_FIELDS = ("url", "link", "href", "page")
+URL_FIELDS = ("dafont_link", "url", "link", "href", "page")
 CREATOR_FIELDS = ("creator", "author", "designer")
 
 
@@ -29,7 +29,8 @@ def hasLowercase(path):
         cmap = TTFont(path, lazy=True, fontNumber=0).getBestCmap() or {}
     except Exception:
         return False
-    return LOWERCASE <= {chr(code) for code in cmap}
+    # membership by code point: some cmaps hold codes outside the Unicode range, which chr() rejects
+    return all(ord(char) in cmap for char in LOWERCASE)
 
 
 def preferredFile(paths):
@@ -64,6 +65,8 @@ def dafontFamilies(dafontDir, pageList):
     if pageList:
         with open(pageList, encoding="utf-8") as file:
             listed = json.load(file)
+        if isinstance(listed, dict) and isinstance(listed.get("font_info"), list):
+            listed = listed["font_info"]       # the real dafonts-free file: {"dataset_name", "date", "font_info": [...]}
         for item in (listed.values() if isinstance(listed, dict) else listed):
             if isinstance(item, dict) and "name" in item:
                 pages[item["name"]] = item
@@ -80,11 +83,14 @@ def dafontFamilies(dafontDir, pageList):
         if not paths:
             continue
         page = pages.get(name, {})
+        creator = next((page[k] for k in CREATOR_FIELDS if page.get(k)), None)
+        if creator is None and "creator" in rows and rows["creator"].notna().any():
+            creator = str(rows["creator"].dropna().iloc[0])      # info.csv carries the creator too
         families[str(name)] = (
             preferredFile(paths),
             " ".join(str(c) for c in set(rows["category"].dropna())),
             next((page[k] for k in URL_FIELDS if page.get(k)), None),
-            next((page[k] for k in CREATOR_FIELDS if page.get(k)), None),
+            creator,
         )
     return families
 
