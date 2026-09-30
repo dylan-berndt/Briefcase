@@ -391,3 +391,9 @@ def test_bad_bundle_refuses_to_start(makeApp, tmp_path):
     from bundle import BundleError
     with pytest.raises(BundleError):
         makeApp(BUNDLE_DIR=str(tmp_path / "empty"))
+
+
+def test_query_reports_inferred_tags(client):
+    # every response carries the caption-table guesses; a word nothing knows is inferred as nothing
+    body = query(client, "zzqx").json
+    assert body["inferred"] == [] and body["unmatched"] == ["zzqx"]

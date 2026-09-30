@@ -5,6 +5,10 @@ with a semantic multinomial (Turnbull et al. 2008): its tag probabilities are no
 vocabulary, which removes the bias towards fonts that score high on every tag. A positive group scores
 w * log(mass the font puts on the group's tags); a negated group scores |w| * log(probability the font has none of
 them), which is bounded, unlike the mirror image of the positive term. The scores are summed.
+
+Words the vocabulary does not know can be mapped to tags learned from caption co-occurrence (configs/wordTags.json,
+built by site/tools/buildWordTags.py). searchDetailed() uses them: each such word becomes one group over the union of
+its tags ("any of these") at INFERRED_WEIGHT, and is reported separately so it can be shown and removed.
 """
 
 import importlib.util
@@ -15,6 +19,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 EPS = 1e-12
+INFERRED_WEIGHT = 0.5
 
 
 def loadVocabularyClass():
@@ -72,11 +77,34 @@ class TagIndex:
                 unmatched.append(name)
         return terms, unmatched
 
-    def score(self, terms):
-        """terms: [(group, weight)] -> float32 [numFonts], higher is a better match."""
+    def parseDetailed(self, query, ignore=()):
+        """Like parse(), plus words matched only through the caption table: (terms, unmatched, inferred) where
+        inferred is [(word, [groups], weight)]. Words in `ignore` are not inferred (the user removed that guess)."""
+        found = {}
+        weights, unmatched = self.vocabulary.parse(query, inferred=found)
+        terms = []
+        for name, weight in weights.items():
+            if name in self.groups:
+                terms.append((name, weight))
+            else:
+                unmatched.append(name)
+        inferred = []
+        for word, (sign, groups) in found.items():
+            groups = [g for g in groups if g in self.groups]
+            if word in ignore or not groups:
+                unmatched.append(word)
+            else:
+                inferred.append((word, groups, sign * INFERRED_WEIGHT))
+        return terms, unmatched, inferred
+
+    def score(self, terms, inferred=()):
+        """terms: [(group, weight)], inferred: [(word, [groups], weight)] -> float32 [numFonts], higher is better."""
         total = np.zeros(self.numFonts, dtype=np.float32)
-        for name, weight in terms:
-            block = self.logits[self.groups[name]].astype(np.float32)  # [members, numFonts]
+        blocks = [(self.groups[name], weight) for name, weight in terms]
+        blocks += [(np.array(sorted(set(np.concatenate([self.groups[g] for g in groups])))), weight)
+                   for _, groups, weight in inferred]
+        for rows, weight in blocks:
+            block = self.logits[rows].astype(np.float32)  # [members, numFonts]
             if weight > 0:
                 mass = (1.0 / (1.0 + np.exp(-block))).sum(axis=0)
                 total += weight * (np.log(mass + EPS) - self.logMass)
@@ -93,3 +121,11 @@ class TagIndex:
         # stable, so equal scores keep corpus order and pages never overlap or skip
         order = np.argsort(-self.score(terms), kind="stable")
         return order, terms, unmatched
+
+    def searchDetailed(self, query, ignore=()):
+        """search() including caption-inferred tags: (order, terms, unmatched, inferred)."""
+        terms, unmatched, inferred = self.parseDetailed(query, ignore)
+        if not terms and not inferred:
+            return np.empty(0, dtype=np.int64), terms, unmatched, inferred
+        order = np.argsort(-self.score(terms, inferred), kind="stable")
+        return order, terms, unmatched, inferred

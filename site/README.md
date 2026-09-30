@@ -44,6 +44,16 @@ pages never overlap and there is no depth limit.
 The negation term and using the full vocabulary for normalisation are design choices made without real-data
 validation; `e23_scoring.py` measured the multinomial for positive multi-tag queries only.
 
+**Words the vocabulary does not know.** An inflected word is reduced to a base form that is in the table
+(dripping -> drip, grungy -> grunge). A word that still matches nothing is looked up in `configs/wordTags.json`, a
+table of caption words and the tags they co-occur with, learned from the LLM captions of MyFonts fonts (the captions
+were written from each font's real tags). The word becomes one extra group over the union of its tags ("airy" ->
+thin or feminine) at half weight, and is reported under `inferred` so the page can show it as a removable chip;
+sending the word back in `ignore` drops the guess. Built by `site/tools/buildWordTags.py` (log-odds z-score with an
+informative Dirichlet prior, Monroe et al. 2008; `configs/wordTagsExclude.txt` holds reviewed non-style words). On
+held-out single-word aliases of the reviewed vocabulary, 61% are in the table and, of those, 79% get the right tag
+first and 90% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
+
 ## Building the bundle
 
 Run from the repo root, with the research environment (`requirements.txt`) and the datasets in place.
@@ -59,6 +69,13 @@ python site/tools/scoreFonts.py --model "checkpoints/retrieval/finetuneTags/2026
 # 3. specimens + bundle
 python site/tools/assembleBundle.py                              # writes site/backend/data
 git add site/backend/data && git commit                          # through git-lfs
+```
+
+The caption table is rebuilt separately, when the vocabulary or the tagger's tag list changes (needs the research
+environment, `results/fontQueries*.json` and `dataset/taglabel`):
+
+```bash
+python site/tools/buildWordTags.py      # writes configs/wordTags.json and prints the held-out evaluation
 ```
 
 Intermediate files go to `build/` (ignored). Steps 1 and 3 do not depend on the model, so iterating on the model means
@@ -94,7 +111,7 @@ Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, desc
 
 | | |
 |---|---|
-| `GET /api/font/query?query=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags, unmatched}`; `pageSize` 1-100; a page past the end is empty. Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
+| `GET /api/font/query?query=&page=1&pageSize=24&ignore=` | `{results, page, pageSize, total, totalPages, tags, unmatched, inferred}`; `pageSize` 1-100; a page past the end is empty. `inferred` is `[{word, tags, weight}]` for words matched only through the caption table; `ignore` is a comma-separated list of such words not to infer. Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query (queries are lower-cased and whitespace-collapsed) |
 | `POST /api/font/rate` `{fontKey, rating}` | is this a good font: 1-5, or 0 to clear. Per user, per font |

@@ -135,3 +135,45 @@ def test_canonical_without_model_tags_counts_as_unmatched(tmp_path):
     index = TagIndex(Bundle(str(tmp_path)))
     order, terms, unmatched = index.search("serif")
     assert len(order) == 0 and terms == [] and unmatched == ["serif"]
+
+
+def test_inflected_words_reach_their_base_tag(index):
+    # "bolder" -> bold, "scripts" -> script, "not bolder" negates bold; a word with no known base stays unmatched
+    assert index.parse("bolder scripts") == ([("bold", 1.0), ("script", 1.0)], [])
+    assert index.parse("not bolder") == ([("bold", -1.0)], [])
+    assert index.parse("glorping") == ([], ["glorping"])
+
+
+def test_base_forms():
+    from tagsearch import loadVocabularyClass
+    baseForms = loadVocabularyClass().parse.__globals__["baseForms"]   # the parser module is loaded by path
+    assert "drip" in baseForms("dripping") and "drip" in baseForms("drippy")
+    assert "grunge" in baseForms("grungy") and "bubble" in baseForms("bubbly")
+    assert "thin" in baseForms("thinner") and "curve" in baseForms("curves")
+
+
+def inferableWord(index):
+    """A word the caption table maps to tags this bundle has, which nothing else in the parser matches."""
+    for word, groups in sorted(index.vocabulary.wordTags.items()):
+        if any(g in index.groups for g in groups) and index.parse(word) == ([], [word]):
+            return word
+    pytest.skip("no caption-table word maps onto the fake bundle's tags")
+
+
+def test_caption_table_only_used_on_request(index):
+    word = inferableWord(index)
+    # parse()/search() are unchanged: the word stays unmatched
+    assert index.parse(word) == ([], [word])
+    terms, unmatched, inferred = index.parseDetailed(word)
+    assert terms == [] and unmatched == []
+    assert len(inferred) == 1 and inferred[0][0] == word and inferred[0][2] == 0.5
+    assert all(g in index.groups for g in inferred[0][1])
+
+
+def test_inferred_words_can_be_ignored_and_negated(index):
+    word = inferableWord(index)
+    assert index.parseDetailed(word, ignore={word}) == ([], [word], [])
+    _, _, inferred = index.parseDetailed("not " + word)
+    assert inferred[0][2] == -0.5
+    order, _, _, inferred = index.searchDetailed(word)
+    assert len(order) == index.numFonts and inferred

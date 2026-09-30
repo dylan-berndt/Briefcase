@@ -189,7 +189,8 @@ def createApp(overrides=None):
         if page < 1 or not 1 <= pageSize <= MAX_PAGE_SIZE:
             return jsonify({"message": f"page must be >= 1 and pageSize 1-{MAX_PAGE_SIZE}"}), 400
 
-        order, terms, unmatched = index.search(query)
+        ignore = {w.strip().lower() for w in request.args.get("ignore", "").split(",") if w.strip()}
+        order, terms, unmatched, inferred = index.searchDetailed(query, ignore)
         total = len(order)
         ids = [int(i) for i in order[(page - 1) * pageSize: page * pageSize]]
         keys = [bundle.fonts[i]["key"] for i in ids]
@@ -234,6 +235,8 @@ def createApp(overrides=None):
             "totalPages": math.ceil(total / pageSize),
             "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
             "unmatched": unmatched,
+            "inferred": [{"word": word, "tags": groups, "weight": round(float(weight), 3)}
+                         for word, groups, weight in inferred],
         }), 200
 
     @app.route("/api/font/specimen/<int:i>", methods=["GET"])
