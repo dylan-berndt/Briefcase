@@ -134,6 +134,15 @@ def test_thumbs_sit_under_the_rating_and_say_what_they_mean(page):
     assert title.locator("a").bounding_box()["y"] < title.locator(".ResultSource").bounding_box()["y"]
 
 
+def test_info_sits_beside_the_preview_on_a_desktop(page):
+    page.goto("/")
+    search(page, "serif")
+    card = page.locator(".ResultWindow").first
+    img, info = card.locator(".Specimen").bounding_box(), card.locator(".ResultInfo").bounding_box()
+    assert img["x"] + img["width"] <= info["x"] + 1          # to the right of the preview, not under it
+    assert abs((img["y"] + img["height"] / 2) - (info["y"] + info["height"] / 2)) < img["height"]  # same row
+
+
 def test_unrecognised_query(page):
     page.goto("/")
     search(page, "qwertyuiop")
