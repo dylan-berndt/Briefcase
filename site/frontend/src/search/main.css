@@ -51,6 +51,46 @@
     border-color: var(--col-accent);
   }
 
+  .SearchForm {
+    display: flex;
+    gap: 8px;
+    width: min(720px, 100%);
+  }
+
+  .Pagination button,
+  .ResultActions button {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: 1px solid var(--col-border);
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .Pagination button:hover:not(:disabled),
+  .ResultActions button:hover {
+    color: var(--col-text);
+    border-color: var(--col-border-hover);
+  }
+
+  .ResultsTop {
+    scroll-margin-top: 72px;
+  }
+
+  .SearchMessage {
+    margin-top: 24px;
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    color: var(--col-text-muted);
+    text-align: center;
+  }
+
+  /* ── Results ── */
 
   .Results {
     width: 100%;
@@ -58,85 +98,147 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    transition: opacity 0.15s;
   }
-  
+
+  .ResultsLoading {
+    opacity: 0.5;
+  }
+
   .ResultWindow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     background: var(--col-surface-2);
     border: 1px solid var(--col-border);
     border-radius: 8px;
     overflow: hidden;
     transition: border-color 0.2s;
-    text-decoration: none;
-    color: inherit;
   }
-  
+
   .ResultWindow:hover {
     border-color: var(--col-border-hover);
   }
-  
-  a:has(.ResultWindow) {
-    text-decoration: none;
-    color: inherit;
+
+  .Specimen {
+    flex: 0 1 560px;
+    min-width: 0;
     display: block;
+    line-height: 0;
+    padding: 4px 8px;
   }
-  
-  .FontWindow {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: 20px 24px;
-    gap: 16px;
+
+  .Specimen img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 640 / 180;
   }
-  
-  .FontWindow > div > p:first-child {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--col-text-muted);
-    margin-bottom: 12px;
-    text-transform: uppercase;
-  }
-  
-  .FontWindow > div > p:last-child {
-    font-size: clamp(14px, 2.2vmin, 18px);
-    line-height: 1.7;
-    color: var(--col-text);
-  }
-  
-  .FontWindow button {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--col-text-muted);
-    background: transparent;
-    border: 1px solid var(--col-border);
-    border-radius: 4px;
-    padding: 5px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  
-  .FontWindow button:hover {
-    color: var(--col-text);
-    border-color: var(--col-border-hover);
-  }
-  
-  .DescriptionField {
-    border-top: 1px solid var(--col-border);
-    padding: 16px 24px;
+
+  .ResultInfo {
+    flex: 1 1 280px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding: 12px 24px;
+  }
+
+  .ResultTitle {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .ResultTitle a {
+    color: var(--col-text);
+    text-decoration: none;
+    font-size: 14px;
+  }
+
+  .ResultTitle a:hover {
+    color: var(--col-accent);
+  }
+
+  .ResultSource {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--col-text-muted);
+    text-align: right;
+  }
+
+  .ResultActions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+  }
+
+  .Votes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .ResultActions .VoteOn {
+    color: var(--col-bg);
+    background: var(--col-accent);
+    border-color: var(--col-accent);
+  }
+
+  .Stars {
+    display: flex;
+    align-items: center;
+  }
+
+  .ResultActions .Star {
+    border: none;
+    padding: 0 1px;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--col-border-hover);
+  }
+
+  .ResultActions .StarOn {
+    color: var(--col-accent);
+  }
+
+  .RatingSummary {
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--col-text-muted);
+  }
+
+  .ResultActions .DescribeToggle {
+    margin-left: auto;
+  }
+
+  .ResultMessage {
+    flex-basis: 100%;
+    padding: 0 24px 12px;
+    font-size: 11px;
+    color: var(--col-text-muted);
+  }
+
+  .DescriptionField {
+    flex-basis: 100%;
+    border-top: 1px solid var(--col-border);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     background: var(--col-surface);
   }
-  
+
   .DescriptionField p {
     font-size: 12px;
     color: var(--col-text-muted);
     letter-spacing: 0.03em;
   }
-  
+
   .DescriptionField input {
     font-family: var(--font-sans);
     font-size: 14px;
@@ -149,7 +251,42 @@
     outline: none;
     transition: border-color 0.2s;
   }
-  
+
   .DescriptionField input:focus {
     border-color: var(--col-accent);
+  }
+
+  /* ── Pagination ── */
+
+  .Pagination {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin-top: 32px;
+  }
+
+  .Pagination button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .Pagination .PageCurrent {
+    color: var(--col-bg);
+    background: var(--col-accent);
+    border-color: var(--col-accent);
+  }
+
+  .PageGap {
+    color: var(--col-text-muted);
+    padding: 0 4px;
+  }
+
+  .PageCount {
+    flex-basis: 100%;
+    text-align: center;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--col-text-muted);
   }

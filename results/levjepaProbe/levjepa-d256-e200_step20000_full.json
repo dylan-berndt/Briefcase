@@ -1,0 +1,65 @@
+{
+ "fonts": {
+  "train": 3000,
+  "val": 1875,
+  "test": 1876
+ },
+ "tags": 1784,
+ "val": {
+  "top50RocAuc": 0.7712748508353733,
+  "top50PrAuc": 0.33477220625654214
+ },
+ "top50RocAuc": 0.7687828265773398,
+ "top50PrAuc": 0.33917650447514186,
+ "iccvSingle300": {
+  "mAP": 16.85914734858769,
+  "NDCG": 58.87621042931859,
+  "queries": 300,
+  "skippedOutOfVocab": 0
+ },
+ "iccvSingleFull": {
+  "mAP": 7.590448835751112,
+  "NDCG": 32.2664310776768,
+  "queries": 1658,
+  "skippedOutOfVocab": 26
+ },
+ "iccvMulti": {
+  "mAP": 8.050304713409451,
+  "NDCG": 28.72622744573302,
+  "queries": 5436,
+  "skippedOutOfVocab": 29
+ },
+ "amt": {
+  "accuracy": 0.46984318455971047,
+  "groups": 1658
+ },
+ "tag": "levjepa-d256-e200_step20000_full",
+ "args": {
+  "ckpt": "checkpoints\\pretrain\\levjepa-d256-e200-snapshots\\step20000",
+  "control": null,
+  "glyphs": "lower",
+  "mode": "full",
+  "sparseViews": 8,
+  "keep": 0.1,
+  "inkFrac": 0.75,
+  "inkThreshold": 0.1,
+  "data": "dataset\\levjepa",
+  "datasetDir": "dataset",
+  "minGlyphs": 26,
+  "maxFonts": 3000,
+  "batch": 8,
+  "epochs": 40,
+  "seed": 0,
+  "device": "cuda",
+  "vramFraction": 0.3,
+  "minFreeGB": 2.5,
+  "tag": "levjepa-d256-e200_step20000_full",
+  "wandb": true,
+  "follow": "checkpoints\\pretrain\\levjepa-d256-e200-snapshots",
+  "total": 59000,
+  "followPoll": 300.0
+ },
+ "embedSeconds": 651.0364618301392,
+ "peakGpuGiB": 0.2779731750488281,
+ "totalSeconds": 674.3278148174286
+}

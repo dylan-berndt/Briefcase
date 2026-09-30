@@ -145,7 +145,13 @@ function BackgroundShader({backgroundRef}) {
 	)
 }
 
-function LoginPopup() {
+async function postForm(url, fields) {
+	const response = await fetch(url, { body: new URLSearchParams(fields), method: "post" });
+	const json = await response.json().catch(() => ({}));
+	return { ok: response.ok, json };
+}
+
+function LoginPopup({ username, onAuth }) {
 	const [registerToggle, setRegisterToggle] = useState(false);
 	const [loginForm, setLoginForm] = useState({
 		username: '',
@@ -160,28 +166,44 @@ function LoginPopup() {
 		})
 	}
 
-	const submitLogin = (e) => {
+	const submitLogin = async (e) => {
 		e.preventDefault();
-		if (registerToggle) {
-			fetch('/api/font/register', {body: new URLSearchParams(loginForm), method: "post"})
-			.then(response => response.json())
-			.then(data => {
-				setMessage(data.message);
-			})
-			.catch(error => setMessage(error.message || String(error)));
-		}
+		try {
+			if (registerToggle) {
+				// Register first and only then log in, the login needs the new account to exist
+				const registered = await postForm('/api/font/register', loginForm);
+				if (!registered.ok) {
+					setMessage(registered.json.message || "Registration failed");
+					return;
+				}
+			}
 
-		fetch('/api/font/login', {body: new URLSearchParams(loginForm), method: "post"})
-		.then(response => response.json())
-		.then(data => {
-			setMessage(data.message);
-		})
-		.catch(error => setMessage(error.message || String(error)));
+			const login = await postForm('/api/font/login', loginForm);
+			setMessage(login.json.message || "");
+			if (login.ok) {
+				setLoginForm({ username: '', password: '' });
+				onAuth(login.json.username);
+			}
+		} catch (error) {
+			setMessage(error.message || String(error));
+		}
+	}
+
+	const logout = async () => {
+		await fetch('/api/font/logout', { method: "post" }).catch(() => {});
+		onAuth(null);
+	}
+
+	if (username) {
+		return <div className="LoginPopup">
+			<p>Logged in as {username}</p>
+			<button type="button" onClick={logout}>Log out</button>
+		</div>
 	}
 
 	return <div className="LoginPopup">
 		<div>
-			<p>{message}</p>
+			<p role="status">{message}</p>
 			<form onSubmit={submitLogin}>
 				<div style={{}}>
 					<label htmlFor="username">Username:</label>
@@ -216,6 +238,14 @@ function LoginPopup() {
 
 function App() {
 	const [loginVisible, setLoginVisible] = useState(false);
+	const [username, setUsername] = useState(null);
+
+	useEffect(() => {
+		fetch('/api/font/me')
+			.then(response => response.json())
+			.then(json => setUsername(json.username))
+			.catch(() => {});
+	}, []);
 
 	const backgroundRef = useRef(null);
 
@@ -241,11 +271,11 @@ function App() {
 							<button className="HomeButton" onClick={() => setLocation("about")}>About</button>
 						</div>
 						<div>
-							<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>Login</button>
-							{!loginVisible ? <></> : <LoginPopup></LoginPopup>}
+							<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>{username || "Login"}</button>
+							{!loginVisible ? <></> : <LoginPopup username={username} onAuth={(name) => {setUsername(name); setLoginVisible(false);}}></LoginPopup>}
 						</div>
 					</header>
-					{location === "search" ? <SearchPage></SearchPage> : (location === "about" ? <AboutPage></AboutPage> : <MapPage></MapPage>)}
+					{location === "search" ? <SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage> : (location === "about" ? <AboutPage></AboutPage> : <MapPage></MapPage>)}
 				</div>
 			</div>
 		</>

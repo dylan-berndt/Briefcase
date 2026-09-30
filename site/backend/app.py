@@ -1,483 +1,351 @@
-from flask import Flask, jsonify, request, abort
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from flask import g, send_from_directory, make_response
-
-import json
+import math
 import os
-from io import BytesIO
+import re
+import sqlite3
+import uuid
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-from urllib.parse import urlparse
-from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
-import uuid
-import requests
+from flask import Flask, jsonify, request, g, make_response, send_from_directory, abort, Response
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.security import generate_password_hash, check_password_hash
 
-import sqlite3
-import sqlite_vec
+from bundle import Bundle
+from db import initializeDB, normalizeQuery, MAX_QUERY
+from tagsearch import TagIndex
 
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+HERE = os.path.dirname(os.path.abspath(__file__))
 
-from utils import *
-
-from datetime import datetime, timezone, timedelta
-
-testDir = os.path.join("checkpoints", "finetune", "best")
-print(os.path.exists(testDir))
-textModel = CLIPTextModel.from_pretrained(os.path.join(testDir, "text"), local_files_only=True)
-Description.tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-
-imageModel, conf = UNet.load(testDir, name="image")
-
-textModel.eval()
-imageModel.eval()
-
-freeDomains = ["www.dafont.com", "fonts.google.com", "www.fontsquirrel.com"]
-paidDomains = ["www.myfonts.com"]
-
-app = Flask(__name__, static_folder=None)
-app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["2000 per day", "500 per hour"],
-    storage_uri="memory://",
-)
-
-DATABASE = os.getenv("SQLITE_PATH", "/data/fontsearch.db")
+DEFAULT_PAGE_SIZE = 24
+MAX_PAGE_SIZE = 100
+MAX_DESCRIPTION = 500
+USERNAME = re.compile(r"[A-Za-z0-9_.\-]{3,32}")
+MIN_PASSWORD = 8
 
 
-def initializeDB():
-    conn = sqlite3.connect(DATABASE)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
-    cursor = conn.cursor()
+def createApp(overrides=None):
+    app = Flask(__name__, static_folder=None)
+    app.config.update(
+        SECRET_KEY=os.environ.get("SECRET_KEY"),
+        DATABASE=os.getenv("SQLITE_PATH", "/data/fontsearch.db"),
+        BUNDLE_DIR=os.getenv("BUNDLE_DIR", os.path.join(HERE, "data")),
+        VERIFY_BUNDLE=os.getenv("VERIFY_BUNDLE") == "1",
+        STATIC_DIR=os.getenv("STATIC_DIR", os.path.join(HERE, "static")),
+        VOCABULARY=os.getenv("TAG_VOCABULARY"),
+        COOKIE_SECURE=os.getenv("COOKIE_SECURE", "1") == "1",
+        RATELIMIT_ENABLED=True,
+    )
+    app.config.update(overrides or {})
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY is not set")
 
-    cursor.execute(f'''
-        CREATE VIRTUAL TABLE IF NOT EXISTS fonts USING vec0(
-            id INTEGER PRIMARY KEY,
-            embedding float[{conf.model.textProjection}]
-        )
-    ''')
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["2000 per day", "500 per hour"],
+        storage_uri="memory://",
+    )
+    app.limiter = limiter  # Flask-Limiter only keeps a weak reference to itself
 
-    cursor.execute(f'''
-        CREATE TABLE IF NOT EXISTS fontsMeta (
-            id INTEGER NOT NULL REFERENCES fonts(id),
-            name TEXT NOT NULL UNIQUE,
-            location TEXT NOT NULL,
-            file TEXT NOT NULL,
-            paid INTEGER DEFAULT 0
-        )
-    ''')
+    bundle = Bundle(app.config["BUNDLE_DIR"], verify=app.config["VERIFY_BUNDLE"])
+    index = TagIndex(bundle, app.config["VOCABULARY"])
+    specimenType = bundle.manifest["specimen"]["mimetype"]
+    initializeDB(app.config["DATABASE"])
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS registry (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            location TEXT NOT NULL,
-            file TEXT NOT NULL,
-            paid INTEGER DEFAULT 0
-        )
-    ''')
+    app.extensions["bundle"] = bundle
+    app.extensions["tagIndex"] = index
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            publicID TEXT NOT NULL UNIQUE,
-            username TEXT NOT NULL UNIQUE,
-            hash TEXT NOT NULL,
-            admin INTEGER DEFAULT 0
-        )
-    ''')
+    # ------------------------------------------------------------ helpers
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS descriptions (
-            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
-            description TEXT NOT NULL,
-            userID INTEGER NOT NULL REFERENCES users(id),
-            created TEXT NOT NULL
-        )
-    ''')
+    def dbRequired(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if "db" not in g:
+                g.db = sqlite3.connect(app.config["DATABASE"])
+                g.db.row_factory = sqlite3.Row
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS approvals (
-            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
-            query TEXT NOT NULL,
-            userID INTEGER NOT NULL REFERENCES users(id),
-            created TEXT NOT NULL
-        )
-    ''')
+            cursor = g.db.cursor()
+            try:
+                response = f(cursor, *args, **kwargs)
+                g.db.commit()
+                return response
+            except Exception:
+                g.db.rollback()
+                raise
+            finally:
+                cursor.close()
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ratings (
-            fontID INTEGER NOT NULL REFERENCES fontsMeta(id),
-            rating INTEGER NOT NULL,
-            userID INTEGER NOT NULL REFERENCES users(id),
-            created TEXT NOT NULL
-        )
-    ''')
+        return decorated
 
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-
-def dbRequired(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "db" not in g:
-            g.db = sqlite3.connect(DATABASE)
-
-            g.db.enable_load_extension(True)
-            sqlite_vec.load(g.db)
-            g.db.enable_load_extension(False)
-
-            g.db.row_factory = sqlite3.Row
-        
-        cursor = g.db.cursor()
-
-        try:
-            response = f(cursor, *args, **kwargs)
-            g.db.commit()
-            return response
-        except:
-            g.db.rollback()
-            raise
-        finally:
-            cursor.close()
-
-    return decorated
-
-
-def loginRequired(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.cookies.get('token')
-
+    def currentUser(cursor):
+        """The logged-in user's row, or None for a missing, expired or invalid token."""
+        token = request.cookies.get("token")
         if not token:
-            return jsonify({'message': 'Not logged in'}), 401
-        
+            return None
         try:
             data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
-            cursor = g.db.cursor()
-            cursor.execute("SELECT * FROM users WHERE publicID = ?", (data['publicID'],))
-            user = cursor.fetchone()
+        except jwt.InvalidTokenError:
+            return None
+        cursor.execute("SELECT id, publicID, username FROM users WHERE publicID = ?", (data.get("publicID"),))
+        return cursor.fetchone()
 
-            if not user:
+    def loginRequired(f):
+        @wraps(f)
+        def decorated(cursor, *args, **kwargs):
+            user = currentUser(cursor)
+            if user is None:
                 return jsonify({"message": "Not logged in"}), 401
+            return f(cursor, user, *args, **kwargs)
 
-        except jwt.ExpiredSignatureError:
-            return jsonify({"message": "Session expired"}), 401
+        return decorated
 
-        except jwt.InvalidTokenError:
-            return jsonify({"message": "Invalid token"}), 401
-    
-        return f(user, *args, **kwargs)
+    def now():
+        return datetime.now(timezone.utc).isoformat()
 
-    return decorated
+    def bodyField(name):
+        body = request.get_json(silent=True)
+        return body.get(name) if isinstance(body, dict) else None
 
+    def fontFromKey(key):
+        if not isinstance(key, str) or key not in bundle.indexByKey:
+            abort(make_response(jsonify({"message": "Font not found"}), 404))
+        return key
 
-def adminRequired(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.cookies.get('token')
+    def specimenURL(i):
+        return f"/api/font/specimen/{i}?v={bundle.version}"
 
-        if not token:
-            return jsonify({'message': 'Not logged in'}), 401
-        
+    @app.teardown_appcontext
+    def closeDB(exception):
+        db = g.pop("db", None)
+        if db is not None:
+            db.close()
+
+    # ------------------------------------------------------------ accounts
+
+    @app.route("/api/font/register", methods=["POST"])
+    @limiter.limit("3 per day")
+    @dbRequired
+    def register(cursor):
+        username, password = request.form.get("username", ""), request.form.get("password", "")
+        if not USERNAME.fullmatch(username):
+            return jsonify({"message": "Username must be 3-32 letters, digits, dots, dashes or underscores."}), 400
+        if len(password) < MIN_PASSWORD or len(password) > 128:
+            return jsonify({"message": f"Password must be {MIN_PASSWORD}-128 characters."}), 400
+
+        cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            return jsonify({"message": "User already exists. Please login."}), 400
+
+        cursor.execute("INSERT INTO users (publicID, username, hash) VALUES (?, ?, ?)",
+                       (str(uuid.uuid4()), username, generate_password_hash(password)))
+        return jsonify({"message": "Registered successfully"}), 200
+
+    @app.route("/api/font/login", methods=["POST"])
+    @limiter.limit("5 per hour")
+    @dbRequired
+    def login(cursor):
+        username, password = request.form.get("username", ""), request.form.get("password", "")
+
+        cursor.execute("SELECT publicID, hash FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        if user is None or not check_password_hash(user["hash"], password):
+            return jsonify({"message": "Invalid username or password."}), 400
+
+        token = jwt.encode({"publicID": user["publicID"], "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+                           app.config["SECRET_KEY"], algorithm="HS256")
+        response = make_response(jsonify({"message": "Logged in successfully", "username": username}), 200)
+        response.set_cookie("token", token, httponly=True, secure=app.config["COOKIE_SECURE"],
+                            samesite="Strict", max_age=3600)
+        return response
+
+    @app.route("/api/font/logout", methods=["POST"])
+    def logout():
+        response = make_response(jsonify({"message": "Logged out"}), 200)
+        response.delete_cookie("token", samesite="Strict", secure=app.config["COOKIE_SECURE"])
+        return response
+
+    @app.route("/api/font/me", methods=["GET"])
+    @dbRequired
+    def me(cursor):
+        user = currentUser(cursor)
+        return jsonify({"username": user["username"] if user else None}), 200
+
+    # ------------------------------------------------------------ search
+
+    @app.route("/api/font/query", methods=["GET"])
+    @limiter.limit("120 per minute")
+    @dbRequired
+    def findFonts(cursor):
+        query = request.args.get("query", "")
+        if len(query) > MAX_QUERY:
+            return jsonify({"message": f"Query is longer than {MAX_QUERY} characters"}), 400
         try:
-            data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
-            cursor = g.db.cursor()
-            cursor.execute("SELECT username, publicID, admin FROM users WHERE publicID = ?", (data['publicID'],))
-            user = cursor.fetchone()
+            page = int(request.args.get("page", 1))
+            pageSize = int(request.args.get("pageSize", DEFAULT_PAGE_SIZE))
+        except ValueError:
+            return jsonify({"message": "page and pageSize must be integers"}), 400
+        if page < 1 or not 1 <= pageSize <= MAX_PAGE_SIZE:
+            return jsonify({"message": f"page must be >= 1 and pageSize 1-{MAX_PAGE_SIZE}"}), 400
 
-            if not user[2]:
-                return jsonify({'message': 'Not admin'}), 403
+        order, terms, unmatched = index.search(query)
+        total = len(order)
+        ids = [int(i) for i in order[(page - 1) * pageSize: page * pageSize]]
+        keys = [bundle.fonts[i]["key"] for i in ids]
 
-        except jwt.ExpiredSignatureError:
-            return jsonify({"message": "Session expired"}), 401
+        ratings, mine, votes = {}, {}, {}
+        if keys:
+            marks = ",".join("?" * len(keys))
+            cursor.execute(f"SELECT fontKey, AVG(rating) AS average, COUNT(*) AS count FROM fontRatings "
+                           f"WHERE fontKey IN ({marks}) GROUP BY fontKey", keys)
+            ratings = {row["fontKey"]: row for row in cursor.fetchall()}
+            user = currentUser(cursor)
+            if user is not None:
+                cursor.execute(f"SELECT fontKey, rating FROM fontRatings WHERE userID = ? AND fontKey IN ({marks})",
+                               [user["id"], *keys])
+                mine = {row["fontKey"]: row["rating"] for row in cursor.fetchall()}
+                cursor.execute(f"SELECT fontKey, vote FROM fontVotes WHERE userID = ? AND query = ? "
+                               f"AND fontKey IN ({marks})", [user["id"], normalizeQuery(query), *keys])
+                votes = {row["fontKey"]: row["vote"] for row in cursor.fetchall()}
 
-        except jwt.InvalidTokenError:
-            return jsonify({"message": "Invalid token"}), 401
-        
-        finally:
-            cursor.close()
-    
-        return f(user, *args, **kwargs)
-    return decorated
+        results = []
+        for i, key in zip(ids, keys):
+            font = bundle.fonts[i]
+            rating = ratings.get(key)
+            results.append({
+                "key": key,
+                "name": font["name"],
+                "source": font["source"],
+                "url": font["url"],
+                "creator": font.get("creator"),
+                "specimen": specimenURL(i),
+                "rating": {"average": round(rating["average"], 2) if rating else None,
+                           "count": rating["count"] if rating else 0,
+                           "mine": mine.get(key)},
+                "vote": votes.get(key, 0),
+            })
 
+        return jsonify({
+            "results": results,
+            "page": page,
+            "pageSize": pageSize,
+            "total": total,
+            "totalPages": math.ceil(total / pageSize),
+            "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
+            "unmatched": unmatched,
+        }), 200
 
-@app.teardown_appcontext
-def closeDB(exception):
-    db = g.pop("db", None)
+    @app.route("/api/font/specimen/<int:i>", methods=["GET"])
+    @limiter.exempt
+    def specimen(i):
+        if not 0 <= i < len(bundle.fonts):
+            abort(404)
+        response = Response(bundle.specimen(i), mimetype=specimenType)
+        # the ?v= in the URL changes with the bundle, so a cached copy is never stale
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        response.set_etag(f"{bundle.version}-{i}")
+        return response.make_conditional(request)
 
-    if db is not None:
-        db.close()
+    # ------------------------------------------------------------ feedback
 
+    @app.route("/api/font/approve", methods=["POST"])
+    @limiter.limit("60 per minute")
+    @dbRequired
+    @loginRequired
+    def approveFont(cursor, user):
+        """Does this font answer this query? vote is 1 (yes), -1 (no) or 0 (clear the user's vote)."""
+        fontKey = fontFromKey(bodyField("fontKey"))
+        query = bodyField("query")
+        vote = bodyField("vote")
+        if not isinstance(query, str) or not query.strip() or len(query) > MAX_QUERY:
+            return jsonify({"message": "Invalid query"}), 400
+        if vote not in (-1, 0, 1) or isinstance(vote, bool):
+            return jsonify({"message": "vote must be 1, -1 or 0"}), 400
+        query = normalizeQuery(query)
 
-# TODO: Enforce password length, characters, etc.
-@app.route('/api/font/register', methods=['POST'])
-@limiter.limit("3 per day")
-@dbRequired
-def register(cursor):
-    username, password = request.form['username'], request.form['password']
+        if vote == 0:
+            cursor.execute("DELETE FROM fontVotes WHERE userID = ? AND fontKey = ? AND query = ?",
+                           (user["id"], fontKey, query))
+        else:
+            cursor.execute("INSERT INTO fontVotes (userID, fontKey, query, vote, created) VALUES (?, ?, ?, ?, ?) "
+                           "ON CONFLICT (userID, fontKey, query) DO UPDATE SET vote = excluded.vote, "
+                           "created = excluded.created", (user["id"], fontKey, query, vote, now()))
+        return jsonify({"message": "Successful", "vote": vote}), 200
 
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    users = cursor.fetchall()
-    existing = len(users) > 0
-    if existing:
-        return jsonify({'message': 'User already exists. Please login.'}), 400
-    
-    hashed = generate_password_hash(password)
-    cursor.execute("INSERT INTO users (publicID, username, hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), username, hashed))
+    @app.route("/api/font/rate", methods=["POST"])
+    @limiter.limit("60 per minute")
+    @dbRequired
+    @loginRequired
+    def rateFont(cursor, user):
+        """Is this a good font? rating is 1-5 stars, or 0 to clear the user's rating."""
+        fontKey = fontFromKey(bodyField("fontKey"))
+        rating = bodyField("rating")
+        if rating not in (0, 1, 2, 3, 4, 5) or isinstance(rating, bool):
+            return jsonify({"message": "rating must be an integer from 0 to 5"}), 400
 
-    return jsonify({'message': 'Registered successfully'}), 200
+        if rating == 0:
+            cursor.execute("DELETE FROM fontRatings WHERE userID = ? AND fontKey = ?", (user["id"], fontKey))
+        else:
+            cursor.execute("INSERT INTO fontRatings (userID, fontKey, rating, created) VALUES (?, ?, ?, ?) "
+                           "ON CONFLICT (userID, fontKey) DO UPDATE SET rating = excluded.rating, "
+                           "created = excluded.created", (user["id"], fontKey, rating, now()))
 
+        cursor.execute("SELECT AVG(rating) AS average, COUNT(*) AS count FROM fontRatings WHERE fontKey = ?", (fontKey,))
+        row = cursor.fetchone()
+        return jsonify({"message": "Successful",
+                        "rating": {"average": round(row["average"], 2) if row["count"] else None,
+                                   "count": row["count"], "mine": rating or None}}), 200
 
-@app.route('/api/font/login', methods=['POST'])
-@limiter.limit("5 per hour")
-@dbRequired
-def login(cursor):
-    username, password = request.form['username'], request.form['password']
+    @app.route("/api/font/describe", methods=["POST"])
+    @limiter.limit("2 per minute")
+    @dbRequired
+    @loginRequired
+    def describeFont(cursor, user):
+        fontKey = fontFromKey(bodyField("fontKey"))
+        description = bodyField("description")
+        if not isinstance(description, str) or not description.strip() or len(description) > MAX_DESCRIPTION:
+            return jsonify({"message": f"Description must be 1-{MAX_DESCRIPTION} characters"}), 400
 
-    cursor.execute("SELECT publicID, username, hash FROM users WHERE username = ?", (username,))
-    users = cursor.fetchall()
-    if len(users) == 0:
-        return jsonify({'message': 'Invalid username or password.'}), 400
-    
-    user = users[0]
-    publicID, name, hash = user
-    if not check_password_hash(hash, password):
-        return jsonify({'message': 'Invalid username or password.'}), 400
-    
-    token = jwt.encode({'publicID': publicID, 'exp': datetime.now(timezone.utc) + timedelta(hours=1)}, app.config["SECRET_KEY"], algorithm="HS256")
+        cursor.execute("INSERT INTO fontDescriptions (fontKey, description, userID, created) VALUES (?, ?, ?, ?)",
+                       (fontKey, description.strip(), user["id"], now()))
+        return jsonify({"message": "Successful"}), 200
 
-    response = make_response(jsonify({'message': 'Logged in successfully'}), 200)
-    response.set_cookie('token', token, httponly=True, secure=True, samesite="Strict")
+    @app.route("/api/health", methods=["GET"])
+    @limiter.exempt
+    def health():
+        return jsonify({"fonts": len(bundle.fonts), "tags": len(bundle.vocab), "version": bundle.version}), 200
 
-    return response
+    # ------------------------------------------------------------ frontend
 
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    @limiter.exempt
+    def serve(path):
+        if path.startswith("api/"):
+            abort(404)
+        staticDir = app.config["STATIC_DIR"]
+        if path != "" and os.path.isfile(os.path.join(staticDir, path)):
+            return send_from_directory(staticDir, path)
+        return send_from_directory(staticDir, "index.html")
 
-@app.route('/api/font/query', methods=['GET'])
-@limiter.limit("40 per day")
-@dbRequired
-def findFonts(cursor):
-    query, includePaid = request.args.get("query", ""), request.args.get("includePaid", "true")
-    if includePaid not in ["true", "false"]:
-        return jsonify({'message': 'Invalid query'}), 401
-    includePaid = includePaid == "true"
-    query = "a " + query + " font"
-    tokens = Description.tokenizer([query], padding=False, return_tensors="pt")
-    with torch.no_grad():
-        output = textModel(**tokens).pooler_output
+    @app.errorhandler(404)
+    def notFound(error):
+        if request.path.startswith("/api/"):
+            return jsonify({"message": "Not found"}), 404
+        return error
 
-    embedding = output.numpy().flatten()
-    embeddingSerialized = sqlite_vec.serialize_float32(embedding)
-
-    cursor.execute('''
-        SELECT m.name, f.distance, m.location, m.file
-        FROM (
-            SELECT id, distance FROM fonts
-            WHERE embedding MATCH ?
-            ORDER BY distance
-            LIMIT 20
-        ) f
-        JOIN fontsMeta m ON m.id = f.id
-        WHERE (? OR NOT m.paid)
-    ''', (embeddingSerialized, includePaid))
-    rows = cursor.fetchall()
-
-    results = [dict(zip(["name", "score", "file", "url"], rows[i])) for i in range(len(rows))]
-
-    return jsonify({"results": results}), 200
-
-
-@app.route('/api/font/describe', methods=['POST'])
-@limiter.limit("2 per minute")
-@dbRequired
-@loginRequired
-def describeFont(cursor, user):
-    fontName = request.args.get("fontName", "")
-    cursor.execute('''
-        SELECT id FROM fonts WHERE name = ?
-    ''', (fontName,))
-    rows = cursor.fetchall()
-
-    if len(rows) == 0:
-        return jsonify({'message': 'Font not found'}), 401
-    
-    description = request.args.get("description", "")
-    if not description:
-        return jsonify({'message': 'Invalid description'}), 401
-    
-    cursor.execute('''
-        INSERT INTO descriptions (fontID, description, userID, created) VALUES (?, ?, ?, ?)
-    ''', (rows[0][0], description, user[0], datetime.now(timezone.utc)))
-
-    return jsonify({'message': 'Successful'}), 200
-
-
-@app.route('/api/font/approve', methods=['POST'])
-@limiter.limit("20 per minute")
-@dbRequired
-@loginRequired
-def approveQuery(cursor, user):
-    fontName = request.args.get("fontName", "")
-    cursor.execute('''
-        SELECT id FROM fonts WHERE name = ?
-    ''', (fontName,))
-    rows = cursor.fetchall()
-
-    if len(rows) == 0:
-        return jsonify({'message': 'Font not found'}), 401
-    
-    query = request.args.get("query", "")
-    if not query:
-        return jsonify({'message': 'Invalid query'}), 401
-    
-    revoke = request.args.get("revoke", "false")
-    if revoke not in ["true", "false"]:
-        return jsonify({'message': 'Invalid query'}), 401
-    revoke = revoke != "false"
-    
-    if revoke:
-        cursor.execute('''
-            DELETE FROM approvals WHERE fontID = ?
-        ''', (rows[0][0],))
-    else:
-        cursor.execute('''
-            INSERT INTO approvals (fontID, query, userID, created) VALUES (?, ?, ?, ?)
-        ''', (rows[0][0], query, user[0], datetime.now(timezone.utc)))
-
-    return jsonify({'message': 'Successful'}), 200
+    return app
 
 
-@app.route('/api/font/rate', methods=['POST'])
-@limiter.limit("20 per minute")
-@dbRequired
-@loginRequired
-def rateFont(cursor, user):
-    fontName = request.args.get("fontName", "")
-    cursor.execute('''
-        SELECT id FROM fonts WHERE name = ?
-    ''', (fontName,))
-    fontRow = cursor.fetchone()
-
-    if not fontRow:
-        return jsonify({'message': 'Font not found'}), 401
-    
-    rating = request.args.get("rating", None)
-    if not rating:
-        return jsonify({'message': 'No rating provided'}), 401
-    
-    cursor.execute('''
-        SELECT id FROM ratings WHERE fontID = ? AND userID = ?
-    ''', (fontRow[0], user[0]))
-    ratingRow = cursor.fetchone()
-
-    if ratingRow:
-        # Rating exists, update the user's rating of this font
-        cursor.execute('''
-            UPDATE ratings SET rating = ?, created = ? WHERE fontID = ? AND userID = ?
-        ''', (rating, datetime.now(timezone.utc), fontRow[0], user[0]))
-    else:
-        # Create a new rating for the font by the user
-        cursor.execute('''
-            INSERT INTO ratings (fontID, rating, userID, created) VALUES (?, ?, ?, ?)
-        ''', (fontRow[0], rating, user[0], datetime.now(timezone.utc)))
-
-    return jsonify({'message': 'Successful'}), 200
+def __getattr__(name):
+    # `gunicorn app:app` builds the app on first access. Importing this module for createApp (the tests) does not.
+    if name == "app":
+        global app
+        app = createApp()
+        return app
+    raise AttributeError(name)
 
 
-@app.route('/api/font/update', methods=['POST'])
-@dbRequired
-@adminRequired
-def updateRegistry(cursor, user):
-    cursor.execute("SELECT * FROM registry")
-    registered = cursor.fetchall()
-
-    for row in registered:
-        id, name, location, file, paid = row
-
-        response = requests.get(file, allow_redirects=False, timeout=5, stream=True)
-
-        if not response.ok:
-            abort(500)
-
-        data = BytesIO(response.content)
-
-        font, fontName, fontStyle, images = imagesFromFont(data, conf.fontSize, int(conf.fontSize * 1.5), chars=latin)
-        images = torch.stack([torch.tensor(np.array(image) / 255, dtype=torch.float32).unsqueeze(-1) for image in images], dim=0)
-        
-        embeddings = imageModel(images)
-        embeddings = torch.linalg.norm(embeddings, axis=1)
-        embedding = sqlite_vec.serialize_float32(torch.mean(embeddings, dim=0).numpy())
-
-        cursor.execute("INSERT INTO fontsMeta (name, location, file, paid) VALUES (?, ?, ?, ?)",
-                       (name, location, file, paid))
-        fontID = cursor.lastrowid
-        cursor.execute("INSERT INTO fonts (id, embedding) VALUES (?, ?)",
-                       (fontID, embedding))
-        cursor.execute(f"DELETE FROM registry WHERE id = ?", (id,))
-    
-    return jsonify({'message': 'Successful'}), 200
-
-
-def checkDomain(url):
-    url = urlparse(url)
-    allowedHosts = freeDomains + paidDomains
-
-    if url.scheme != "https":
-        return False, False
-    
-    if url.hostname not in allowedHosts:
-        return False, False
-
-    return url.netloc in allowedHosts, url.netloc in paidDomains
-
-
-@app.route('/api/font/add', methods=['POST'])
-@limiter.exempt
-@dbRequired
-@adminRequired
-def addFontToRegistry(cursor, user):
-    name, url, file = request.args.get("name", ""), request.args.get("url", ""), request.args.get("file", "")
-    if name == "" or url == "" or file == "":
-        abort(400)
-
-    urlGood = False
-    fileGood = False
-    paid = False
-
-    urlGood, paid = checkDomain(url)
-    fileGood, _ = checkDomain(file)
-
-    fileGood = fileGood and (file.endswith(".otf") or file.endswith(".ttf"))
-
-    if not urlGood or not fileGood:
-        abort(400)
-    
-    cursor.execute(f'''
-        INSERT INTO registry (name, location, paid, file) VALUES (?, ?, ?, ?)
-    ''', (name, url, paid, file))
-
-
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve(path):
-    fullPath = os.path.join("static", path)
-    if path != "" and os.path.exists(fullPath):
-        return send_from_directory("static", path)
-    return send_from_directory("static", "index.html")
-
-
-initializeDB()
-
-
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8000)
-
-
+if __name__ == "__main__":
+    createApp().run(host="0.0.0.0", port=8000)

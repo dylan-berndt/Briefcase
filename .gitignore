@@ -1,12 +1,6 @@
-/data/bitmaps
-/data/sdf
-/data/fonts
-/google/bitmaps
-/google/sdf
-/google/fonts
-/windows/bitmaps
-/windows/sdf
-/windows/fonts
+/data
+/google
+/windows
 /dataset
 /dafont
 
@@ -23,24 +17,102 @@ dataset.tar.gz
 /checkpoints/finetune/*
 /checkpoints/pretrain/*
 /checkpoints/retrieval/*
+/checkpoints/diffusion-searches/
 !/checkpoints/pretrain/best
-!/checkpoints/finetune/best
-!/checkpoints/finetune/latest
+/coverage_results.npz
 
 /venv
+
+/logs
 
 /.idea
 **/__pycache__
 
 /site/backend/fonts
 
+# Search bundle tooling: intermediate files from site/tools, and a fake bundle for local development
+/build/
+/site/backend/data-dev/
+
 **/password.txt
 
 wandb
 
+# LLM-generated query sets: 250k-340k lines each, regenerable with generate.py / experiments/text-searches/generateV2.py
 results/fontQueries.json
-embeddings
+results/fontQueriesV2.json
+results/shortQueries.json
+
+# Generated embeddings are never tracked (embeddings/all.json was in LFS; untracked in the Sept 2026 cleanup)
+embeddings/*
+
+/experiments/embedding-geometry/data
+/experiments/embedding-geometry/ssim_candidates.pkl
+/experiments/embedding-geometry/ssim_duplicate_pairs.csv
+/experiments/embedding-geometry/*.pt
+
+**/*.log
 
 /results/*.html
 /site/frontend/public/*.html
 !/site/frontend/public.index.html
+
+# Sept 2026 cleanup before merging into staging: exploratory scripts and intermediate results that are kept
+# locally but not in the repo. The scripts left in each experiments/ folder cover every step of the process; the
+# results of the ones below are recorded in CLAUDE.md and the folders' READMEs.
+/experiments/choice-searches/evalGridFeedbackFrontier.py
+/experiments/choice-searches/eval_frontier_sweep.txt
+/experiments/choice-searches/eval_ucb_kappa_sweep.txt
+/experiments/choice-searches/eval_ucbpe_sweep.txt
+/experiments/text-searches/eval_text_narrowing.txt
+/experiments/critical-review/clip_embed.py
+/experiments/critical-review/specimen.py
+/experiments/critical-review/e1_textretrieval.py
+/experiments/critical-review/e2_knn.py
+/experiments/critical-review/e3_source.py
+/experiments/critical-review/e5_siblings.py
+/experiments/critical-review/e6_attrs.py
+/experiments/critical-review/e8_halluc.py
+/experiments/critical-review/e10_tagauc.py
+/experiments/critical-review/e12_clipzs.py
+/experiments/critical-review/e14b.py
+/experiments/critical-review/e15_knn_cmp.py
+/experiments/critical-review/e17_fullscale.py
+/experiments/critical-review/e17b.py
+/experiments/critical-review/e17c.py
+/experiments/critical-review/e18_casefix.py
+/experiments/critical-review/verify.py
+/experiments/critical-review/verify2.py
+/experiments/embedding-geometry/asif_retrieval_abtt.py
+/experiments/embedding-geometry/browse_ssim_pairs.py
+/experiments/embedding-geometry/compare_visual_geometry.py
+/experiments/embedding-geometry/deployed_correlation_check.py
+/experiments/embedding-geometry/embed_alt_checkpoint.py
+/experiments/embedding-geometry/followup_diagnostics.py
+/experiments/embedding-geometry/geometry_comparison.py
+/experiments/embedding-geometry/glyph_vs_font_variance.py
+/experiments/embedding-geometry/gradient_vs_rank.py
+/experiments/embedding-geometry/measure_vram_projector.py
+/experiments/embedding-geometry/projector_rank_check.py
+/experiments/embedding-geometry/queue_vs_corpus_pr.py
+/experiments/embedding-geometry/raw_pixel_google_only.py
+/experiments/embedding-geometry/raw_pixel_res_check.py
+/experiments/embedding-geometry/rnc_crossmodal.py
+/experiments/embedding-geometry/test_pooling_hypothesis.py
+/experiments/diffusion-searches/diagnostics/character_variance.py
+/experiments/diffusion-searches/diagnostics/diagnose_split_coherence.py
+/experiments/diffusion-searches/diagnostics/diagnose_wrong_turn_geometry.py
+/experiments/diffusion-searches/diagnostics/embed_fonts.py
+/experiments/diffusion-searches/diffusion_sampling/branching_results.json
+/experiments/diffusion-searches/diffusion_sampling/branching_results_cfg3.json
+/experiments/diffusion-searches/diffusion_sampling/branching_results_cfg4.json
+/experiments/diffusion-searches/diffusion_sampling/build_tag_presence_cache.py
+/experiments/diffusion-searches/diffusion_sampling/decisionSignal.py
+/experiments/diffusion-searches/diffusion_sampling/decisionSignal_results.json
+/experiments/diffusion-searches/diffusion_sampling/evaluate_grpo_branching.py
+/experiments/diffusion-searches/diffusion_sampling/grpo_finetune.py
+/experiments/diffusion-searches/diffusion_sampling/tag_conditioning.py
+/experiments/diffusion-searches/navigation_classifier/sweep_beam_hedge.py
+/experiments/diffusion-searches/tree_construction/build_cosine_tree.py
+/experiments/diffusion-searches/tree_construction/build_text_tree.py
+/experiments/diffusion-searches/text_embeddings/build_tfidf_cache.py

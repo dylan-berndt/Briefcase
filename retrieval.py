@@ -1,208 +1,336 @@
-"""
-Trains a multi-label tagging head on top of the pretrained ViT
-(checkpoints/pretrain/latest, a base ViT). The backbone is frozen inside
-ViTEmbedder; only its head learns to predict which style tags / adjectives a
-font should be labeled with — the head's output width is the tag vocabulary size.
+# Learns a mapping from frozen font embeddings (embeddings/all.json) to a
+# TF-IDF-style vector over the font's style vocabulary (tags + adjectives).
+# Previously ran the ViT backbone forward at every training step
+# (CombinedQueryData loading images live, ViTEmbedder wrapping the frozen
+# backbone + trainable head); now trains purely on the precomputed
+# embeddings, matching trainTextMLP.py's fast matrix-math setup -- no image
+# loading, no ViT forward, epochs take seconds not minutes.
+#
+# Vocabulary filtering: evalDescriptorGrounding.py measured how visually
+# coherent each descriptor actually is (do fonts sharing it cluster
+# together in the embedding space, vs a random-sample baseline), as a
+# z-score against that baseline's own noise. Descriptors below Z_CUTOFF are
+# dropped from the target vocabulary entirely -- a large chunk of the raw
+# tag/adjective vocabulary is generic filler ("many", "similar",
+# "typographic") with no real visual grounding, and training a target that's
+# substantially noise is exactly why the previous embedding->vocabulary
+# attempt likely underperformed regardless of the model itself.
+#
+# Target construction: per font, TF (this font's tag weight, or 1.0 for a
+# present adjective) x IDF (log(N / doc_freq)) over the filtered vocabulary,
+# L2-normalized per font (standard tf-idf practice) so cosine similarity is
+# the natural comparison -- which is also the training objective below.
+#
+# Metrics are chosen to be read at a glance, not cross-referenced against a
+# BCE loss value with no intuitive scale:
+# - median true-tag rank: rank the WHOLE filtered vocabulary by predicted
+#   score for a font, take the median rank (1=best) among that font's
+#   actually-true tags. Directly comparable to a stated chance baseline
+#   (vocabSize/2) -- same "rank vs. corpus size" framing as trainTextMLP.py.
+# - precision@k: of the model's top-k guessed tags for a font, what
+#   fraction are actually true for it.
+# - recall@10: of a font's actually-true tags, what fraction show up
+#   somewhere in the model's top 10 guesses.
 
-Saves the head to checkpoints/retrieval/{latest, <date>}/<experiment>/ and logs
-to the "Font Retrieval" wandb project.
-"""
-
-import os
 import json
-from datetime import datetime
+import os
+import random
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import wandb
+import torch.nn.functional as F
+from pygtrie import CharTrie
 
-from utils import *
+from utils import Config, loadDescriptionsFromSource
+
+EMBEDDINGS_PATH = os.path.join("embeddings", "all.json")
+GROUNDING_PATH = os.path.join("results", "descriptorGrounding.json")
+
+# Minimum z-score (see evalDescriptorGrounding.py) for a descriptor to be
+# kept in the target vocabulary. None = no cutoff, use every descriptor
+# that was measured (every descriptor with >=30 fonts, per
+# MIN_FONTS_PER_DESCRIPTOR in evalDescriptorGrounding.py) regardless of
+# grounding score, for a direct comparison against the filtered run.
+Z_CUTOFF = None
+
+CHECKPOINT_DIR = os.path.join("checkpoints", "retrieval", "embeddingHead")
+
+TEST_FRACTION = 0.1
+SEED = 1234
+
+BATCH_SIZE = 256
+HIDDEN_DIM = 512
+DROPOUT = 0.15
+# Filtered run peaked at epoch ~15-20 then overfit for the remaining 480
+# epochs -- this task converges fast. 60 leaves margin past that without
+# repeating the same mistake; bestEpoch tracking below reports the actual
+# peak regardless, so overshooting isn't silently misleading anymore.
+EPOCHS = 60
+LR = 1e-3
+WEIGHT_DECAY = 1e-4
 
 
-def itertoolsBetter(dataIter):
-    while True:
-        for batch in dataIter:
-            yield batch
+def loadFontEmbeddings(path=EMBEDDINGS_PATH):
+    with open(path, "r") as file:
+        data = json.load(file)
+    return {name: np.array(vector, dtype=np.float32) for name, vector in data.items()}
 
 
-def computePosWeight(dataset, vocab):
-    """
-    pos_weight for BCEWithLogitsLoss: (#negatives / #positives) per tag, so rare
-    tags aren't drowned out by the many fonts that lack them.
-    """
-    index = {tag: i for i, tag in enumerate(vocab)}
-    counts = torch.zeros(len(vocab))
-    for desc in dataset.descriptions.values():
-        tags = set(desc.adjectives + list(desc.tags))
+def loadVocab(path=GROUNDING_PATH, zCutoff=Z_CUTOFF):
+    with open(path, "r") as file:
+        results = json.load(file)
+    if zCutoff is None:
+        vocab = sorted(r["descriptor"] for r in results)
+    else:
+        vocab = sorted(r["descriptor"] for r in results if r["z"] > zCutoff)
+    return vocab
+
+
+def matchEmbeddingsToDescriptions(fontEmbeddings, descriptions):
+    """Same longest-prefix trie match used throughout this project --
+    embeddings/all.json is keyed by per-style-variant render name, the
+    description source by base family name."""
+    trie = CharTrie()
+    for key in descriptions:
+        trie[key] = key
+
+    candidates = {}
+    for embName, vector in fontEmbeddings.items():
+        match = trie.longest_prefix(embName.strip())
+        if match.key is None:
+            continue
+        candidates.setdefault(match.key, []).append((embName, vector))
+
+    return {k: min(v, key=lambda p: len(p[0]))[1] for k, v in candidates.items()}
+
+
+def buildTfidfTargets(descriptions, names, vocab):
+    vocabIndex = {tag: i for i, tag in enumerate(vocab)}
+    V = len(vocab)
+
+    fontTags = {}
+    docFreq = np.zeros(V)
+    for name in names:
+        desc = descriptions[name]
+        tags = {}
+        for tag, weight in desc.tags.items():
+            if tag in vocabIndex:
+                tags[tag] = max(tags.get(tag, 0.0), float(weight))
+        for adjective in desc.adjectives:
+            if adjective in vocabIndex:
+                tags[adjective] = max(tags.get(adjective, 0.0), 1.0)
+        fontTags[name] = tags
         for tag in tags:
-            if tag in index:
-                counts[index[tag]] += 1
-    total = len(dataset.descriptions)
-    return ((total - counts) / counts.clamp(min=1)).clamp(max=50.0)
+            docFreq[vocabIndex[tag]] += 1
+
+    idf = np.log(len(names) / np.maximum(docFreq, 1))
+
+    targets = np.zeros((len(names), V), dtype=np.float32)
+    for row, name in enumerate(names):
+        for tag, weight in fontTags[name].items():
+            targets[row, vocabIndex[tag]] = weight * idf[vocabIndex[tag]]
+
+    return targets, idf
+
+
+class RetrievalHead(nn.Module):
+    def __init__(self, inputDim, hiddenDim, outputDim, dropout=DROPOUT):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(inputDim, hiddenDim),
+            nn.LayerNorm(hiddenDim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hiddenDim, hiddenDim),
+            nn.LayerNorm(hiddenDim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hiddenDim, outputDim),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+def cosineLoss(pred, target):
+    pred = F.normalize(pred, dim=-1)
+    target = F.normalize(target, dim=-1)
+    return (1 - (pred * target).sum(dim=-1)).mean()
+
+
+def sparsifyToTfidf(preds, idf, topK):
+    """
+    Zero every dimension outside each font's own top-K predicted values,
+    then rescale the kept ones by idf -- rebuilds a sparse TF-IDF vector
+    from the model's own top guesses, the same construction
+    buildTfidfTargets used for the true per-font targets (binary presence
+    x idf), instead of scoring against the model's dense raw output where
+    every one of the ~1290 dimensions contributes something (the training
+    targets were sparse -- median 7 true tags/font -- but nothing forces
+    the model's output to be, so most of its mass outside the real top
+    attributes is noise, not signal).
+    """
+    k = min(topK, preds.shape[1])
+    _, topIdx = preds.topk(k, dim=1)
+    idfTensor = torch.as_tensor(idf, dtype=preds.dtype, device=preds.device)
+    sparse = torch.zeros_like(preds)
+    sparse.scatter_(1, topIdx, idfTensor[topIdx])
+    return sparse
 
 
 @torch.no_grad()
-def cheapMetrics(logits, targets, k=5):
-    """F1 @0.5 plus sample-wise precision@k / recall@k. All on-device, every step."""
-    probs = torch.sigmoid(logits)
-    preds = (probs > 0.5).float()
+def evaluate(model, embeddings, targets, idf=None, topK=None, ks=(5, 10)):
+    """topK=None uses the model's raw dense output (original behavior).
+    topK=N sparsifies to each font's top-N predicted dims first (see
+    sparsifyToTfidf) -- requires idf. NOTE: medianTrueTagRank gets noisier
+    under sparsification, since every zeroed dimension ties at rank in an
+    arbitrary order; precision@k/recall@k stay well-defined regardless
+    (they only ask whether a true tag lands in the top k), so those are
+    the metrics that actually matter for this comparison."""
+    model.eval()
+    raw = model(embeddings)
+    if topK is not None:
+        raw = sparsifyToTfidf(raw, idf, topK)
+    preds = F.normalize(raw, dim=-1)
 
-    tp = (preds * targets).sum()
-    precision = tp / (preds.sum() + 1e-8)
-    recall = tp / (targets.sum() + 1e-8)
-    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+    V = targets.shape[1]
+    order = preds.argsort(dim=1, descending=True)
+    rankOf = torch.empty(order.shape, dtype=torch.float32, device=preds.device)
+    ranks = torch.arange(1, V + 1, dtype=torch.float32, device=preds.device).unsqueeze(0).expand_as(order)
+    rankOf.scatter_(1, order, ranks)
 
-    k = min(k, logits.shape[1])
-    topk = probs.topk(k, dim=1).indices
-    hits = targets.gather(1, topk)
-    pAtK = (hits.sum(dim=1) / k).mean()
-    rAtK = (hits.sum(dim=1) / targets.sum(dim=1).clamp(min=1)).mean()
+    isTrue = targets > 0
+    trueRanks = torch.where(isTrue, rankOf, torch.full_like(rankOf, float("nan")))
+    perFontMedianRank = trueRanks.nanmedian(dim=1).values
+    medianRank = perFontMedianRank[~perFontMedianRank.isnan()].median().item()
 
-    return {
-        "f1": f1.item(),
-        "precision": precision.item(),
-        "recall": recall.item(),
-        "pAtK": pAtK.item(),
-        "rAtK": rAtK.item(),
-    }
-
-
-@torch.no_grad()
-def meanAP(logits, targets):
-    """Mean average precision across tags that have at least one positive in the batch."""
-    from sklearn.metrics import average_precision_score
-
-    probs = torch.sigmoid(logits).float().cpu().numpy()
-    t = targets.float().cpu().numpy()
-    aps = []
-    for c in range(t.shape[1]):
-        if t[:, c].sum() > 0:
-            aps.append(average_precision_score(t[:, c], probs[:, c]))
-    return float(np.mean(aps)) if aps else 0.0
+    results = {"medianTrueTagRank": medianRank, "chanceRank": V / 2}
+    for k in ks:
+        topk = preds.topk(min(k, V), dim=1).indices
+        hits = isTrue.gather(1, topk).float()
+        results[f"precision@{k}"] = hits.mean(dim=1).mean().item()
+        trueCounts = isTrue.sum(dim=1).clamp(min=1).float()
+        results[f"recall@{k}"] = (hits.sum(dim=1) / trueCounts).mean().item()
+    return results
 
 
-def saveExperiment(model: ViTEmbedder, config, vocab, experimentName, start):
-    stamp = start.strftime("%Y-%m-%d %H-%M")
-    for path in [os.path.join("checkpoints", "retrieval", "latest"),
-                 os.path.join("checkpoints", "retrieval", stamp)]:
-        target = os.path.join(path, experimentName)
-        os.makedirs(target, exist_ok=True)
-        torch.save(model.head.state_dict(), os.path.join(target, "head.pt"))
-        config.save(os.path.join(target, "config.json"))
-        with open(os.path.join(target, "vocab.json"), "w+") as file:
-            json.dump(vocab, file)
+def main():
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Device: {device}")
 
-def trainModel(config, model: ViTEmbedder, dataset, posWeight, experimentName, start):
-    model = model.to(device)
-    print(f"Head has {sum(p.numel() for p in model.head.parameters())} trainable parameters "
-          f"over {len(dataset.vocab)} tags")
+    print("Loading font embeddings ...")
+    fontEmbeddings = loadFontEmbeddings()
 
-    optimizer = torch.optim.AdamW([{"params": model.head.parameters(), "lr": config.learningRate},
-                                #    {"params": model.model.parameters(), "lr": 1e-4}
-                                   ], 
-                                   lr=config.learningRate)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=posWeight.to(device))
+    print("Loading descriptor grounding scores ...")
+    vocab = loadVocab()
+    cutoffLabel = "no cutoff (all measured descriptors)" if Z_CUTOFF is None else f"z > {Z_CUTOFF}"
+    print(f"{len(vocab)} descriptors kept ({cutoffLabel})")
 
-    print(f"{len(dataset)} total samples in dataset")
+    print("Loading raw tag/adjective descriptions ...")
+    config = Config().load(os.path.join("configs", "vit.json"))
+    descriptions = loadDescriptionsFromSource(config.dataset)
 
-    train, test = CombinedQueryData.split(dataset, batchSize=config.batchSize)
-    testIter = itertoolsBetter(test)
+    matched = matchEmbeddingsToDescriptions(fontEmbeddings, descriptions)
+    print(f"{len(matched)} fonts matched to embeddings")
 
-    run = None
-    total = 0
+    print("Building TF-IDF targets ...")
+    allNames = sorted(matched.keys())
+    targets, idf = buildTfidfTargets(descriptions, allNames, vocab)
 
-    print("Beginning")
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    with open(os.path.join(CHECKPOINT_DIR, "idf.json"), "w") as f:
+        # Same IDF used to build training targets, keyed by vocab term --
+        # search-time query scoring should weight by this too (see
+        # estimateSearchQuality.py), otherwise only the font side of the
+        # dot product is TF-IDF and common attributes can swamp rare,
+        # actually-discriminative ones when a query happens to touch both.
+        json.dump({tag: float(idf[i]) for i, tag in enumerate(vocab)}, f)
 
-    try:
-        for epoch in range(config.epochs):
-            progress = 0
-            for inputs, names, tokens, characters in train:
-                model.train()
-                optimizer.zero_grad()
+    # Fonts with none of their tags surviving the vocab filter have an
+    # all-zero target -- no signal to learn or evaluate against, drop them.
+    validMask = targets.sum(axis=1) > 0
+    names = [n for n, keep in zip(allNames, validMask) if keep]
+    targets = targets[validMask]
+    print(f"{len(names)}/{len(allNames)} fonts have >=1 surviving tag "
+          f"(median {int(np.median((targets > 0).sum(axis=1)))} per font)")
 
-                targets = tokens.float().to(device)
-                logits = model(inputs.to(device))
-                loss = criterion(logits, targets)
+    fontDim = len(next(iter(matched.values())))
+    fontEmbeddingMatrix = torch.tensor(np.stack([matched[n] for n in names]), dtype=torch.float32)
+    targetMatrix = torch.tensor(targets, dtype=torch.float32)
 
-                trainLoss = loss.detach().item()
-                loss.backward()
-                optimizer.step()
+    shuffled = list(range(len(names)))
+    random.shuffle(shuffled)
+    testSize = int(len(shuffled) * TEST_FRACTION)
+    testIdx, trainIdx = shuffled[:testSize], shuffled[testSize:]
+    print(f"{len(trainIdx)} train fonts, {len(testIdx)} test fonts")
 
-                trainMetrics = cheapMetrics(logits.detach(), targets)
+    model = RetrievalHead(fontDim, HIDDEN_DIM, len(vocab)).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
 
-                with torch.no_grad():
-                    model.eval()
-                    inputs1, names1, tokens1, characters1 = next(testIter)
-                    targets1 = tokens1.float().to(device)
-                    logits1 = model(inputs1.to(device))
-                    testLoss = criterion(logits1, targets1).item()
-                    testMetrics = cheapMetrics(logits1, targets1)
+    trainEmb = fontEmbeddingMatrix[trainIdx].to(device)
+    trainTarget = targetMatrix[trainIdx].to(device)
+    testEmb = fontEmbeddingMatrix[testIdx].to(device)
+    testTarget = targetMatrix[testIdx].to(device)
 
-                # mAP is the expensive one (per-tag sklearn) -> only every 25 steps
-                payload = {
-                    "Train Loss": trainLoss,
-                    "Test Loss": testLoss,
-                    "Train F1": trainMetrics["f1"],
-                    "Test F1": testMetrics["f1"],
-                    "Train Precision": trainMetrics["precision"],
-                    "Test Precision": testMetrics["precision"],
-                    "Train Recall": trainMetrics["recall"],
-                    "Test Recall": testMetrics["recall"],
-                    "Train Precision@5": trainMetrics["pAtK"],
-                    "Test Precision@5": testMetrics["pAtK"],
-                    "Train Recall@5": trainMetrics["rAtK"],
-                    "Test Recall@5": testMetrics["rAtK"],
-                }
-                if total % 25 == 0:
-                    payload["Train mAP"] = meanAP(logits.detach(), targets)
-                    payload["Test mAP"] = meanAP(logits1, targets1)
+    stepsPerEpoch = max(1, len(trainIdx) // BATCH_SIZE)
 
-                if run is None:
-                    run = wandb.init(
-                        entity="dylanberndt123-missouri-state-university",
-                        project="Font Retrieval",
-                        config=config.serialize(),
-                    )
+    bestEpoch, bestRank, bestMetrics = None, float("inf"), None
 
-                run.log(payload, step=total)
+    for epoch in range(1, EPOCHS + 1):
+        model.train()
+        perm = torch.randperm(len(trainIdx))
+        totalLoss = 0.0
 
-                progress += 1
-                total += 1
-                print(f"\r{epoch + 1} | {progress}/{len(train)} | "
-                      f"{(progress / len(train)) * 100:.2f}% | "
-                      f"Train Loss: {trainLoss:.3f} | Test Loss: {testLoss:.3f} | "
-                      f"Test F1: {testMetrics['f1']:.3f}", end="")
+        for step in range(stepsPerEpoch):
+            batchIdx = perm[step * BATCH_SIZE:(step + 1) * BATCH_SIZE]
+            if len(batchIdx) < 2:
+                continue
 
-                if total % 1000 == 0:
-                    saveExperiment(model, config, dataset.vocab, experimentName, start)
+            pred = model(trainEmb[batchIdx])
+            loss = cosineLoss(pred, trainTarget[batchIdx])
 
-    except KeyboardInterrupt:
-        pass
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            totalLoss += loss.item()
 
-    print()
-    saveExperiment(model, config, dataset.vocab, experimentName, start)
-    return model
+        m = evaluate(model, testEmb, testTarget)
+        if m["medianTrueTagRank"] < bestRank:
+            bestEpoch, bestRank, bestMetrics = epoch, m["medianTrueTagRank"], m
+            os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+            torch.save(model.state_dict(), os.path.join(CHECKPOINT_DIR, "head.pt"))
+            with open(os.path.join(CHECKPOINT_DIR, "vocab.json"), "w") as f:
+                json.dump(vocab, f)
+
+        print(f"epoch {epoch:>4}  loss {totalLoss / stepsPerEpoch:.4f}  "
+              f"median true-tag rank {m['medianTrueTagRank']:>5.1f}/{m['chanceRank']:.0f} chance  "
+              f"P@5 {m['precision@5']*100:>5.1f}%  P@10 {m['precision@10']*100:>5.1f}%  "
+              f"R@10 {m['recall@10']*100:>5.1f}%")
+
+    print(f"\nBEST epoch {bestEpoch}: median true-tag rank {bestMetrics['medianTrueTagRank']:.1f}/"
+          f"{bestMetrics['chanceRank']:.0f} chance  P@5 {bestMetrics['precision@5']*100:.1f}%  "
+          f"P@10 {bestMetrics['precision@10']*100:.1f}%  R@10 {bestMetrics['recall@10']*100:.1f}%")
+
+    # Reload the actual best checkpoint (in-memory weights are from the
+    # last epoch, which may be past the best point) and compare raw dense
+    # scoring against top-K sparsified TF-IDF reconstruction at a few K,
+    # on the SAME held-out set -- a direct test of whether thresholding the
+    # model's own predictions helps, before touching the search demo at all.
+    model.load_state_dict(torch.load(os.path.join(CHECKPOINT_DIR, "head.pt"), map_location=device))
+    print("\n=== raw dense output vs. top-K sparsified TF-IDF reconstruction (same best checkpoint) ===")
+    raw = evaluate(model, testEmb, testTarget)
+    print(f"  raw (no threshold)  P@5 {raw['precision@5']*100:>5.1f}%  P@10 {raw['precision@10']*100:>5.1f}%  "
+          f"R@10 {raw['recall@10']*100:>5.1f}%")
+    for k in (5, 10, 15, 20, 30, 50):
+        m = evaluate(model, testEmb, testTarget, idf=idf, topK=k)
+        print(f"  top-{k:<3}             P@5 {m['precision@5']*100:>5.1f}%  P@10 {m['precision@10']*100:>5.1f}%  "
+              f"R@10 {m['recall@10']*100:>5.1f}%")
 
 
 if __name__ == "__main__":
-    config = Config().load(os.path.join("configs", "querying.json"))
-
-    vit, imageConfig = ViT.load(os.path.join("checkpoints", "pretrain", "latest"))
-
-    dataset = CombinedQueryData(imageConfig.dataset, training=True, multiClass=True)
-
-    numTags = len(dataset.vocab)
-    config.numTags = numTags
-    config.task = "retrieval"
-    config.backbone = os.path.join("checkpoints", "pretrain", "latest")
-
-    # ViTEmbedder's head output width == number of tags, so it emits one logit per tag
-    model = ViTEmbedder(vit, numTags)
-
-    posWeight = computePosWeight(dataset, dataset.vocab)
-
-    experimentName = "ViT tags"
-    start = datetime.now()
-    trainModel(config, model, dataset, posWeight, experimentName, start)
+    main()
