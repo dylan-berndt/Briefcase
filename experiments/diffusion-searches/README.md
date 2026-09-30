@@ -1,5 +1,7 @@
 # Text -> Visual Font Embedding Diffusion Experiment
 
+> **Sept 2026 cleanup:** some scripts this README mentions were removed from version control before the merge into staging (they are listed at the end of `.gitignore` and kept on the original machine). Their results are recorded here and in `CLAUDE.md`.
+
 Tests whether a diffusion model can learn `P(visual font embedding | text embedding)`.
 
 ## Current pipeline (targets `embeddings/all.json`, the staging-branch corpus)

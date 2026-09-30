@@ -1,0 +1,65 @@
+{
+ "fonts": {
+  "train": 15049,
+  "val": 1875,
+  "test": 1876
+ },
+ "tags": 1824,
+ "val": {
+  "top50RocAuc": 0.7455995371642772,
+  "top50PrAuc": 0.29403087141921314
+ },
+ "top50RocAuc": 0.74788868065229,
+ "top50PrAuc": 0.3076360751600353,
+ "iccvSingle300": {
+  "mAP": 14.342247331377129,
+  "NDCG": 56.713037339768626,
+  "queries": 300,
+  "skippedOutOfVocab": 0
+ },
+ "iccvSingleFull": {
+  "mAP": 6.933565982596546,
+  "NDCG": 31.38046137433716,
+  "queries": 1684,
+  "skippedOutOfVocab": 0
+ },
+ "iccvMulti": {
+  "mAP": 6.487253264996267,
+  "NDCG": 26.62685029411145,
+  "queries": 5465,
+  "skippedOutOfVocab": 0
+ },
+ "amt": {
+  "accuracy": 0.4559710494571773,
+  "groups": 1658
+ },
+ "tag": "full_levjepa_randominit",
+ "args": {
+  "ckpt": "checkpoints/pretrain/levjepa-random-init",
+  "control": null,
+  "glyphs": "lower",
+  "mode": "full",
+  "sparseViews": 8,
+  "keep": 0.1,
+  "inkFrac": 0.75,
+  "inkThreshold": 0.1,
+  "data": "dataset\\levjepa",
+  "datasetDir": "dataset",
+  "minGlyphs": 26,
+  "maxFonts": null,
+  "batch": 32,
+  "epochs": 40,
+  "seed": 0,
+  "device": "cuda",
+  "vramFraction": 0.6,
+  "minFreeGB": 2.5,
+  "tag": "full_levjepa_randominit",
+  "wandb": false,
+  "follow": null,
+  "total": 59000,
+  "followPoll": 300.0
+ },
+ "embedSeconds": 675.1999802589417,
+ "peakGpuGiB": 0.9967155456542969,
+ "totalSeconds": 725.6181411743164
+}

@@ -1,5 +1,7 @@
 # Critical review: why text→font retrieval has been stuck
 
+> **Sept 2026 cleanup:** some scripts this README mentions were removed from version control before the merge into staging (they are listed at the end of `.gitignore` and kept on the original machine). Their results are recorded here and in `CLAUDE.md`.
+
 A search for structural flaws and wrong assumptions, not for small tuning wins. Every number
 below was measured in this session on CPU against the real data: the ICCV-2019 MyFonts dataset, a
 fresh clone of `google/fonts`, `dafonts-free`, `embeddings/all.json`, and
@@ -81,7 +83,8 @@ head, official split, mAP / NDCG over the 1,866 test fonts):
 |---|---|---|---|
 | RelationNet (ICCV table) | 15.3 / 57.5 | 5.7 / 29.3 | 7.5 / 28.1 |
 | **project ViT + MLP head** | **20.5 / 62.8** | **11.4 / 36.9** | **11.0 / 32.1** |
-| ICCV full model (end-to-end ResNet-50, 128px) | 27.8 / 69.8 | 17.8 / 43.7 | 15.8 / 36.4 |
+| ICCV basic tag classifier (end-to-end ResNet-50) | 26.29 / 68.67 | 16.77 / 42.63 | 14.93 / 35.52 |
+| ICCV full model (GAN + attention + retrieval) | 28.08 / 70.04 | 18.02 / 43.95 | 16.74 / 37.57 |
 
 **AMT-test** (`e7_amt.py`): 1,661 human "which of 3 fonts best fits tag X" triplets, where all 3
 fonts already carry the tag.
@@ -260,7 +263,7 @@ Protocol matched to music auto-tagging (Won et al., SMC 2020): the 50 most frequ
 
 | domain / dataset | labels | macro ROC-AUC | macro PR-AUC / mAP |
 |---|---|---|---|
-| **Fonts / MyFonts (this repo)** | top-50 foundry tags | **0.795** | **0.370** (random 0.117) |
+| **Fonts / MyFonts (this repo)** | top-50 MyFonts tags (generic style/usage words) | **0.795** | **0.370** (random 0.117) |
 | Music / MTG-Jamendo (Won 2020 best) | top-50 genre/mood/instrument | 0.832 | 0.298 |
 | Music / Million Song Dataset (Last.fm crowd tags) | top-50 | 0.890 | 0.330 |
 | Music / MagnaTagATune | top-50 | 0.913 | 0.461 |

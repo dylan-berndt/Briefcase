@@ -1,5 +1,7 @@
 # Embedding geometry: why does font text search fail where general image search succeeds?
 
+> **Sept 2026 cleanup:** some scripts this README mentions were removed from version control before the merge into staging (they are listed at the end of `.gitignore` and kept on the original machine). Their results are recorded here and in `CLAUDE.md`.
+
 ## The question
 
 This project's font search (`experiments/diffusion-searches/`) has repeatedly measured that a short

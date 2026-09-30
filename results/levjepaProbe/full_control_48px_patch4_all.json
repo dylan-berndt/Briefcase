@@ -1,0 +1,66 @@
+{
+ "fonts": {
+  "train": 15049,
+  "val": 1875,
+  "test": 1876
+ },
+ "tags": 1824,
+ "val": {
+  "top50RocAuc": 0.7947058927805162,
+  "top50PrAuc": 0.37120436883873326
+ },
+ "top50RocAuc": 0.7995556495063696,
+ "top50PrAuc": 0.3771994568566074,
+ "iccvSingle300": {
+  "mAP": 20.794400924915653,
+  "NDCG": 62.834077541186694,
+  "queries": 300,
+  "skippedOutOfVocab": 0
+ },
+ "iccvSingleFull": {
+  "mAP": 12.171215950813346,
+  "NDCG": 37.81586373393261,
+  "queries": 1684,
+  "skippedOutOfVocab": 0
+ },
+ "iccvMulti": {
+  "mAP": 11.290292183130168,
+  "NDCG": 32.486119763970756,
+  "queries": 5465,
+  "skippedOutOfVocab": 0
+ },
+ "amt": {
+  "accuracy": 0.4752714113389626,
+  "groups": 1658
+ },
+ "tag": "full_control_48px_patch4_all",
+ "args": {
+  "ckpt": null,
+  "control": "checkpoints/pretrain/weak-sigreg-proj-48px-patch4-d256-a0.5",
+  "glyphs": "all",
+  "bitmap64": false,
+  "mode": "full",
+  "sparseViews": 8,
+  "keep": 0.1,
+  "inkFrac": 0.75,
+  "inkThreshold": 0.1,
+  "data": "dataset\\levjepa",
+  "datasetDir": "dataset",
+  "minGlyphs": 26,
+  "maxFonts": null,
+  "batch": 16,
+  "epochs": 40,
+  "seed": 0,
+  "device": "cuda",
+  "vramFraction": 0.6,
+  "minFreeGB": 2.5,
+  "tag": "full_control_48px_patch4_all",
+  "wandb": false,
+  "follow": null,
+  "total": 59000,
+  "followPoll": 300.0
+ },
+ "embedSeconds": 1407.8891603946686,
+ "peakGpuGiB": 0.859919548034668,
+ "totalSeconds": 1459.5192284584045
+}
