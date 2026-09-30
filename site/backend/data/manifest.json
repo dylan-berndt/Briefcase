@@ -1,0 +1,33 @@
+{
+ "format": 1,
+ "created": "2026-09-30T19:56:52+00:00",
+ "numFonts": 12802,
+ "numTags": 1824,
+ "specimen": {
+  "mimetype": "image/webp"
+ },
+ "model": {
+  "adapter": "finetuneTags",
+  "path": "checkpoints/retrieval/finetuneTags/2026-09-28 19-25",
+  "device": "cuda",
+  "failedToRender": 51
+ },
+ "files": {
+  "vocab.json": {
+   "bytes": 19228,
+   "sha256": "27f360698a7f29b9ee2c1951a59bbc3e2efee3c46b730980ceb9282c51cee1d5"
+  },
+  "fonts.json": {
+   "bytes": 2147420,
+   "sha256": "cd5a02ffb3e55d1f01a861d37d78db06d123c597ec766243b2f3ee3eaa283696"
+  },
+  "logits.npy": {
+   "bytes": 46701824,
+   "sha256": "cd973316a5b38d78cdedb3ddc953564efcdd80a32ae1c057d5c219166970d54d"
+  },
+  "specimens.pack": {
+   "bytes": 71147612,
+   "sha256": "6cac9fcf7ae287171fd64b8b882db92dbfe64da880fa19a93fc525f5396d8500"
+  }
+ }
+}
