@@ -103,6 +103,37 @@ def test_shared_link_past_the_end_lands_on_last_page(page):
     expect(page.get_by_text("Page 13 of 13")).to_be_visible()
 
 
+def test_scrolling_down_and_back_up_returns_to_the_first_view(page):
+    def where():
+        return page.evaluate("""() => ({ scrollY: Math.round(scrollY),
+            title: Math.round(document.querySelector('.Center > div').getBoundingClientRect().top),
+            input: Math.round(document.querySelector('.SearchForm').getBoundingClientRect().top) })""")
+    page.goto("/")
+    first = where()
+    search(page, "bold")
+    page.locator(".ResultWindow").first.wait_for()
+    assert where() == first  # results appear below, nothing above them moves
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    assert where()["scrollY"] > 1000
+    page.evaluate("window.scrollTo(0, 0)")
+    assert where() == first
+
+
+def test_thumbs_sit_under_the_rating_and_say_what_they_mean(page):
+    page.goto("/")
+    search(page, "serif")
+    card = page.locator(".ResultWindow").first
+    stars, thumbs = card.locator(".Stars"), card.locator(".Votes")
+    assert stars.bounding_box()["y"] < thumbs.bounding_box()["y"]
+    assert abs((stars.bounding_box()["x"] + stars.bounding_box()["width"]) - (thumbs.bounding_box()["x"] + thumbs.bounding_box()["width"])) < 40
+    up = card.get_by_role("button", name="This font matched my query")
+    assert up.get_attribute("title") == "This font matched my query"
+    assert card.get_by_role("button", name="This font did not match my query").get_attribute("title") == "This font did not match my query"
+    assert card.get_by_role("button", name="Describe").count() == 0
+    title = card.locator(".ResultTitle")
+    assert title.locator("a").bounding_box()["y"] < title.locator(".ResultSource").bounding_box()["y"]
+
+
 def test_unrecognised_query(page):
     page.goto("/")
     search(page, "qwertyuiop")
@@ -114,7 +145,7 @@ def test_feedback_needs_login_then_persists(page):
     page.goto("/")
     search(page, "serif")
     card = page.locator(".ResultWindow").first
-    card.get_by_role("button", name="This font matches my search").click()
+    card.get_by_role("button", name="This font matched my query").click()
     expect(card.get_by_text("Log in to give feedback")).to_be_visible()
     expect(page.get_by_label("Username:")).to_be_visible()
 
@@ -122,7 +153,7 @@ def test_feedback_needs_login_then_persists(page):
     # logging in reloads the results with this user's state
     card = page.locator(".ResultWindow").first
     title = card.locator(".ResultTitle a").inner_text()
-    yes = card.get_by_role("button", name="This font matches my search")
+    yes = card.get_by_role("button", name="This font matched my query")
     yes.click()
     expect(yes).to_have_attribute("aria-pressed", "true")
     card.get_by_role("button", name="Rate 4 stars").click()
@@ -133,14 +164,14 @@ def test_feedback_needs_login_then_persists(page):
     card = page.locator(".ResultWindow").first
     expect(page.get_by_role("button", name=name)).to_be_visible()  # session survived the reload
     assert card.locator(".ResultTitle a").inner_text() == title
-    expect(card.get_by_role("button", name="This font matches my search")).to_have_attribute("aria-pressed", "true")
+    expect(card.get_by_role("button", name="This font matched my query")).to_have_attribute("aria-pressed", "true")
     expect(card.get_by_text("4 (1)")).to_be_visible()
 
     # the vote belongs to that query; the rating to the font
     search(page, "serif bold")
     other = page.locator(".ResultWindow", has_text=title)
     if other.count():
-        expect(other.get_by_role("button", name="This font matches my search")).to_have_attribute("aria-pressed", "false")
+        expect(other.get_by_role("button", name="This font matched my query")).to_have_attribute("aria-pressed", "false")
         expect(other.get_by_text("4 (1)")).to_be_visible()
 
     card = page.locator(".ResultWindow").first

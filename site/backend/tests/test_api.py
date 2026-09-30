@@ -344,6 +344,13 @@ def test_static_and_spa_fallback(client):
     assert b"root:" not in client.get("/..%2f..%2fetc/passwd").data
 
 
+def test_missing_files_are_404_not_the_app(client):
+    # the Map page loads /flower.html in an iframe; a missing file used to show the whole app inside it
+    for path in ("/flower.html", "/static/js/missing.js", "/nothing.png"):
+        assert client.get(path).status_code == 404
+    assert b"index" in client.get("/map").data  # extensionless paths are still client routes
+
+
 def test_unknown_api_path_is_json_404(client):
     response = client.get("/api/font/nothing")
     assert response.status_code == 404 and response.json == {"message": "Not found"}

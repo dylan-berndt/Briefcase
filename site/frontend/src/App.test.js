@@ -97,7 +97,7 @@ test("a vote while logged out opens the login box", async () => {
 	});
 	render(<App />);
 	userEvent.type(screen.getByLabelText("Describe a font"), "serif{enter}");
-	const yes = (await screen.findAllByRole("button", { name: "This font matches my search" }))[0];
+	const yes = (await screen.findAllByRole("button", { name: "This font matched my query" }))[0];
 	userEvent.click(yes);
 	expect(await screen.findByLabelText("Username:")).toBeInTheDocument();
 });

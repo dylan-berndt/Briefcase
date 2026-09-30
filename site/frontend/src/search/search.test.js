@@ -45,6 +45,12 @@ describe("searching", () => {
 		expect(calls).toHaveLength(0);
 	});
 
+	test("keeps the original prompt above the search box", () => {
+		installFetch({});
+		render(<SearchPage username={null} />);
+		expect(screen.getByText("Please enter a description to search for a font")).toBeInTheDocument();
+	});
+
 	test("shows specimen images linking out, with the matched tags", async () => {
 		const calls = installFetch({ "/api/font/query": queryHandler(30, { tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: -1 }] }) });
 		render(<SearchPage username={null} />);
@@ -192,10 +198,10 @@ describe("pagination", () => {
 });
 
 describe("feedback", () => {
-	async function loaded(username, handlers = {}) {
+	async function loaded(username, handlers = {}, props = {}) {
 		const calls = installFetch({ "/api/font/query": queryHandler(30), ...handlers });
 		const onNeedLogin = jest.fn();
-		const view = render(<SearchPage username={username} onNeedLogin={onNeedLogin} />);
+		const view = render(<SearchPage username={username} onNeedLogin={onNeedLogin} {...props} />);
 		await search("serif");
 		await screen.findAllByRole("img");
 		return { calls, onNeedLogin, view };
@@ -204,7 +210,7 @@ describe("feedback", () => {
 
 	test("logged out: asks to log in and sends nothing", async () => {
 		const { calls, onNeedLogin } = await loaded(null);
-		userEvent.click(within(firstCard()).getByRole("button", { name: "This font matches my search" }));
+		userEvent.click(within(firstCard()).getByRole("button", { name: "This font matched my query" }));
 		expect(onNeedLogin).toHaveBeenCalled();
 		expect(within(firstCard()).getByRole("status")).toHaveTextContent("Log in to give feedback");
 		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 3 stars" }));
@@ -214,8 +220,8 @@ describe("feedback", () => {
 	test("approve, flip, and clear", async () => {
 		const answers = [];
 		const { calls } = await loaded("alice", { "/api/font/approve": ({ body }) => { answers.push(body.vote); return jsonResponse({ message: "Successful", vote: body.vote }); } });
-		const yes = () => within(firstCard()).getByRole("button", { name: "This font matches my search" });
-		const no = () => within(firstCard()).getByRole("button", { name: "This font does not match my search" });
+		const yes = () => within(firstCard()).getByRole("button", { name: "This font matched my query" });
+		const no = () => within(firstCard()).getByRole("button", { name: "This font did not match my query" });
 
 		userEvent.click(yes());
 		await waitFor(() => expect(yes()).toHaveAttribute("aria-pressed", "true"));
@@ -234,7 +240,7 @@ describe("feedback", () => {
 		installFetch({ "/api/font/query": () => jsonResponse({ ...makePage({ total: 1 }), results: [makeResult(0, { vote: -1 })] }) });
 		render(<SearchPage username="alice" />);
 		await search("serif");
-		const no = await screen.findByRole("button", { name: "This font does not match my search" });
+		const no = await screen.findByRole("button", { name: "This font did not match my query" });
 		expect(no).toHaveAttribute("aria-pressed", "true");
 	});
 
@@ -265,14 +271,36 @@ describe("feedback", () => {
 			"/api/font/approve": () => jsonResponse({ message: "Font not found" }, 404),
 			"/api/font/rate": () => Promise.reject(new Error("offline")),
 		});
-		userEvent.click(within(firstCard()).getByRole("button", { name: "This font matches my search" }));
+		userEvent.click(within(firstCard()).getByRole("button", { name: "This font matched my query" }));
 		await within(firstCard()).findByText("Font not found");
 		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 5 stars" }));
 		await within(firstCard()).findByText("Could not reach the server");
 	});
 
+	test("the description box is hidden unless asked for", async () => {
+		await loaded("alice");
+		expect(screen.queryByRole("button", { name: "Describe" })).toBeNull();
+	});
+
+	test("thumbs say what they mean on hover", async () => {
+		await loaded("alice");
+		const up = within(firstCard()).getByRole("button", { name: "This font matched my query" });
+		const down = within(firstCard()).getByRole("button", { name: "This font did not match my query" });
+		expect(up).toHaveAttribute("title", "This font matched my query");
+		expect(down).toHaveAttribute("title", "This font did not match my query");
+	});
+
+	test("the source sits under the font name, and the rating above the thumbs", async () => {
+		await loaded("alice");
+		const card = firstCard();
+		const title = card.querySelector(".ResultTitle");
+		expect([...title.children].map(e => e.className || e.tagName)).toEqual(["A", "ResultSource"]);
+		const feedback = card.querySelector(".ResultFeedback");
+		expect([...feedback.children].map(e => e.className)).toEqual(["Stars", "Votes"]);
+	});
+
 	test("describing a font", async () => {
-		const { calls } = await loaded("alice", { "/api/font/describe": () => jsonResponse({ message: "Successful" }) });
+		const { calls } = await loaded("alice", { "/api/font/describe": () => jsonResponse({ message: "Successful" }) }, { allowDescriptions: true });
 		userEvent.click(within(firstCard()).getByRole("button", { name: "Describe" }));
 		userEvent.type(within(firstCard()).getByLabelText("Font description"), "warm and friendly{enter}");
 		await within(firstCard()).findByText("Thanks, description saved");
@@ -285,9 +313,9 @@ describe("feedback", () => {
 		const view = render(<SearchPage username={null} />);
 		await search("serif");
 		await screen.findAllByRole("img");
-		expect(screen.getByRole("button", { name: "This font matches my search" })).toHaveAttribute("aria-pressed", "false");
+		expect(screen.getByRole("button", { name: "This font matched my query" })).toHaveAttribute("aria-pressed", "false");
 		view.rerender(<SearchPage username="alice" />);
-		await waitFor(() => expect(screen.getByRole("button", { name: "This font matches my search" })).toHaveAttribute("aria-pressed", "true"));
+		await waitFor(() => expect(screen.getByRole("button", { name: "This font matched my query" })).toHaveAttribute("aria-pressed", "true"));
 		expect(calls.filter(c => c.path === "/api/font/query")).toHaveLength(2);
 	});
 });

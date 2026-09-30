@@ -106,6 +106,11 @@ The three feedback endpoints need a login. Votes, ratings and descriptions live 
 `registry`, `ratings`, `approvals`, `descriptions`) are left in an existing database untouched; only `users` carries
 over.
 
+## Map page
+
+The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in
+`site/frontend/public/` (un-ignored in `.gitignore`, tracked with git-lfs). A missing file is a 404, not the app.
+
 ## Tests
 
 ```bash

@@ -42,6 +42,13 @@ export function Pagination({ page, totalPages, total, onPage }) {
 	</nav>;
 }
 
+function Thumb({ down = false }) {
+	return <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"
+		style={down ? { transform: "rotate(180deg)" } : undefined}>
+		<path fill="currentColor" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z" />
+	</svg>;
+}
+
 function Stars({ rating, onRate }) {
 	const [hover, setHover] = useState(0);
 	const shown = hover || rating.mine || 0;
@@ -57,7 +64,7 @@ function Stars({ rating, onRate }) {
 	</div>;
 }
 
-function Result({ result, query, username, onNeedLogin }) {
+function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 	const [vote, setVote] = useState(result.vote);
 	const [rating, setRating] = useState(result.rating);
 	const [message, setMessage] = useState("");
@@ -100,23 +107,29 @@ function Result({ result, query, username, onNeedLogin }) {
 				<a href={result.url} target="_blank" rel="noopener noreferrer">{result.name}</a>
 				<span className="ResultSource">{result.source === "google" ? "Google Fonts" : "DaFont"}{result.creator ? ` · ${result.creator}` : ""}</span>
 			</div>
-			<div className="ResultActions">
-				<div className="Votes" role="group" aria-label="Does this font answer your search?">
-					<button type="button" aria-pressed={vote === 1} className={vote === 1 ? "VoteOn" : ""}
-						aria-label="This font matches my search" title="Matches my search" onClick={() => castVote(1)}>Matches</button>
-					<button type="button" aria-pressed={vote === -1} className={vote === -1 ? "VoteOn" : ""}
-						aria-label="This font does not match my search" title="Doesn't match my search" onClick={() => castVote(-1)}>Doesn't match</button>
-				</div>
+			<div className="ResultFeedback">
 				<Stars rating={rating} onRate={rate} />
-				<button type="button" className="DescribeToggle" onClick={() => setDescribing(!describing)}>Describe</button>
+				<div className="Votes" role="group" aria-label="Does this font answer your query?">
+					<button type="button" aria-pressed={vote === 1} className={vote === 1 ? "VoteOn" : ""}
+						aria-label="This font matched my query" title="This font matched my query" onClick={() => castVote(1)}>
+						<Thumb />
+					</button>
+					<button type="button" aria-pressed={vote === -1} className={vote === -1 ? "VoteOn" : ""}
+						aria-label="This font did not match my query" title="This font did not match my query" onClick={() => castVote(-1)}>
+						<Thumb down />
+					</button>
+				</div>
+				{allowDescriptions
+					? <button type="button" className="DescribeToggle" onClick={() => setDescribing(!describing)}>Describe</button>
+					: null}
 			</div>
 		</div>
-		{!describing ? null :
+		{allowDescriptions && describing ?
 			<form className="DescriptionField" onSubmit={describe}>
 				<p>How would you describe this font?</p>
 				<input type="text" aria-label="Font description" maxLength={500} value={description}
 					onChange={e => setDescription(e.target.value)} />
-			</form>}
+			</form> : null}
 		{message ? <p className="ResultMessage" role="status">{message}</p> : null}
 	</article>;
 }
@@ -125,7 +138,8 @@ function queryDescription(tags) {
 	return tags.map(t => (t.weight < 0 ? "not " : "") + t.tag).join(", ");
 }
 
-export default function SearchPage({ username, onNeedLogin = () => {} }) {
+// allowDescriptions shows the per-font description box; hidden for now, the endpoint is still there
+export default function SearchPage({ username, onNeedLogin = () => {}, allowDescriptions = false }) {
 	const initial = new URLSearchParams(window.location.search);
 	const [text, setText] = useState(initial.get("q") || "");
 	const [query, setQuery] = useState(initial.get("q") || "");
@@ -199,7 +213,7 @@ export default function SearchPage({ username, onNeedLogin = () => {} }) {
 	useEffect(() => {
 		const id = setInterval(() => {
 			setFontNum(n => (n + 1) % fontClasses.length);
-		}, 300);
+		}, 1000);
 		return () => clearInterval(id);
 	}, [fontClasses.length]);
 
@@ -214,7 +228,7 @@ export default function SearchPage({ username, onNeedLogin = () => {} }) {
 		</div>
 		<div style={{ height: "6vmin" }}></div>
 		<p style={{ fontSize: "3vmin", marginBottom: "4vh" }}>
-			Describe the font you want, for example "elegant script, not too thin"
+			Please enter a description to search for a font
 		</p>
 
 		<form className="SearchForm" onSubmit={e => { e.preventDefault(); if (text.trim()) navigate(text.trim(), 1); }}>
@@ -236,7 +250,7 @@ export default function SearchPage({ username, onNeedLogin = () => {} }) {
 			<div className={loading ? "Results ResultsLoading" : "Results"} aria-busy={loading}>
 				{data.results.map(result =>
 					<Result key={data.generation + "|" + result.key} result={result} query={query}
-						username={username} onNeedLogin={onNeedLogin} />)}
+						username={username} onNeedLogin={onNeedLogin} allowDescriptions={allowDescriptions} />)}
 			</div>
 			<Pagination page={data.page} totalPages={data.totalPages} total={data.total} onPage={goToPage} />
 		</>}

@@ -4,8 +4,9 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 120px 48px 64px;
+    justify-content: flex-start;
+    /* Where the title and search box sit on first load, so a search (or scrolling down and back up) never moves them */
+    padding: max(120px, calc(50vh - 100px)) 48px 64px;
     gap: 0;
   }
 
@@ -34,9 +35,9 @@
     font-size: clamp(14px, 2vmin, 16px);
     background: var(--col-surface-2);
     color: var(--col-text);
-    border: 1px solid var(--col-border);
-    border-radius: 6px;
-    padding: 12px 18px;
+    border: 4px solid var(--col-edge);
+    border-radius: 0;
+    padding: 10px 16px;
     width: 100%;
     outline: none;
     transition: border-color 0.2s;
@@ -53,29 +54,7 @@
 
   .SearchForm {
     display: flex;
-    gap: 8px;
     width: min(720px, 100%);
-  }
-
-  .Pagination button,
-  .ResultActions button {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--col-text-muted);
-    background: transparent;
-    border: 1px solid var(--col-border);
-    border-radius: 4px;
-    padding: 6px 12px;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: color 0.2s, border-color 0.2s;
-  }
-
-  .Pagination button:hover:not(:disabled),
-  .ResultActions button:hover {
-    color: var(--col-text);
-    border-color: var(--col-border-hover);
   }
 
   .ResultsTop {
@@ -105,19 +84,18 @@
     opacity: 0.5;
   }
 
+  /* Thick, square edges to match the blocky background */
   .ResultWindow {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: stretch;
     background: var(--col-surface-2);
-    border: 1px solid var(--col-border);
-    border-radius: 8px;
-    overflow: hidden;
+    border: 4px solid var(--col-edge);
     transition: border-color 0.2s;
   }
 
   .ResultWindow:hover {
-    border-color: var(--col-border-hover);
+    border-color: var(--col-edge-hover);
   }
 
   .Specimen {
@@ -135,26 +113,29 @@
   }
 
   .ResultInfo {
-    flex: 1 1 280px;
+    flex: 1 1 260px;
     min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 24px;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-content: flex-start;
+    gap: 12px 16px;
+    padding: 16px 20px;
   }
 
   .ResultTitle {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
   }
 
   .ResultTitle a {
     color: var(--col-text);
     text-decoration: none;
-    font-size: 14px;
+    font-size: clamp(20px, 2.8vmin, 28px);
+    line-height: 1.15;
+    overflow-wrap: anywhere;
   }
 
   .ResultTitle a:hover {
@@ -163,30 +144,18 @@
 
   .ResultSource {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--col-text-muted);
-    text-align: right;
   }
 
-  .ResultActions {
+  .ResultFeedback {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 12px;
-  }
-
-  .Votes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .ResultActions .VoteOn {
-    color: var(--col-bg);
-    background: var(--col-accent);
-    border-color: var(--col-accent);
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    margin-left: auto;
   }
 
   .Stars {
@@ -194,15 +163,17 @@
     align-items: center;
   }
 
-  .ResultActions .Star {
-    border: none;
-    padding: 0 1px;
-    font-size: 18px;
+  .ResultFeedback .Star {
+    font-size: 20px;
     line-height: 1;
-    color: var(--col-border-hover);
+    padding: 0 1px;
+    color: var(--col-edge-hover);
+    background: transparent;
+    border: none;
+    cursor: pointer;
   }
 
-  .ResultActions .StarOn {
+  .ResultFeedback .StarOn {
     color: var(--col-accent);
   }
 
@@ -212,21 +183,57 @@
     color: var(--col-text-muted);
   }
 
-  .ResultActions .DescribeToggle {
-    margin-left: auto;
+  .Votes {
+    display: flex;
+    gap: 8px;
+  }
+
+  .Votes button,
+  .DescribeToggle,
+  .Pagination button {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: 2px solid var(--col-edge-hover);
+    border-radius: 0;
+    padding: 6px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+
+  .Votes button {
+    display: flex;
+    align-items: center;
+    padding: 5px 9px;
+  }
+
+  .Votes button:hover,
+  .DescribeToggle:hover,
+  .Pagination button:hover:not(:disabled) {
+    color: var(--col-text);
+    border-color: var(--col-text-muted);
+  }
+
+  .Votes .VoteOn {
+    color: var(--col-bg);
+    background: var(--col-accent);
+    border-color: var(--col-accent);
   }
 
   .ResultMessage {
     flex-basis: 100%;
-    padding: 0 24px 12px;
+    padding: 0 20px 12px;
     font-size: 11px;
     color: var(--col-text-muted);
   }
 
   .DescriptionField {
     flex-basis: 100%;
-    border-top: 1px solid var(--col-border);
-    padding: 12px 16px;
+    border-top: 4px solid var(--col-edge);
+    padding: 12px 20px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -244,8 +251,7 @@
     font-size: 14px;
     background: var(--col-surface-2);
     color: var(--col-text);
-    border: 1px solid var(--col-border);
-    border-radius: 4px;
+    border: 2px solid var(--col-edge-hover);
     padding: 8px 12px;
     width: 100%;
     outline: none;
@@ -263,7 +269,7 @@
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin-top: 32px;
   }
 

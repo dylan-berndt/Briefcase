@@ -6,3 +6,6 @@ site/backend/data/logits.npy filter=lfs diff=lfs merge=lfs -text
 site/backend/data/specimens.pack filter=lfs diff=lfs merge=lfs -text
 site/backend/data/fonts.json filter=lfs diff=lfs merge=lfs -text
 site/backend/data/vocab.json filter=lfs diff=lfs merge=lfs -text
+# Map page exports, several MB each
+site/frontend/public/flower.html filter=lfs diff=lfs merge=lfs -text
+site/frontend/public/blob.html filter=lfs diff=lfs merge=lfs -text

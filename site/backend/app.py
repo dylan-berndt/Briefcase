@@ -327,6 +327,9 @@ def createApp(overrides=None):
         staticDir = app.config["STATIC_DIR"]
         if path != "" and os.path.isfile(os.path.join(staticDir, path)):
             return send_from_directory(staticDir, path)
+        # A missing file (the Map page's iframe, say) is a 404, not the app; only extensionless paths are routes
+        if os.path.splitext(path)[1]:
+            abort(404)
         return send_from_directory(staticDir, "index.html")
 
     @app.errorhandler(404)
