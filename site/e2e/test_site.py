@@ -322,3 +322,27 @@ def test_no_horizontal_scroll_on_a_phone(browser, site):
     shot(page, "phone")
     context.close()
     assert overflow <= 0
+
+
+def test_about_page_renders_the_markdown_in_patua_one_with_contents(page):
+    page.goto("/")
+    page.get_by_role("button", name="About").click()
+    expect(page.get_by_role("heading", level=1)).to_be_visible()
+    nav = page.get_by_role("navigation", name="Table of contents")
+    expect(nav).to_be_visible()
+    links = nav.get_by_role("link")
+    assert links.count() >= 2
+    fonts = page.evaluate("""() => [...document.querySelectorAll('.AboutText h1, .AboutText h2, .AboutText p, .AboutContents a')]
+        .map(e => getComputedStyle(e).fontFamily)""")
+    assert fonts and all(f.startswith('"Patua One"') for f in fonts), set(fonts)
+    assert page.evaluate("getComputedStyle(document.querySelector('.AboutText h2')).fontWeight") in ("400", "normal")
+
+    # a contents link scrolls a heading that starts below the fold into view
+    target = links.last.get_attribute("href").removeprefix("#")
+    assert page.evaluate("id => document.getElementById(id).getBoundingClientRect().top > innerHeight", target)
+    links.last.click()
+    page.wait_for_function("""id => { const r = document.getElementById(id).getBoundingClientRect();
+        return r.top >= 0 && r.bottom <= innerHeight; }""", arg=target)
+    assert "#" not in page.url
+    shot(page, "about")
+    assert page.errors == []
