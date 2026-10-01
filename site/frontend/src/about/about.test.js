@@ -21,6 +21,13 @@ describe("renderMarkdown", () => {
 		expect(html).toContain('<h3 id="sub-part">Sub part</h3>');
 	});
 
+	test("the title is never listed, and any levels can be", () => {
+		const doc = "# Title\n\n## A\n\n#### Deep\n\n# Other top\n\n## B";
+		expect(renderMarkdown(doc).toc.map(t => t.text)).toEqual(["A", "B"]);
+		expect(renderMarkdown(doc, [1, 2, 3, 4]).toc.map(t => [t.text, t.depth]))
+			.toEqual([["A", 2], ["Deep", 4], ["Other top", 1], ["B", 2]]);
+	});
+
 	test("repeated headings get distinct ids", () => {
 		const { toc } = renderMarkdown("## Same\n\n## Same\n\n## Same");
 		expect(toc.map(t => t.id)).toEqual(["same", "same-2", "same-3"]);
@@ -72,6 +79,14 @@ describe("About page", () => {
 		expect(scrolled).toHaveBeenCalledTimes(1);
 		expect(scrolled.mock.instances[0]).toBe(document.getElementById("second"));
 		expect(window.location.hash).toBe("");                 // the app's own address is left alone
+	});
+
+	test("entries are indented by how much deeper they are than the shallowest listed", async () => {
+		serve(body);
+		render(<AboutPage />);
+		const nav = await screen.findByRole("navigation", { name: "Table of contents" });
+		const indents = within(nav).getAllByRole("listitem").map(li => li.style.paddingLeft);
+		expect(indents).toEqual(["0px", "20px", "0px"]);                  // First, Nested (###), Second
 	});
 
 	test("no table of contents when there is nothing to list", async () => {

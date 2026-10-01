@@ -21,7 +21,7 @@ export function slugify(text, seen) {
 
 // markdown text -> {titleHtml, html, toc: [{id, text, depth}]}. A first-line # heading is split off as the title so the
 // table of contents can sit between it and the text.
-export function renderMarkdown(text) {
+export function renderMarkdown(text, depths = TOC_DEPTHS) {
 	const marked = new Marked({
 		renderer: {
 			heading(token) {
@@ -38,14 +38,14 @@ export function renderMarkdown(text) {
 		},
 	});
 	const tokens = marked.lexer(text);
+	const hasTitle = tokens.length > 0 && tokens[0].type === "heading" && tokens[0].depth === 1;
 	const seen = new Set();
 	const toc = [];
-	for (const token of tokens) {
+	for (const [i, token] of tokens.entries()) {
 		if (token.type !== "heading") continue;
 		token.slug = slugify(token.text, seen);
-		if (TOC_DEPTHS.includes(token.depth)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth + 1 });
+		if (TOC_DEPTHS.includes(token.depth)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth });
 	}
-	const hasTitle = tokens.length > 0 && tokens[0].type === "heading" && tokens[0].depth === 1;
 	return {
 		titleHtml: hasTitle ? marked.parser([tokens[0]]) : "",
 		html: marked.parser(hasTitle ? tokens.slice(1) : tokens),
@@ -70,7 +70,6 @@ export default function AboutPage() {
 	}, []);
 
 	const page = useMemo(() => source === null ? null : renderMarkdown(source), [source]);
-	const top = page === null || page.toc.length === 0 ? 0 : Math.min(...page.toc.map(entry => entry.depth));
 
 	const goTo = (event, id) => {
 		const target = document.getElementById(id);
