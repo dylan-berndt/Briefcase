@@ -137,19 +137,24 @@ def test_canonical_without_model_tags_counts_as_unmatched(tmp_path):
     assert len(order) == 0 and terms == [] and unmatched == ["serif"]
 
 
-def test_inflected_words_reach_their_base_tag(index):
-    # "bolder" -> bold, "scripts" -> script, "not bolder" negates bold; a word with no known base stays unmatched
-    assert index.parse("bolder scripts") == ([("bold", 1.0), ("script", 1.0)], [])
-    assert index.parse("not bolder") == ([("bold", -1.0)], [])
+def test_inflected_words_reach_their_tag_by_stem(index):
+    # stems are compared on both sides: "scripts" -> script, "swirling" -> the phrase "swirls"; negation carries over;
+    # a word whose stem no phrase shares stays unmatched
+    vocabulary = index.vocabulary
+    assert vocabulary.stem is not None
+    assert index.parse("scripts") == ([("script", 1.0)], [])
+    assert index.parse("not scripts") == ([("script", -1.0)], [])
+    assert index.parse("swirling")[0] == [(c, w) for c, w in vocabulary.aliases[("swirls",)]]
     assert index.parse("glorping") == ([], ["glorping"])
 
 
-def test_base_forms():
-    from tagsearch import loadVocabularyClass
-    baseForms = loadVocabularyClass().parse.__globals__["baseForms"]   # the parser module is loaded by path
-    assert "drip" in baseForms("dripping") and "drip" in baseForms("drippy")
-    assert "grunge" in baseForms("grungy") and "bubble" in baseForms("bubbly")
-    assert "thin" in baseForms("thinner") and "curve" in baseForms("curves")
+def test_stems_do_not_chop_adjectives():
+    # the suffix rules this replaced turned "slimy" into "slim"; a stemmer applied to both sides cannot
+    from tagsearch import findVocabularyConfig, loadVocabularyClass
+    vocabulary = loadVocabularyClass()(findVocabularyConfig())
+    assert vocabulary.stemMatch("slimy", vocabulary.aliasStems) is None
+    assert vocabulary.stemMatch("sketched", vocabulary.aliasStems) == "sketch"
+    assert vocabulary.stemMatch("classically", vocabulary.aliasStems) == "classical"
 
 
 def inferableWord(index):

@@ -1,7 +1,7 @@
 # Deterministic free-text query -> canonical tag weights, driven by configs/tagVocabulary.json
 # (built by experiments/critical-review/build_tag_vocabulary.py). No embeddings, no synonyms
 # guessed at query time: every phrase that maps to a tag is listed in the reviewed alias table, and an
-# unmatched word is only reduced to a base form (dripping -> drip) that is itself in the table.
+# unmatched word only matches a single-word phrase with the same Porter2 stem (dripping -> drip, swirling -> swirls).
 # Not imported by utils/__init__ on purpose (no torch dependency needed here).
 
 import json
@@ -27,26 +27,30 @@ def normalize(text):
     return text.split()
 
 
-def baseForms(word):
-    """Candidate base forms of an inflected word, most likely first: dripping/drippy -> drip, grungy -> grunge,
-    bubbly -> bubble, bolder -> bold, curves -> curve. Only used for words that match nothing as typed, and a
-    candidate only counts if it is itself a known phrase, so over-generating here is harmless."""
-    out = []
+def loadStemmer():
+    """The Porter2 (Snowball English) stemmer, or None when nltk is not installed (then words only match as typed)."""
+    try:
+        from nltk.stem.snowball import SnowballStemmer
+    except ImportError:
+        return None
+    return SnowballStemmer("english").stem
 
-    def add(stem):
-        if len(stem) >= 3 and stem not in out:
-            out.append(stem)
-        if len(stem) >= 4 and stem[-1] == stem[-2] and stem[-1] not in "aeiouls":   # dripp -> drip, thinn -> thin
-            add(stem[:-1])
 
-    for suffix, replacements in (("iest", ("y",)), ("ier", ("y",)), ("ies", ("y",)), ("ness", ("",)),
-                                 ("ing", ("", "e")), ("ed", ("", "e")), ("est", ("", "e")), ("er", ("", "e")),
-                                 ("ly", ("le", "")), ("ish", ("", "e")), ("es", ("", "e")), ("s", ("",)),
-                                 ("y", ("", "e"))):
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            for replacement in replacements:
-                add(word[:-len(suffix)] + replacement)
-    return [w for w in out if w != word]
+def stemIndex(words, stem):
+    """{stem: [words]} over single words, for matching an unknown word to known words that share its stem."""
+    index = {}
+    if stem is not None:
+        for word in sorted(words):
+            if word.isalpha():
+                index.setdefault(stem(word), []).append(word)
+    return index
+
+
+def closest(word, candidates):
+    """Of several known words sharing a stem, the one sharing the longest prefix with the word, then the shortest
+    ("classically" -> classical rather than classic)."""
+    prefix = lambda c: len(os.path.commonprefix([c, word]))   # noqa: E731
+    return max(candidates, key=lambda c: (prefix(c), -len(c)))
 
 
 # Model tags that are not in the reviewed vocabulary can still be searched by their own name, unless it is junk
@@ -55,11 +59,15 @@ PLAIN_TAG = re.compile(r"[a-z0-9][a-z0-9 \-]*")
 
 
 class TagVocabulary:
-    def __init__(self, path=os.path.join("configs", "tagVocabulary.json"), extraTags=None, wordTags="auto"):
+    def __init__(self, path=os.path.join("configs", "tagVocabulary.json"), extraTags=None, wordTags="auto",
+                 stemmer="auto"):
         """extraTags: every tag the tagger predicts. Those the reviewed vocabulary neither merges into a canonical
         nor drops become single-member canonicals named after themselves, so all of the model's tags are searchable.
         wordTags: the caption co-occurrence table (site/tools/buildWordTags.py); "auto" loads wordTags.json next to
-        the vocabulary file if there is one. It is only consulted by parse(..., inferred={})."""
+        the vocabulary file if there is one. It is only consulted by parse(..., inferred={}).
+        stemmer: word -> stem, applied to both the query word and the known words; "auto" is Porter2 via nltk if
+        installed, None matches words only as typed."""
+        self.stem = loadStemmer() if stemmer == "auto" else stemmer
         with open(path) as f:
             data = json.load(f)
         self.canonical = data["canonical"]
@@ -86,6 +94,7 @@ class TagVocabulary:
                 else:
                     targets.append((canon, weight))
         self.maxPhrase = max(len(k) for k in self.aliases)
+        self.aliasStems = stemIndex({k[0] for k in self.aliases if len(k) == 1}, self.stem)
 
         self.wordTags = {}
         if wordTags == "auto":
@@ -98,21 +107,26 @@ class TagVocabulary:
                 groups = [entry[0] for entry in entries if entry[0] in self.canonical]
                 if groups:
                     self.wordTags[word] = groups
+        self.wordTagStems = stemIndex(self.wordTags, self.stem)
 
         self.children = {}
         for canon, entry in self.canonical.items():
             for parent in entry["implies"]:
                 self.children.setdefault(parent, []).append(canon)
 
+    def stemMatch(self, word, index):
+        """The known word in a stemIndex sharing this word's stem, or None."""
+        if self.stem is None or word in STOPWORDS:
+            return None
+        candidates = index.get(self.stem(word))
+        return closest(word, candidates) if candidates else None
+
     def inferredGroups(self, word):
-        """Tag groups the caption table associates with a word (or its base form), best first; [] if none."""
-        # only plurals: other base forms are safe for the reviewed phrases (the base must itself be a phrase) but not
-        # here, where every caption word is a key ("slimy" -> "slim" would pick up condensed / thin)
-        forms = [word] + ([word[:-2], word[:-1]] if word.endswith("es") else [word[:-1]] if word.endswith("s") else [])
-        for form in forms:
-            if form in self.wordTags:
-                return self.wordTags[form]
-        return []
+        """Tag groups the caption table associates with a word (or a word with its stem), best first; [] if none."""
+        if word in self.wordTags:
+            return self.wordTags[word]
+        match = self.stemMatch(word, self.wordTagStems)
+        return self.wordTags[match] if match else []
 
     def parse(self, query, expandChildren=0.0, inferred=None):
         """Returns ({canonical: weight}, unmatchedWords). Negated tags get negative weight.
@@ -143,8 +157,8 @@ class TagVocabulary:
                         negated = False
                     break
             else:
-                base = next((b for b in baseForms(tok) if (b,) in self.aliases), None)
-                if base is not None and tok not in STOPWORDS:
+                base = self.stemMatch(tok, self.aliasStems)
+                if base is not None:
                     for canon, w in self.aliases[(base,)]:
                         w = -w if negated else w
                         if canon not in weights or abs(w) > abs(weights[canon]) or w < 0:

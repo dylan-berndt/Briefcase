@@ -7,3 +7,5 @@ PyJWT==2.15.1
 # Suggested tags for unknown query words (synonyms.py): spaCy word vectors, ~40 MB model
 spacy==3.8.16
 en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl
+# Porter2 stemming of query words that match nothing as typed (utils/tagVocabulary.py)
+nltk==3.10.3

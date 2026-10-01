@@ -158,15 +158,17 @@ def buildTable(joint, wordCount, groupCount, N, args):
 
 def evaluate(vocabulary, modelSet, table, args):
     """Held-out check on the reviewed aliases: single words, weight >= 0.8, not themselves a tag or canonical name."""
-    baseForms = loadVocabularyModule().baseForms
     names = set(vocabulary.canonical) | modelSet
+    stems = vocabulary.aliasStems
     cases = []
     for canon, entry in vocabulary.canonical.items():
         if entry.get("facet") == "other":
             continue
         for phrase, weight in entry["aliases"].items():
-            # words the parser already reaches through a base form (serifs -> serif) are not the table's job
-            if weight >= 0.8 and re.fullmatch(r"[a-z]+", phrase) and phrase not in names                     and not any((b,) in vocabulary.aliases for b in baseForms(phrase)):
+            # words the parser already reaches through another phrase's stem (serifs -> serif) are not the table's job
+            sameStem = stems.get(vocabulary.stem(phrase), []) if vocabulary.stem else []
+            if weight >= 0.8 and re.fullmatch(r"[a-z]+", phrase) and phrase not in names \
+                    and not any(w != phrase for w in sameStem):
                 cases.append((phrase, canon))
     covered = [(w, c) for w, c in cases if w in table]
     top1 = sum(table[w][0][0] == c for w, c in covered)

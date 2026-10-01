@@ -44,15 +44,17 @@ pages never overlap and there is no depth limit.
 The negation term and using the full vocabulary for normalisation are design choices made without real-data
 validation; `e23_scoring.py` measured the multinomial for positive multi-tag queries only.
 
-**Words the vocabulary does not know.** An inflected word is reduced to a base form that is in the table
-(dripping -> drip, grungy -> grunge). A word that still matches nothing is looked up in `configs/wordTags.json`, a
-table of caption words and the tags they co-occur with, learned from the LLM captions of MyFonts fonts (the captions
+**Words the vocabulary does not know.** A word that matches no phrase as typed matches a single-word phrase with the
+same Porter2 stem (nltk's Snowball English stemmer, applied to both sides: sketched -> sketch, swirling -> swirls; of
+several such phrases, the one sharing the longest prefix). Stems do not reduce comparatives (bolder) or -y adjectives
+to their root (slimy is not slim). A word that still matches nothing is looked up, as typed or by stem, in
+`configs/wordTags.json`, a table of caption words and the tags they co-occur with, learned from the LLM captions of MyFonts fonts (the captions
 were written from each font's real tags). The word becomes one extra group over the union of its tags ("airy" ->
 thin or feminine) at half weight, and is reported under `inferred` so the page can show it as a removable chip;
 sending the word back in `ignore` drops the guess. Built by `site/tools/buildWordTags.py` (log-odds z-score with an
 informative Dirichlet prior, Monroe et al. 2008; `configs/wordTagsExclude.txt` holds reviewed non-style words). On
-held-out single-word aliases of the reviewed vocabulary, 61% are in the table and, of those, 79% get the right tag
-first and 90% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
+held-out single-word aliases of the reviewed vocabulary, 58% are in the table and, of those, 77% get the right tag
+first and 89% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
 
 **Suggested tags.** A word that still matches nothing gets up to five suggested tags from a plain synonym check
 (`site/backend/synonyms.py`): spaCy word vectors (`en_core_web_md`) compared with the words the search knows (the
