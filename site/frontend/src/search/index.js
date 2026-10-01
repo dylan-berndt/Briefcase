@@ -134,8 +134,51 @@ function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 	</article>;
 }
 
-function queryDescription(tags) {
-	return tags.map(t => (t.weight < 0 ? "not " : "") + t.tag).join(", ");
+const listParam = (params, name) => (params.get(name) || "").split(",").map(x => x.trim()).filter(Boolean);
+
+// What the engine understood. Solid chips are tags in the search (matched from the words typed, or added from a
+// suggestion, which can be removed again). Dashed chips are the engine's guesses for words it did not know; they are
+// applied, and can be dropped. Plain "+" chips are synonym suggestions that are not applied until clicked.
+export function TagChips({ data, added, onAdd, onRemoveAdded, onIgnore }) {
+	const inferred = data.inferred || [];
+	const suggested = data.suggested || [];
+	const addedNames = new Set(added.map(t => t.replace(/^-/, "")));
+	const suggestedWords = new Set(suggested.map(s => s.word));
+	const notRecognised = data.unmatched.filter(word => !suggestedWords.has(word));
+	const hasTags = data.tags.length > 0 || inferred.length > 0;
+
+	return <div className="Chips">
+		<div className="ChipRow">
+			<span className="ChipLabel" role="status">
+				{hasTags ? "Searching for:" : "No tags recognised in that description."}
+			</span>
+			{!hasTags ? null : <ul className="ChipList" aria-label="Tags in your search">
+				{data.tags.map(t => <li key={"tag|" + t.tag} className={t.weight < 0 ? "Chip ChipTag ChipNot" : "Chip ChipTag"}>
+					{t.weight < 0 ? "not " : ""}{t.tag}
+					{addedNames.has(t.tag)
+						? <button type="button" aria-label={`Remove ${t.tag}`} title="Remove" onClick={() => onRemoveAdded(t.tag)}>×</button>
+						: null}
+				</li>)}
+				{inferred.map(i => <li key={"guess|" + i.word} className={i.weight < 0 ? "Chip ChipGuess ChipNot" : "Chip ChipGuess"}
+					title={`"${i.word}" is not a tag. Guessed from fonts described that way.`}>
+					{i.weight < 0 ? "not " : ""}{i.word} → {i.tags.join(", ")}
+					<button type="button" aria-label={`Remove the guess for ${i.word}`} title="Remove this guess" onClick={() => onIgnore(i.word)}>×</button>
+				</li>)}
+			</ul>}
+		</div>
+		{suggested.map(({ word, tags }) => <div className="ChipRow" key={"suggest|" + word}>
+			<span className="ChipLabel">Did you mean for “{word}”:</span>
+			<ul className="ChipList" aria-label={`Suggested tags for ${word}`}>
+				{tags.map(t => <li key={t.tag}>
+					<button type="button" className="Chip ChipSuggest" onClick={() => onAdd(t.tag)}
+						aria-label={`Add ${t.tag}, similar to ${t.via}`} title={`Similar to “${t.via}” (${t.similarity})`}>+ {t.tag}</button>
+				</li>)}
+			</ul>
+		</div>)}
+		{notRecognised.length > 0
+			? <p className="ChipNote">Not recognised: {notRecognised.join(", ")}.</p>
+			: null}
+	</div>;
 }
 
 // allowDescriptions shows the per-font description box; hidden for now, the endpoint is still there
@@ -144,6 +187,8 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 	const [text, setText] = useState(initial.get("q") || "");
 	const [query, setQuery] = useState(initial.get("q") || "");
 	const [page, setPage] = useState(Math.max(1, parseInt(initial.get("page"), 10) || 1));
+	const [added, setAdded] = useState(listParam(initial, "tags"));      // tags added from suggestions ("-name" excludes)
+	const [ignored, setIgnored] = useState(listParam(initial, "ignore")); // words whose guessed tags were removed
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
@@ -156,6 +201,8 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		setLoading(true);
 		setError("");
 		const params = new URLSearchParams({ query, page, pageSize: PAGE_SIZE });
+		if (added.length) params.set("tags", added.join(","));
+		if (ignored.length) params.set("ignore", ignored.join(","));
 		fetch('/api/font/query?' + params, { signal: controller.signal })
 			.then(async response => {
 				const json = await response.json();
@@ -178,16 +225,20 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 				setLoading(false);
 			});
 		return () => controller.abort();
-	}, [query, page, username]);
+	}, [query, page, added, ignored, username]);
 
-	const navigate = useCallback((nextQuery, nextPage) => {
+	const navigate = useCallback((nextQuery, nextPage, nextAdded = [], nextIgnored = []) => {
 		const params = new URLSearchParams();
 		if (nextQuery) params.set("q", nextQuery);
+		if (nextAdded.length) params.set("tags", nextAdded.join(","));
+		if (nextIgnored.length) params.set("ignore", nextIgnored.join(","));
 		if (nextPage > 1) params.set("page", nextPage);
 		const search = params.toString();
 		window.history.pushState({}, "", window.location.pathname + (search ? "?" + search : ""));
 		setQuery(nextQuery);
 		setPage(nextPage);
+		setAdded(nextAdded);
+		setIgnored(nextIgnored);
 	}, []);
 
 	// Back and forward buttons
@@ -197,13 +248,20 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			setText(params.get("q") || "");
 			setQuery(params.get("q") || "");
 			setPage(Math.max(1, parseInt(params.get("page"), 10) || 1));
+			setAdded(listParam(params, "tags"));
+			setIgnored(listParam(params, "ignore"));
 		};
 		window.addEventListener("popstate", onPop);
 		return () => window.removeEventListener("popstate", onPop);
 	}, []);
 
+	// Changing the tags changes the results, so these go back to page 1
+	const addTag = (tag) => navigate(query, 1, [...added.filter(t => t.replace(/^-/, "") !== tag), tag], ignored);
+	const removeAdded = (tag) => navigate(query, 1, added.filter(t => t.replace(/^-/, "") !== tag), ignored);
+	const ignoreGuess = (word) => navigate(query, 1, added, [...ignored.filter(w => w !== word), word]);
+
 	const goToPage = (p) => {
-		navigate(query, p);
+		navigate(query, p, added, ignored);
 		if (topRef.current && topRef.current.scrollIntoView) topRef.current.scrollIntoView({ block: "start" });
 	};
 
@@ -241,12 +299,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 
 		{data === null && loading ? <p className="SearchMessage" role="status">Searching…</p> : null}
 		{data === null ? null : <>
-			<p className="SearchMessage" role="status">
-				{data.tags.length > 0
-					? `Searching for: ${queryDescription(data.tags)}`
-					: "No tags recognised in that description."}
-				{data.unmatched.length > 0 ? ` Not recognised: ${data.unmatched.join(", ")}.` : ""}
-			</p>
+			<TagChips data={data} added={added} onAdd={addTag} onRemoveAdded={removeAdded} onIgnore={ignoreGuess} />
 			<div className={loading ? "Results ResultsLoading" : "Results"} aria-busy={loading}>
 				{data.results.map(result =>
 					<Result key={data.generation + "|" + result.key} result={result} query={query}

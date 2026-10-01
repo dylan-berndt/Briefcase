@@ -64,6 +64,13 @@ unselected chips and send a chosen one back in `tags=`. Word vectors put antonym
 model shares one vector between many rare words, so suggestions are noisy by design. `SYNONYM_MODEL=` (empty) turns
 them off; they are also off when spaCy or the model is not installed.
 
+**Chips.** The page shows what the engine understood under the search box. Solid chips are tags in the search (matched
+from the typed words, or added from a suggestion, which can be removed again); a red chip is a negated tag. A dashed chip
+is a caption-table guess for a word the vocabulary does not know ("airy → thin, feminine"); removing it sends the word in
+`ignore=`. Dotted `+` chips are synonym suggestions for words that matched nothing; clicking one sends it in `tags=`. Both
+lists are in the page URL (`?q=...&tags=a,b&ignore=word`), so reload, back/forward and shared links keep them, and a new
+search starts clean. Words with suggestions are not also listed as "not recognised".
+
 ## Building the bundle
 
 Run from the repo root, with the research environment (`requirements.txt`) and the datasets in place.

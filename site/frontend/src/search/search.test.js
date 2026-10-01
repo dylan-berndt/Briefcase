@@ -63,7 +63,8 @@ describe("searching", () => {
 		expect(images[0].closest("a")).toHaveAttribute("href", "https://example.com/font-0");
 		expect(images[0].closest("a")).toHaveAttribute("target", "_blank");
 		expect(images[0].closest("a").getAttribute("rel")).toContain("noopener");
-		expect(screen.getByText("Searching for: serif, not bold")).toBeInTheDocument();
+		const chips = within(screen.getByRole("list", { name: "Tags in your search" })).getAllByRole("listitem");
+		expect(chips.map(c => c.textContent)).toEqual(["serif", "not bold"]);
 		expect(calls[0].params).toEqual({ query: "serif not bold", page: "1", pageSize: "24" });
 		expect(screen.getAllByText("Google Fonts")).toHaveLength(12);
 		expect(screen.getAllByText("DaFont · Some Designer")).toHaveLength(12);
@@ -73,7 +74,8 @@ describe("searching", () => {
 		installFetch({ "/api/font/query": () => jsonResponse(makePage({ total: 0, tags: [], unmatched: ["qwerty"] })) });
 		render(<SearchPage username={null} />);
 		await search("qwerty");
-		expect(await screen.findByText(/No tags recognised/)).toHaveTextContent("Not recognised: qwerty.");
+		expect(await screen.findByText("No tags recognised in that description.")).toBeInTheDocument();
+		expect(screen.getByText("Not recognised: qwerty.")).toBeInTheDocument();
 		expect(screen.queryByRole("img")).toBeNull();
 		expect(screen.queryByRole("navigation")).toBeNull();
 	});
@@ -105,10 +107,169 @@ describe("searching", () => {
 		userEvent.type(box, "first{enter}");
 		userEvent.clear(box);
 		userEvent.type(box, "second{enter}");
-		expect(await screen.findByText("Searching for: second")).toBeInTheDocument();
+		const tags = () => screen.getByRole("list", { name: "Tags in your search" });
+		expect(await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("second")).toBeInTheDocument();
 		await act(async () => { releaseFirst(); });
-		expect(screen.getByText("Searching for: second")).toBeInTheDocument();
-		expect(screen.queryByText("Searching for: first")).toBeNull();
+		expect(within(tags()).getByText("second")).toBeInTheDocument();
+		expect(within(tags()).queryByText("first")).toBeNull();
+	});
+});
+
+describe("tag chips", () => {
+	const inferredAiry = { word: "airy", tags: ["thin", "feminine"], weight: 0.5 };
+	const slimy = { word: "slimy", tags: [
+		{ tag: "grunge", via: "dirty", similarity: 0.68 },
+		{ tag: "distressed", via: "dirty", similarity: 0.68 },
+		{ tag: "horror", via: "creepy", similarity: 0.62 }] };
+
+	// A backend double that behaves like the real one: tags= are applied, ignore= drops a guess, a suggestion that
+	// was added is no longer suggested
+	function backend(calls) {
+		return ({ params }) => {
+			const added = (params.tags || "").split(",").filter(Boolean);
+			const ignored = (params.ignore || "").split(",").filter(Boolean);
+			const words = params.query.split(" ");
+			const tags = [...(words.includes("serif") ? [{ tag: "serif", weight: 1 }] : []),
+				...(words.includes("bold") ? [{ tag: "bold", weight: 1 }] : []),
+				...added.map(t => t.startsWith("-") ? { tag: t.slice(1), weight: -1 } : { tag: t, weight: 1 })];
+			const inferred = words.includes("airy") && !ignored.includes("airy") ? [inferredAiry] : [];
+			const unmatched = words.filter(w => ["slimy", "airy", "qwerty"].includes(w) && !(w === "airy" && inferred.length));
+			const suggested = unmatched.includes("slimy")
+				? [{ word: "slimy", tags: slimy.tags.filter(t => !added.includes(t.tag)) }] : [];
+			return jsonResponse(makePage({ query: params.query, page: Number(params.page), total: 30, tags, unmatched, inferred, suggested }));
+		};
+	}
+	const chipList = () => screen.getByRole("list", { name: "Tags in your search" });
+
+	test("tags matched from the query are solid chips that cannot be removed", async () => {
+		installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("serif bold");
+		const items = await within(await screen.findByRole("list", { name: "Tags in your search" })).findAllByRole("listitem");
+		expect(items.map(i => i.textContent)).toEqual(["serif", "bold"]);
+		expect(items[0]).toHaveClass("ChipTag");
+		expect(screen.getByText("Searching for:")).toBeInTheDocument();
+		expect(within(chipList()).queryByRole("button")).toBeNull();
+	});
+
+	test("a negated tag says so", async () => {
+		installFetch({ "/api/font/query": () => jsonResponse(makePage({ tags: [{ tag: "serif", weight: 1 }, { tag: "thin", weight: -1 }] })) });
+		render(<SearchPage username={null} />);
+		await search("serif not thin");
+		const not = await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("not thin");
+		expect(not).toHaveClass("ChipNot");
+	});
+
+	test("a guessed tag for an unknown word is a dashed chip with a remove button", async () => {
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("airy");
+		const guess = await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("airy → thin, feminine");
+		expect(guess).toHaveClass("ChipGuess");
+		expect(guess).toHaveAttribute("title", expect.stringContaining("Guessed"));
+
+		userEvent.click(within(guess).getByRole("button", { name: "Remove the guess for airy" }));
+		await screen.findByText("No tags recognised in that description.");
+		expect(calls[calls.length - 1].params).toMatchObject({ query: "airy", ignore: "airy", page: "1" });
+		expect(window.location.search).toBe("?q=airy&ignore=airy");
+	});
+
+	test("suggestions are grouped by word, say what they are like, and are not applied", async () => {
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("serif slimy");
+		const group = await screen.findByRole("list", { name: "Suggested tags for slimy" });
+		const buttons = within(group).getAllByRole("button");
+		expect(buttons.map(b => b.textContent)).toEqual(["+ grunge", "+ distressed", "+ horror"]);
+		expect(buttons[0]).toHaveAttribute("title", "Similar to “dirty” (0.68)");
+		expect(buttons[0]).toHaveAccessibleName("Add grunge, similar to dirty");
+		expect(screen.getByText("Did you mean for “slimy”:")).toBeInTheDocument();
+		expect(within(chipList()).getAllByRole("listitem").map(i => i.textContent)).toEqual(["serif"]);
+		expect(calls[0].params.tags).toBeUndefined();
+		// a word with suggestions is not also listed as not recognised
+		expect(screen.queryByText(/Not recognised/)).toBeNull();
+	});
+
+	test("clicking a suggestion adds it, and it can be removed again", async () => {
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("serif slimy");
+		userEvent.click(await screen.findByRole("button", { name: "Add grunge, similar to dirty" }));
+
+		const grunge = await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("grunge");
+		expect(calls[calls.length - 1].params).toMatchObject({ query: "serif slimy", tags: "grunge", page: "1" });
+		expect(window.location.search).toBe("?q=serif+slimy&tags=grunge");
+		// it moved from the suggestions to the search, and the others are still offered
+		expect(screen.queryByRole("button", { name: "Add grunge, similar to dirty" })).toBeNull();
+		expect(screen.getByRole("button", { name: "Add distressed, similar to dirty" })).toBeInTheDocument();
+
+		userEvent.click(within(grunge).getByRole("button", { name: "Remove grunge" }));
+		await screen.findByRole("button", { name: "Add grunge, similar to dirty" });
+		expect(calls[calls.length - 1].params.tags).toBeUndefined();
+		expect(window.location.search).toBe("?q=serif+slimy");
+	});
+
+	test("adding a second suggestion keeps the first", async () => {
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("slimy");
+		userEvent.click(await screen.findByRole("button", { name: "Add grunge, similar to dirty" }));
+		userEvent.click(await screen.findByRole("button", { name: "Add horror, similar to creepy" }));
+		await waitFor(() => expect(calls[calls.length - 1].params.tags).toBe("grunge,horror"));
+	});
+
+	test("paging keeps the added tags and ignored guesses", async () => {
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("airy slimy");
+		userEvent.click(await screen.findByRole("button", { name: "Remove the guess for airy" }));
+		userEvent.click(await screen.findByRole("button", { name: "Add grunge, similar to dirty" }));
+		userEvent.click(await screen.findByRole("button", { name: "Next" }));
+		await screen.findByText("Page 2 of 2 · 30 fonts");
+		expect(calls[calls.length - 1].params).toMatchObject({ page: "2", tags: "grunge", ignore: "airy" });
+		expect(window.location.search).toBe("?q=airy+slimy&tags=grunge&ignore=airy&page=2");
+	});
+
+	test("a new search starts clean", async () => {
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("slimy");
+		userEvent.click(await screen.findByRole("button", { name: "Add grunge, similar to dirty" }));
+		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("grunge");
+		userEvent.clear(screen.getByLabelText("Describe a font"));
+		userEvent.type(screen.getByLabelText("Describe a font"), "serif{enter}");
+		await waitFor(() => expect(calls[calls.length - 1].params.query).toBe("serif"));
+		expect(calls[calls.length - 1].params.tags).toBeUndefined();
+		expect(window.location.search).toBe("?q=serif");
+	});
+
+	test("added tags and ignored guesses come back from a shared link and from back/forward", async () => {
+		window.history.replaceState({}, "", "/?q=airy+slimy&tags=grunge&ignore=airy");
+		const calls = installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("grunge");
+		expect(calls[0].params).toMatchObject({ query: "airy slimy", tags: "grunge", ignore: "airy" });
+
+		window.history.pushState({}, "", "/?q=airy+slimy");
+		act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
+		await within(chipList()).findByText("airy → thin, feminine");
+		expect(calls[calls.length - 1].params.tags).toBeUndefined();
+	});
+
+	test("words that match nothing and have no suggestions are listed as not recognised", async () => {
+		installFetch({ "/api/font/query": backend() });
+		render(<SearchPage username={null} />);
+		await search("serif qwerty slimy");
+		expect(await screen.findByText("Not recognised: qwerty.")).toBeInTheDocument();
+		expect(screen.getByRole("list", { name: "Suggested tags for slimy" })).toBeInTheDocument();
+	});
+
+	test("an older backend without inferred/suggested still renders", async () => {
+		installFetch({ "/api/font/query": () => jsonResponse((({ inferred, suggested, ...rest }) => rest)(makePage({ total: 5 }))) });
+		render(<SearchPage username={null} />);
+		await search("serif");
+		await screen.findAllByRole("img");
+		expect(within(chipList()).getAllByRole("listitem")).toHaveLength(1);
 	});
 });
 

@@ -61,6 +61,95 @@
     scroll-margin-top: 72px;
   }
 
+  /* ── Tag chips: what the engine understood ── */
+
+  .Chips {
+    width: min(720px, 100%);
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ChipRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+  }
+
+  .ChipLabel {
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    color: var(--col-text-muted);
+  }
+
+  .ChipList {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    list-style: none;
+  }
+
+  .Chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    padding: 6px 10px;
+    border: 2px solid var(--col-accent);
+    border-radius: 0;
+    color: var(--col-text);
+    background: var(--col-accent-dim);
+  }
+
+  .Chip button {
+    font: inherit;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: none;
+    padding: 0 0 0 2px;
+    cursor: pointer;
+  }
+
+  .Chip button:hover {
+    color: var(--col-text);
+  }
+
+  /* a negated tag */
+  .ChipNot {
+    border-color: var(--col-negative);
+    background: rgba(201, 138, 138, 0.12);
+  }
+
+  /* the engine's guess for a word it did not know: applied, but dashed to say it is not something you typed */
+  .ChipGuess {
+    border-style: dashed;
+    background: transparent;
+  }
+
+  /* a suggestion, not applied until clicked */
+  .ChipSuggest {
+    cursor: pointer;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: 2px dotted var(--col-edge-hover);
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .ChipSuggest:hover {
+    color: var(--col-text);
+    border-color: var(--col-accent);
+  }
+
+  .ChipNote {
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    color: var(--col-text-muted);
+  }
+
   .SearchMessage {
     margin-top: 24px;
     font-size: 12px;

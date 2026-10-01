@@ -13,7 +13,7 @@ export function makeResult(i, overrides = {}) {
 	};
 }
 
-export function makePage({ query = "serif", page = 1, pageSize = 24, total = 100, tags, unmatched = [] } = {}) {
+export function makePage({ query = "serif", page = 1, pageSize = 24, total = 100, tags, unmatched = [], inferred = [], suggested = [] } = {}) {
 	const totalPages = Math.ceil(total / pageSize);
 	const start = (page - 1) * pageSize;
 	const count = Math.max(0, Math.min(pageSize, total - start));
@@ -21,7 +21,7 @@ export function makePage({ query = "serif", page = 1, pageSize = 24, total = 100
 		results: Array.from({ length: count }, (_, k) => makeResult(start + k)),
 		page, pageSize, total, totalPages,
 		tags: tags || [{ tag: query, weight: 1.0 }],
-		unmatched,
+		unmatched, inferred, suggested,
 	};
 }
 

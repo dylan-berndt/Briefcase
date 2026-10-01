@@ -41,7 +41,7 @@ def test_search_shows_specimens_that_load(page, site):
     search(page, "zebra stripe")
     expect(page.locator(".ResultWindow")).to_have_count(24)
     imagesLoaded(page)
-    expect(page.get_by_role("status").first).to_contain_text("Searching for: zebra-stripe")
+    expect(page.get_by_label("Tags in your search")).to_have_text("zebra-stripe")
     # 30 fonts have the tag planted, so the whole first page is made of them
     planted = {k.split(":", 1)[1] for k, g in site["planted"].items() if "zebra-stripe" in g}
     assert len(planted) == 30 and set(names(page)) <= planted
@@ -143,10 +143,44 @@ def test_info_sits_beside_the_preview_on_a_desktop(page):
     assert abs((img["y"] + img["height"] / 2) - (info["y"] + info["height"] / 2)) < img["height"]  # same row
 
 
+def test_chips_show_typed_tags_guesses_and_suggestions(page):
+    page.goto("/")
+    search(page, "elegant script not thin airy slimy")
+    tags = page.get_by_label("Tags in your search")
+    expect(tags.get_by_text("elegant", exact=True)).to_be_visible()
+    expect(tags.get_by_text("not thin")).to_be_visible()
+    guess = tags.get_by_text("airy → thin, feminine")            # the engine's guess for a word it did not know
+    expect(guess).to_be_visible()
+    suggestions = page.get_by_label("Suggested tags for slimy")  # synonyms, offered but not applied
+    expect(suggestions.get_by_role("button").first).to_be_visible()
+    assert "slimy" not in tags.inner_text()
+    shot(page, "chips")
+
+    # a suggestion becomes part of the search and the URL; removing it undoes that
+    first = suggestions.get_by_role("button").first
+    tag = first.inner_text().removeprefix("+ ")
+    first.click()
+    chip = tags.get_by_role("listitem").filter(has_text=tag)
+    expect(chip).to_be_visible()
+    assert f"tags={tag}" in page.url
+    chip.get_by_role("button", name=f"Remove {tag}").click()
+    expect(chip).to_have_count(0)
+    assert "tags=" not in page.url
+
+    # dropping the guess puts the word back among the unmatched
+    guess.get_by_role("button", name="Remove the guess for airy").click()
+    expect(tags.get_by_text("airy → thin, feminine")).to_have_count(0)
+    assert "ignore=airy" in page.url
+    page.reload()                                                 # and it survives a reload
+    expect(tags.get_by_text("airy → thin, feminine")).to_have_count(0)
+    expect(tags.get_by_text("not thin")).to_be_visible()
+
+
 def test_unrecognised_query(page):
     page.goto("/")
     search(page, "qwertyuiop")
-    expect(page.get_by_text("No tags recognised")).to_contain_text("Not recognised: qwertyuiop")
+    expect(page.get_by_text("No tags recognised in that description.")).to_be_visible()
+    expect(page.get_by_text("Not recognised: qwertyuiop.")).to_be_visible()
     expect(page.locator(".ResultWindow")).to_have_count(0)
 
 
