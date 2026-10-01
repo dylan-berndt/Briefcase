@@ -4,8 +4,9 @@ import { Marked } from 'marked';
 import aboutUrl from './about.md';
 
 // The page is about.md, rendered. Edit that file; nothing else needs to change. The table of contents at the top is
-// made from its ## and ### headings (the # heading is the page title and is left out), and is left out entirely
-// when the file has fewer than two of them.
+// made from the headings whose level is in TOC_DEPTHS (a first-line # heading is the page title and is never listed),
+// indented by how much deeper each is than the shallowest one listed, and is left out entirely when fewer than two
+// headings qualify.
 const TOC_DEPTHS = [2, 3];
 
 const escapeAttr = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -21,7 +22,7 @@ export function slugify(text, seen) {
 
 // markdown text -> {titleHtml, html, toc: [{id, text, depth}]}. A first-line # heading is split off as the title so the
 // table of contents can sit between it and the text.
-export function renderMarkdown(text) {
+export function renderMarkdown(text, depths = TOC_DEPTHS) {
 	const marked = new Marked({
 		renderer: {
 			heading(token) {
@@ -38,14 +39,14 @@ export function renderMarkdown(text) {
 		},
 	});
 	const tokens = marked.lexer(text);
+	const hasTitle = tokens.length > 0 && tokens[0].type === "heading" && tokens[0].depth === 1;
 	const seen = new Set();
 	const toc = [];
-	for (const token of tokens) {
+	for (const [i, token] of tokens.entries()) {
 		if (token.type !== "heading") continue;
 		token.slug = slugify(token.text, seen);
-		if (TOC_DEPTHS.includes(token.depth)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth });
+		if (depths.includes(token.depth) && !(hasTitle && i === 0)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth });
 	}
-	const hasTitle = tokens.length > 0 && tokens[0].type === "heading" && tokens[0].depth === 1;
 	return {
 		titleHtml: hasTitle ? marked.parser([tokens[0]]) : "",
 		html: marked.parser(hasTitle ? tokens.slice(1) : tokens),
@@ -71,6 +72,8 @@ export default function AboutPage() {
 
 	const page = useMemo(() => source === null ? null : renderMarkdown(source), [source]);
 
+	const top = page === null || page.toc.length === 0 ? 0 : Math.min(...page.toc.map(entry => entry.depth));
+
 	const goTo = (event, id) => {
 		const target = document.getElementById(id);
 		if (!target) return;
@@ -86,7 +89,8 @@ export default function AboutPage() {
 			{page.toc.length >= 2 ? <nav className="AboutContents" aria-label="Table of contents">
 				<p className="AboutContentsTitle">Contents</p>
 				<ol>
-					{page.toc.map(entry => <li key={entry.id} className={"AboutContents-" + entry.depth}>
+					{page.toc.map(entry => <li key={entry.id} className={entry.depth > top ? "AboutContents-nested" : undefined}
+						style={{ paddingLeft: (entry.depth - top) * 20 }}>
 						<a href={"#" + entry.id} onClick={e => goTo(e, entry.id)}>{entry.text}</a>
 					</li>)}
 				</ol>

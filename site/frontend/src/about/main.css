@@ -55,8 +55,8 @@
   font-size: 16px;
 }
 
-.AboutContents-3 {
-  padding-left: 20px;
+/* the indent comes from the heading level, set inline */
+.AboutContents-nested {
   font-size: 14px;
 }
 
