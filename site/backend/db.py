@@ -18,9 +18,10 @@ SCHEMA = '''
         userID INTEGER NOT NULL REFERENCES users(id),
         fontKey TEXT NOT NULL,
         query TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '',
         vote INTEGER NOT NULL CHECK (vote IN (-1, 1)),
         created TEXT NOT NULL,
-        PRIMARY KEY (userID, fontKey, query)
+        PRIMARY KEY (userID, fontKey, query, tags)
     );
     CREATE INDEX IF NOT EXISTS fontVotesByFont ON fontVotes (fontKey);
 
@@ -46,11 +47,32 @@ SCHEMA = '''
 MAX_QUERY = 200
 
 
+def addTagsToVotes(conn):
+    """A vote is now filed under the query and the tags the results were ranked on. Databases from before that have
+    fontVotes without the column (and with a primary key that cannot hold it), so the table is rebuilt; the old votes
+    keep their query and get tags = '' (unknown)."""
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(fontVotes)")]
+    if not columns or "tags" in columns:
+        return
+    conn.execute("ALTER TABLE fontVotes RENAME TO fontVotesOld")
+    conn.execute("DROP INDEX IF EXISTS fontVotesByFont")
+    conn.executescript(SCHEMA)  # creates the new fontVotes and the other tables if missing
+    conn.execute("INSERT INTO fontVotes (userID, fontKey, query, tags, vote, created) "
+                 "SELECT userID, fontKey, query, '', vote, created FROM fontVotesOld")
+    conn.execute("DROP TABLE fontVotesOld")
+
+
 def initializeDB(path):
     conn = sqlite3.connect(path)
+    addTagsToVotes(conn)
     conn.executescript(SCHEMA)
     conn.commit()
     conn.close()
+
+
+def tagsKey(terms):
+    """[(tag, weight)] -> the canonical string a vote stores: "bold:1,script:0.5", sorted by tag."""
+    return ",".join(f"{name}:{round(float(weight), 3):g}" for name, weight in sorted(terms))
 
 
 def normalizeQuery(query):

@@ -6,7 +6,7 @@
     align-items: center;
     justify-content: flex-start;
     /* Where the title and search box sit on first load, so a search (or scrolling down and back up) never moves them */
-    padding: max(120px, calc(50vh - 100px)) 48px 64px;
+    padding: max(120px, calc(50vh - 100px)) calc((var(--ui-width) - var(--content-width)) / 2) 64px;
     gap: 0;
   }
 
@@ -129,11 +129,6 @@
 
   .TagBox-on {
     border-color: var(--col-accent);
-  }
-
-  .TagBox-neg {
-    color: var(--col-negative);
-    border-color: var(--col-negative);
   }
 
   .SearchMessage {

@@ -1,16 +1,16 @@
 """Free-text query -> ranked fonts, straight off the tagger's scores.
 
-The query is parsed into weighted tag groups by utils/tagVocabulary.py (aliases, negation). Each font is then scored
-with a semantic multinomial (Turnbull et al. 2008): its tag probabilities are normalized to sum to 1 over the whole
-vocabulary, which removes the bias towards fonts that score high on every tag. A positive group scores
-w * log(mass the font puts on the group's tags); a negated group scores |w| * log(probability the font has none of
-them), which is bounded, unlike the mirror image of the positive term. The scores are summed.
+The query is parsed into weighted tag groups by utils/tagVocabulary.py (aliases). Each font is then scored with a
+semantic multinomial (Turnbull et al. 2008): its tag probabilities are normalized to sum to 1 over the whole
+vocabulary, which removes the bias towards fonts that score high on every tag. A group scores
+w * log(mass the font puts on the group's tags); the scores are summed. There is no negation: a "not x" in a query
+yields no tag for x.
 
 Words the vocabulary does not know can be mapped to tags learned from caption co-occurrence (configs/wordTags.json,
 built by site/tools/buildWordTags.py); describe() turns each such guess into ordinary tags at INFERRED_WEIGHT. A word
 that still matches nothing gets suggested tags from a word-vector synonym check (synonyms.py). describe() answers "which
 tags does this query mean"; rank() orders the fonts for exactly the tags it is given, so the page can keep the user's
-ticks and crosses itself and send the final list.
+ticks itself and send the final list.
 """
 
 import importlib.util
@@ -107,12 +107,8 @@ class TagIndex:
         total = np.zeros(self.numFonts, dtype=np.float32)
         for name, weight in terms:
             block = self.logits[self.groups[name]].astype(np.float32)  # [members, numFonts]
-            if weight > 0:
-                mass = (1.0 / (1.0 + np.exp(-block))).sum(axis=0)
-                total += weight * (np.log(mass + EPS) - self.logMass)
-            else:
-                # log prod(1 - p) = -sum softplus(logit)
-                total += weight * np.logaddexp(0.0, block).sum(axis=0)
+            mass = (1.0 / (1.0 + np.exp(-block))).sum(axis=0)
+            total += weight * (np.log(mass + EPS) - self.logMass)
         return total
 
     def rank(self, terms):
@@ -125,13 +121,16 @@ class TagIndex:
     def describe(self, query, suggest=True):
         """What a query means as a list of tags: (terms, suggested, unmatched).
 
-        terms: [(group, weight)], the tags the query matched (negative for "not x"), plus the tags guessed for words
-        the vocabulary does not know, each at INFERRED_WEIGHT. suggested: [(group, via word, similarity)], synonyms of
-        words that matched nothing; they are not part of terms, the caller decides whether to use them. unmatched:
-        words that matched nothing and got no suggestion."""
+        terms: [(group, weight)], the tags the query matched (a negated one, "not x", is dropped), plus the tags
+        guessed for words the vocabulary does not know, each at INFERRED_WEIGHT. suggested: [(group, via word,
+        similarity)], synonyms of words that matched nothing; they are not part of terms, the caller decides whether
+        to use them. unmatched: words that matched nothing and got no suggestion."""
         terms, unmatched, inferred = self.parseDetailed(query)
+        terms = [(name, weight) for name, weight in terms if weight > 0]
         present = {name for name, _ in terms}
         for _, groups, weight in inferred:
+            if weight <= 0:
+                continue
             for group in groups:
                 if group not in present:
                     terms.append((group, weight))
@@ -154,15 +153,16 @@ class TagIndex:
         return self.rank(terms), terms, unmatched
 
     def parseChoices(self, text, limit=64):
-        """The final tag list a page sends back: "name", "-name" to exclude, each optionally ":weight" (0-1, the weight
-        describe() reported). Names the index does not know are skipped. Raises ValueError for a malformed entry."""
+        """The final tag list a page sends back: "name", each optionally ":weight" (0-1, the weight describe()
+        reported). Names the index does not know are skipped. Raises ValueError for a malformed entry."""
         terms = {}
         entries = [e.strip().lower() for e in text.split(",") if e.strip()]
         if len(entries) > limit:
             raise ValueError(f"at most {limit} tags")
         for entry in entries:
-            sign = -1.0 if entry.startswith("-") else 1.0
-            name, _, weight = entry.lstrip("-").partition(":")
+            if entry.startswith("-"):
+                raise ValueError(f"{entry!r}: tags cannot be excluded")
+            name, _, weight = entry.partition(":")
             try:
                 weight = float(weight) if weight else 1.0
             except ValueError:
@@ -170,5 +170,5 @@ class TagIndex:
             if not 0 < weight <= 1:
                 raise ValueError(f"weight of {name!r} must be above 0 and at most 1")
             if name in self.groups:
-                terms[name] = sign * weight
+                terms[name] = weight
         return list(terms.items())
