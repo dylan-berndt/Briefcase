@@ -70,6 +70,7 @@ export default function AboutPage() {
 	}, []);
 
 	const page = useMemo(() => source === null ? null : renderMarkdown(source), [source]);
+	const top = page === null || page.toc.length === 0 ? 0 : Math.min(...page.toc.map(entry => entry.depth));
 
 	const goTo = (event, id) => {
 		const target = document.getElementById(id);
