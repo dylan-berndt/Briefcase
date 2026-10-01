@@ -155,50 +155,84 @@ def test_tag_line_is_one_line_when_it_fits(page):
     assert abs(label["y"] - tags.get_by_role("listitem").first.bounding_box()["y"]) < 20  # the label shares the line
 
 
-def test_tag_line_shows_typed_tags_guesses_and_suggestions_with_tick_boxes(page):
+def test_tag_line_ticks_are_page_state_and_change_the_results(page):
     page.goto("/")
+    requests = []
+    page.on("request", lambda r: requests.append(r.url) if "/api/font/" in r.url else None)
     search(page, "elegant script not thin airy slimy")
     tags = page.get_by_label("Tags in your search")
     expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
     expect(tags.get_by_role("button", name="thin: excluded")).to_be_visible()
-    expect(tags.get_by_role("button", name="airy: included")).to_be_visible()       # the engine's guess
-    expect(tags.get_by_text("→ thin, feminine")).to_be_visible()
-    suggestion = tags.get_by_role("button", name=re.compile(r": off$")).first         # synonyms: off until clicked
+    expect(tags.get_by_role("button", name="feminine: included")).to_be_visible()   # guessed for "airy", a plain tag
+    suggestion = tags.get_by_role("button", name=re.compile(r": off$")).first         # suggested for "slimy", unticked
     expect(suggestion).to_be_visible()
-    assert "slimy" not in tags.inner_text().replace("similar to “slimy”:", "")
-    label = page.get_by_text("Searching for:").bounding_box()
-    assert abs(label["y"] - tags.get_by_role("listitem").first.bounding_box()["y"]) < 20  # even when the list wraps
+    text = tags.inner_text()
+    assert "→" not in text and "similar" not in text.lower()
     shot(page, "tags")
+    assert sum("/api/font/tags" in u for u in requests) == 1
 
     def results():
         return page.locator(".ResultTitle a").all_inner_texts()
 
+    def settles(condition):
+        """The fonts are fetched after the box changes, so wait for the list to satisfy the condition."""
+        for _ in range(60):
+            if condition(results()):
+                return
+            page.wait_for_timeout(100)
+        raise AssertionError(f"the fonts never settled: {results()[:4]}")
+
     before = results()
-    # tick -> empty -> cross -> empty -> tick on a typed tag
+    # tick -> empty -> cross -> empty -> tick on a typed tag; every step changes the fonts shown
     page.get_by_role("button", name="script: included").click()
     expect(tags.get_by_role("button", name="script: off")).to_be_visible()
-    assert "ignore=script" in page.url and results() != before
+    settles(lambda r: r != before)
+    off = results()
     tags.get_by_role("button", name="script: off").click()
     expect(tags.get_by_role("button", name="script: excluded")).to_be_visible()
-    assert "tags=-script" in page.url
+    settles(lambda r: r != off)
     tags.get_by_role("button", name="script: excluded").click()
     expect(tags.get_by_role("button", name="script: off")).to_be_visible()
+    settles(lambda r: r == off)
     tags.get_by_role("button", name="script: off").click()
     expect(tags.get_by_role("button", name="script: included")).to_be_visible()
+    settles(lambda r: r == before)
 
-    # a suggestion: first click ticks it
+    # a suggestion's first click ticks it
     name = suggestion.get_attribute("aria-label").removesuffix(": off")
     suggestion.click()
     expect(tags.get_by_role("button", name=f"{name}: included")).to_be_visible()
-    assert name in page.url
+    settles(lambda r: r != before)
 
-    # a guess can be turned off, and it all survives a reload
-    tags.get_by_role("button", name="airy: included").click()
-    expect(tags.get_by_role("button", name="airy: off")).to_be_visible()
-    page.reload()
-    expect(tags.get_by_role("button", name="airy: off")).to_be_visible()
-    expect(tags.get_by_role("button", name=f"{name}: included")).to_be_visible()
-    expect(tags.get_by_role("button", name="thin: excluded")).to_be_visible()
+    # none of that was sent to the server as anything but the final list, and the URL stays q/page
+    assert sum("/api/font/tags" in u for u in requests) == 1
+    assert "tags=" not in page.url and "ignore" not in page.url
+    page.reload()                                                 # a reload starts from the query's own tags
+    expect(tags.get_by_role("button", name=f"{name}: off")).to_be_visible()
+
+
+def test_unticking_everything_shows_a_prompt(page):
+    page.goto("/")
+    search(page, "bold")
+    tags = page.get_by_label("Tags in your search")
+    tags.get_by_role("button", name="bold: included").click()
+    expect(page.get_by_text("Tick a tag to see fonts.")).to_be_visible()
+    expect(page.locator(".ResultWindow")).to_have_count(0)
+
+
+def test_search_bar_has_no_border_rounded_corners_and_a_shadow_below(page):
+    page.goto("/")
+    style = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('.SearchForm input'));
+        return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, shadow: s.boxShadow } }""")
+    assert style["border"] == "0px"
+    assert float(style["radius"].removesuffix("px")) >= 8
+    shadow = style["shadow"]            # "rgba(...) 0px 8px 12px -4px": straight down, no sideways offset
+    assert "0px 8px" in shadow
+    page.get_by_label("Describe a font").focus()      # focus must not bring a border back
+    focused = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('.SearchForm input'));
+        return { border: s.borderTopWidth, outline: s.outlineStyle } }""")
+    assert focused == {"border": "0px", "outline": "none"}
+    shot(page, "searchbar")
 
 
 def test_unrecognised_query(page):

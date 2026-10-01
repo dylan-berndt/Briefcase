@@ -165,9 +165,9 @@ def inferableWord(index):
     pytest.skip("no caption-table word maps onto the fake bundle's tags")
 
 
-def test_caption_table_only_used_on_request(index):
+def test_caption_table_is_separate_from_parse(index):
     word = inferableWord(index)
-    # parse()/search() are unchanged: the word stays unmatched
+    # parse() is unchanged: the word stays unmatched; parseDetailed() reports the guess
     assert index.parse(word) == ([], [word])
     terms, unmatched, inferred = index.parseDetailed(word)
     assert terms == [] and unmatched == []
@@ -175,14 +175,51 @@ def test_caption_table_only_used_on_request(index):
     assert all(g in index.groups for g in inferred[0][1])
 
 
-def test_inferred_words_can_be_ignored_and_negated(index):
+def test_guessed_words_become_ordinary_tags_at_half_weight(index):
     word = inferableWord(index)
-    assert index.parseDetailed(word, ignore={word}) == ([], [word], [])
     _, _, inferred = index.parseDetailed("not " + word)
     assert inferred[0][2] == -0.5
-    order, _, _, inferred, _ = index.searchDetailed(word)
-    assert len(order) == index.numFonts and inferred
+    terms, suggested, left = index.describe(word)
+    assert left == [] and suggested == []
+    assert {g for g, _ in terms} == set(inferred[0][1]) and all(w == 0.5 for _, w in terms)
+    negated, _, _ = index.describe("not " + word)
+    assert all(w == -0.5 for _, w in negated)
+    order, _, _ = index.search(word)
+    assert len(order) == index.numFonts
 
+
+def test_a_guessed_tag_is_not_listed_twice(index):
+    word = inferableWord(index)
+    guessed = index.describe(word)[0]
+    both = index.describe(f"{guessed[0][0]} {word}")[0]
+    assert [n for n, _ in both].count(guessed[0][0]) == 1
+    assert dict(both)[guessed[0][0]] == 1.0          # what was typed wins over the guess
+
+
+def test_rank_orders_exactly_the_given_tags(index, planted):
+    expected = withGroup(planted, "serif")
+    order = index.rank([("serif", 1.0)])
+    assert set(keysOf(index, order[:len(expected)])) == expected
+    assert len(index.rank([])) == 0
+    assert (index.rank([("serif", 1.0), ("bold", -1.0)]) == index.search("serif not bold")[0]).all()
+
+
+def test_choices_parse_signs_and_weights(index):
+    assert index.parseChoices("serif,-bold:0.6, Script:0.5 ") == [("serif", 1.0), ("bold", -0.6), ("script", 0.5)]
+    assert index.parseChoices("") == []
+    assert index.parseChoices("serif,serif:0.5") == [("serif", 0.5)]          # the last one wins
+    assert index.parseChoices("no-such-tag,serif") == [("serif", 1.0)]         # unknown names are skipped
+
+
+@pytest.mark.parametrize("text", ["serif:abc", "serif:0", "serif:1.5", "serif:-0.2", "serif:nan"])
+def test_bad_choices_are_rejected(index, text):
+    with pytest.raises(ValueError):
+        index.parseChoices(text)
+
+
+def test_too_many_choices_are_rejected(index):
+    with pytest.raises(ValueError, match="at most"):
+        index.parseChoices(",".join(["serif"] * 65))
 
 
 @pytest.fixture(scope="module")
@@ -195,56 +232,20 @@ def withSynonyms(fake):
 
 def test_unknown_words_get_suggestions_not_scores(withSynonyms):
     # "ghastly" is not a phrase or a caption word; its neighbours (horror words) are suggested, not searched
-    order, terms, unmatched, inferred, suggested = withSynonyms.searchDetailed("ghastly")
-    assert terms == [] and inferred == [] and unmatched == ["ghastly"] and len(order) == 0
-    assert suggested and suggested[0][0] == "ghastly"
-    for group, via, similarity in suggested[0][1]:
+    terms, suggested, left = withSynonyms.describe("ghastly")
+    assert terms == [] and left == [] and suggested
+    for group, via, similarity in suggested:
         assert group in withSynonyms.groups and similarity >= withSynonyms.suggester.minSimilarity
+    assert len(withSynonyms.search("ghastly")[0]) == 0
+    assert len({g for g, _, _ in suggested}) == len(suggested)
 
 
 def test_suggestions_skip_tags_already_in_the_query(withSynonyms):
-    _, terms, _, _, suggested = withSynonyms.searchDetailed("horror ghastly")
+    terms, suggested, _ = withSynonyms.describe("horror ghastly")
     assert ("horror", 1.0) in terms
-    assert all(group != "horror" for _, options in suggested for group, _, _ in options)
-
-
-def test_added_tags_join_the_query(withSynonyms):
-    order, terms, unmatched, _, _ = withSynonyms.searchDetailed("ghastly", tags=[("horror", 1.0), ("no-such-tag", 1.0)])
-    assert ("horror", 1.0) in terms and "no-such-tag" in unmatched and len(order) == withSynonyms.numFonts
-
-
-def test_choices_override_the_query(index):
-    # a typed tag takes the chosen sign, keeping its weight; a tag turned off is dropped; a new one is added
-    _, terms, _, _, _ = index.searchDetailed("serif bold", tags=[("serif", -1.0)])
-    assert dict(terms) == {"serif": -1.0, "bold": 1.0}
-    _, terms, _, _, _ = index.searchDetailed("not serif", tags=[("serif", 1.0)])
-    assert dict(terms) == {"serif": 1.0}
-    _, terms, _, _, _ = index.searchDetailed("serif bold", ignore={"serif"})
-    assert dict(terms) == {"bold": 1.0}
-    _, terms, _, _, _ = index.searchDetailed("serif", tags=[("bold", -1.0)], ignore={"serif"})
-    assert dict(terms) == {"bold": -1.0}
-
-
-def test_choices_for_a_tag_that_is_also_ignored_lose_to_ignore(index):
-    _, terms, _, _, _ = index.searchDetailed("serif", tags=[("serif", -1.0)], ignore={"serif"})
-    assert terms == []
-
-
-def test_a_guessed_word_can_be_excluded_or_turned_off(index):
-    word = inferableWord(index)
-    _, _, _, inferred, _ = index.searchDetailed(word)
-    assert inferred[0][2] == 0.5
-    _, _, _, inferred, _ = index.searchDetailed(word, tags=[(word, -1.0)])
-    assert inferred[0][2] == -0.5 and inferred[0][0] == word
-    _, terms, unmatched, inferred, _ = index.searchDetailed(word, ignore={word})
-    assert inferred == [] and unmatched == [word] and terms == []
-
-
-def test_unknown_names_are_reported_once(index):
-    _, _, unmatched, _, _ = index.searchDetailed("zzqx", tags=[("no-such-tag", 1.0), ("zzqx", 1.0)])
-    assert unmatched.count("no-such-tag") == 1 and unmatched.count("zzqx") == 1
+    assert all(group != "horror" for group, _, _ in suggested)
 
 
 def test_suggestions_off_without_a_model(fake):
     index = TagIndex(Bundle(fake[0]), synonymModel="")
-    assert index.suggester is None and index.searchDetailed("ghastly")[4] == []
+    assert index.suggester is None and index.describe("ghastly") == ([], [], ["ghastly"])

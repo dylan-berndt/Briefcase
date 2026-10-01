@@ -7,10 +7,10 @@ w * log(mass the font puts on the group's tags); a negated group scores |w| * lo
 them), which is bounded, unlike the mirror image of the positive term. The scores are summed.
 
 Words the vocabulary does not know can be mapped to tags learned from caption co-occurrence (configs/wordTags.json,
-built by site/tools/buildWordTags.py). searchDetailed() uses them: each such word becomes one group over the union of
-its tags ("any of these") at INFERRED_WEIGHT, and is reported separately so it can be shown and removed.
-A word that still matches nothing gets suggested tags from a word-vector synonym check (synonyms.py); those do not
-affect the ranking until the user adds them (tags=).
+built by site/tools/buildWordTags.py); describe() turns each such guess into ordinary tags at INFERRED_WEIGHT. A word
+that still matches nothing gets suggested tags from a word-vector synonym check (synonyms.py). describe() answers "which
+tags does this query mean"; rank() orders the fonts for exactly the tags it is given, so the page can keep the user's
+ticks and crosses itself and send the final list.
 """
 
 import importlib.util
@@ -82,9 +82,9 @@ class TagIndex:
                 unmatched.append(name)
         return terms, unmatched
 
-    def parseDetailed(self, query, ignore=()):
+    def parseDetailed(self, query):
         """Like parse(), plus words matched only through the caption table: (terms, unmatched, inferred) where
-        inferred is [(word, [groups], weight)]. Words in `ignore` are not inferred (the user removed that guess)."""
+        inferred is [(word, [groups], weight)]."""
         found = {}
         weights, unmatched = self.vocabulary.parse(query, inferred=found)
         terms = []
@@ -96,20 +96,17 @@ class TagIndex:
         inferred = []
         for word, (sign, groups) in found.items():
             groups = [g for g in groups if g in self.groups]
-            if word in ignore or not groups:
+            if not groups:
                 unmatched.append(word)
             else:
                 inferred.append((word, groups, sign * INFERRED_WEIGHT))
         return terms, unmatched, inferred
 
-    def score(self, terms, inferred=()):
-        """terms: [(group, weight)], inferred: [(word, [groups], weight)] -> float32 [numFonts], higher is better."""
+    def score(self, terms):
+        """terms: [(group, weight)] -> float32 [numFonts], higher is a better match."""
         total = np.zeros(self.numFonts, dtype=np.float32)
-        blocks = [(self.groups[name], weight) for name, weight in terms]
-        blocks += [(np.array(sorted(set(np.concatenate([self.groups[g] for g in groups])))), weight)
-                   for _, groups, weight in inferred]
-        for rows, weight in blocks:
-            block = self.logits[rows].astype(np.float32)  # [members, numFonts]
+        for name, weight in terms:
+            block = self.logits[self.groups[name]].astype(np.float32)  # [members, numFonts]
             if weight > 0:
                 mass = (1.0 / (1.0 + np.exp(-block))).sum(axis=0)
                 total += weight * (np.log(mass + EPS) - self.logMass)
@@ -118,48 +115,60 @@ class TagIndex:
                 total += weight * np.logaddexp(0.0, block).sum(axis=0)
         return total
 
-    def search(self, query):
-        """Full ranking of the corpus: (font indices best first, terms, unmatched). Empty when nothing matched."""
-        terms, unmatched = self.parse(query)
+    def rank(self, terms):
+        """Full ranking of the corpus for [(group, weight)]: font indices, best first. Empty without terms."""
         if not terms:
-            return np.empty(0, dtype=np.int64), terms, unmatched
+            return np.empty(0, dtype=np.int64)
         # stable, so equal scores keep corpus order and pages never overlap or skip
-        order = np.argsort(-self.score(terms), kind="stable")
-        return order, terms, unmatched
+        return np.argsort(-self.score(terms), kind="stable")
 
-    def searchDetailed(self, query, ignore=(), tags=()):
-        """search() with caption-inferred tags, the user's own choices and synonym suggestions:
-        (order, terms, unmatched, inferred, suggested).
+    def describe(self, query, suggest=True):
+        """What a query means as a list of tags: (terms, suggested, unmatched).
 
-        The choices override what the query said. tags: [(name, sign)], sign +1 (included) or -1 (excluded): a tag
-        the query already matched, or a word it was guessed from, takes that sign (keeping its weight); any other tag
-        is added; a name the index does not know goes to unmatched. ignore: names turned off, a tag is dropped from the
-        query and a word is not guessed at. suggested: [(word, [(group, via word, similarity)])] for words that matched
-        nothing, not used in the ranking."""
-        terms, unmatched, inferred = self.parseDetailed(query, ignore)
-        signs, off = dict(tags), set(ignore)
-        terms = [(name, abs(weight) * signs[name] if name in signs else weight)
-                 for name, weight in terms if name not in off]
-        inferred = [(word, groups, abs(weight) * signs[word] if word in signs else weight)
-                    for word, groups, weight in inferred]
-        present, guessed = {name for name, _ in terms}, {word for word, _, _ in inferred}
-        for name, sign in signs.items():
-            if name in present or name in guessed or name in off:
-                continue
+        terms: [(group, weight)], the tags the query matched (negative for "not x"), plus the tags guessed for words
+        the vocabulary does not know, each at INFERRED_WEIGHT. suggested: [(group, via word, similarity)], synonyms of
+        words that matched nothing; they are not part of terms, the caller decides whether to use them. unmatched:
+        words that matched nothing and got no suggestion."""
+        terms, unmatched, inferred = self.parseDetailed(query)
+        present = {name for name, _ in terms}
+        for _, groups, weight in inferred:
+            for group in groups:
+                if group not in present:
+                    terms.append((group, weight))
+                    present.add(group)
+        suggested, left, seen = [], [], set(present)
+        for word in unmatched:
+            options = []
+            if suggest and self.suggester is not None and word.isalpha() and word not in self.groups:
+                options = [o for o in self.suggester.suggest(word, exclude=seen) if o[0] not in seen]
+            for group, via, similarity in options:
+                seen.add(group)
+                suggested.append((group, via, similarity))
+            if not options:
+                left.append(word)
+        return terms, suggested, left
+
+    def search(self, query):
+        """rank() for what the query means: (font indices best first, terms, unmatched)."""
+        terms, _, unmatched = self.describe(query, suggest=False)
+        return self.rank(terms), terms, unmatched
+
+    def parseChoices(self, text, limit=64):
+        """The final tag list a page sends back: "name", "-name" to exclude, each optionally ":weight" (0-1, the weight
+        describe() reported). Names the index does not know are skipped. Raises ValueError for a malformed entry."""
+        terms = {}
+        entries = [e.strip().lower() for e in text.split(",") if e.strip()]
+        if len(entries) > limit:
+            raise ValueError(f"at most {limit} tags")
+        for entry in entries:
+            sign = -1.0 if entry.startswith("-") else 1.0
+            name, _, weight = entry.lstrip("-").partition(":")
+            try:
+                weight = float(weight) if weight else 1.0
+            except ValueError:
+                raise ValueError(f"bad weight in {entry!r}")
+            if not 0 < weight <= 1:
+                raise ValueError(f"weight of {name!r} must be above 0 and at most 1")
             if name in self.groups:
-                terms.append((name, sign))
-                present.add(name)
-            elif name not in unmatched:
-                unmatched.append(name)
-        suggested = []
-        if self.suggester is not None:
-            taken = present | {g for _, groups, _ in inferred for g in groups}
-            for word in unmatched:
-                if word.isalpha() and word not in self.groups:
-                    options = self.suggester.suggest(word, exclude=taken)
-                    if options:
-                        suggested.append((word, options))
-        if not terms and not inferred:
-            return np.empty(0, dtype=np.int64), terms, unmatched, inferred, suggested
-        order = np.argsort(-self.score(terms, inferred), kind="stable")
-        return order, terms, unmatched, inferred, suggested
+                terms[name] = sign * weight
+        return list(terms.items())

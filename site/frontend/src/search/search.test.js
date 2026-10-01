@@ -8,6 +8,8 @@ beforeEach(() => {
 	window.HTMLElement.prototype.scrollIntoView = jest.fn();
 });
 
+const queryCalls = (calls) => calls.filter(c => c.path === "/api/font/query");
+
 function queryHandler(total = 100, extra = {}) {
 	return ({ params }) => jsonResponse(makePage({ query: params.query, page: Number(params.page), total, ...extra }));
 }
@@ -52,7 +54,10 @@ describe("searching", () => {
 	});
 
 	test("shows specimen images linking out, with the matched tags", async () => {
-		const calls = installFetch({ "/api/font/query": queryHandler(30, { tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: -1 }] }) });
+		const calls = installFetch({
+			"/api/font/tags": () => jsonResponse({ tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: -1 }], suggested: [], unmatched: [] }),
+			"/api/font/query": queryHandler(30),
+		});
 		render(<SearchPage username={null} />);
 		await search("serif not bold");
 
@@ -66,13 +71,17 @@ describe("searching", () => {
 		const chips = within(await screen.findByRole("list", { name: "Tags in your search" })).getAllByRole("listitem");
 		expect(chips.map(c => c.textContent)).toEqual(["serif", "bold"]);
 		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "bold: excluded");
-		expect(calls[0].params).toEqual({ query: "serif not bold", page: "1", pageSize: "24" });
+		expect(calls[0]).toMatchObject({ path: "/api/font/tags", params: { query: "serif not bold" } });
+		expect(calls[1].params).toEqual({ query: "serif not bold", tags: "serif:1,-bold:1", page: "1", pageSize: "24" });
 		expect(screen.getAllByText("Google Fonts")).toHaveLength(12);
 		expect(screen.getAllByText("DaFont · Some Designer")).toHaveLength(12);
 	});
 
 	test("unrecognised words are reported; nothing recognised says so", async () => {
-		installFetch({ "/api/font/query": () => jsonResponse(makePage({ total: 0, tags: [], unmatched: ["qwerty"] })) });
+		installFetch({
+			"/api/font/tags": () => jsonResponse({ tags: [], suggested: [], unmatched: ["qwerty"] }),
+			"/api/font/query": () => jsonResponse(makePage({ total: 0, tags: [] })),
+		});
 		render(<SearchPage username={null} />);
 		await search("qwerty");
 		expect(await screen.findByText("No tags recognised in that description.")).toBeInTheDocument();
@@ -106,6 +115,7 @@ describe("searching", () => {
 		render(<SearchPage username={null} />);
 		const box = screen.getByLabelText("Describe a font");
 		userEvent.type(box, "first{enter}");
+		await waitFor(() => expect(releaseFirst).toBeDefined());       // the first search's fonts are now in flight
 		userEvent.clear(box);
 		userEvent.type(box, "second{enter}");
 		const tags = () => screen.getByRole("list", { name: "Tags in your search" });
@@ -117,41 +127,42 @@ describe("searching", () => {
 });
 
 describe("tag line", () => {
-	const inferredAiry = { word: "airy", tags: ["thin", "feminine"], weight: 0.5 };
-	const slimy = [
-		{ tag: "grunge", via: "dirty", similarity: 0.68 },
-		{ tag: "distressed", via: "dirty", similarity: 0.68 },
+	const slimy = [{ tag: "grunge", via: "dirty", similarity: 0.68 }, { tag: "distressed", via: "dirty", similarity: 0.68 },
 		{ tag: "horror", via: "creepy", similarity: 0.62 }];
 
-	// A backend double that follows the real one: tags= force a sign (or add a tag), ignore= turns things off, and a
-	// tag that is in the search is not suggested
-	function backend() {
-		return ({ params }) => {
-			const forced = Object.fromEntries((params.tags || "").split(",").filter(Boolean)
-				.map(t => t.startsWith("-") ? [t.slice(1), -1] : [t, 1]));
-			const off = (params.ignore || "").split(",").filter(Boolean);
-			const words = params.query.split(" ");
-			const typed = ["serif", "bold", "thin"].filter(w => words.includes(w));
-			const negated = words.map((w, i) => w !== "not" && words[i - 1] === "not" ? w : null).filter(Boolean);
-			const names = [...new Set([...typed, ...Object.keys(forced).filter(n => !["airy"].includes(n))])].filter(n => !off.includes(n));
-			const tags = names.map(n => ({ tag: n, weight: forced[n] ?? (negated.includes(n) ? -1 : 1) }));
-			const guessed = words.includes("airy") && !off.includes("airy");
-			const inferred = guessed ? [{ ...inferredAiry, weight: 0.5 * (forced.airy ?? 1) }] : [];
-			const unmatched = words.filter(w => ["slimy", "airy", "qwerty"].includes(w) && !(w === "airy" && guessed));
-			const suggested = unmatched.includes("slimy")
-				? [{ word: "slimy", tags: slimy.filter(t => !names.includes(t.tag)) }] : [];
-			return jsonResponse(makePage({ query: params.query, page: Number(params.page), total: 30, tags, unmatched, inferred, suggested }));
+	// The server only lists the tags for a query and ranks the list it is given, like the real one
+	function tagsFor(query) {
+		const words = query.split(" ");
+		const tags = [];
+		words.forEach((w, i) => {
+			if (["serif", "bold", "thin", "script", "feminine"].includes(w)) tags.push({ tag: w, weight: words[i - 1] === "not" ? -1 : 1 });
+			if (w === "rounded") tags.push({ tag: "rounded", weight: 0.6 });
+			if (w === "airy") ["thin", "feminine"].forEach(t => { if (!tags.some(x => x.tag === t)) tags.push({ tag: t, weight: 0.5 }); });
+		});
+		const unmatched = words.filter(w => ["qwerty"].includes(w));
+		const suggested = words.includes("slimy") ? slimy : [];
+		return { tags, suggested, unmatched };
+	}
+	function backend(calls) {
+		return {
+			"/api/font/tags": ({ params }) => jsonResponse(tagsFor(params.query)),
+			"/api/font/query": ({ params }) => jsonResponse(makePage({ query: params.query, page: Number(params.page), total: params.tags ? 30 : 0,
+				tags: params.tags.split(",").filter(Boolean).map(t => ({ tag: t.replace(/^-/, "").split(":")[0], weight: 1 })) })),
 		};
 	}
 	const line = () => screen.getByRole("list", { name: "Tags in your search" });
 	const box = (name, state) => within(line()).getByRole("button", { name: `${name}: ${state}` });
-	const lastParams = (calls) => calls[calls.length - 1].params;
+	const lastQuery = (calls) => [...calls].reverse().find(c => c.path === "/api/font/query").params;
+	const tagCalls = (calls) => calls.filter(c => c.path === "/api/font/tags");
+	async function searched(text, calls = installFetch(backend())) {
+		render(<SearchPage username={null} />);
+		await search(text);
+		await within(await screen.findByRole("list", { name: "Tags in your search" })).findAllByRole("listitem");
+		return calls;
+	}
 
 	test("each tag is a word with a ticked box, and an excluded one is crossed", async () => {
-		installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("serif bold not thin");
-		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("serif");
+		await searched("serif bold not thin");
 		expect(within(line()).getAllByRole("listitem").map(i => i.textContent)).toEqual(["serif", "bold", "thin"]);
 		expect(box("serif", "included")).toHaveClass("TagBox-on");
 		expect(box("bold", "included")).toBeInTheDocument();
@@ -159,39 +170,52 @@ describe("tag line", () => {
 		expect(screen.getByText("Searching for:")).toBeInTheDocument();
 	});
 
-	test("clicking steps tick -> empty -> cross -> empty -> tick", async () => {
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("serif bold");
-		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("serif");
+	test("guessed tags and suggestions are plain tags in the same list: guesses ticked, suggestions not", async () => {
+		await searched("airy slimy");
+		expect(within(line()).getAllByRole("listitem").map(i => i.textContent))
+			.toEqual(["thin", "feminine", "grunge", "distressed", "horror"]);
+		expect(box("thin", "included")).toBeInTheDocument();
+		expect(box("grunge", "off")).toHaveClass("TagBox-off");
+		expect(screen.queryByText(/similar to/i)).toBeNull();
+		expect(screen.queryByText(/→/)).toBeNull();
+	});
+
+	test("clicking steps tick -> empty -> cross -> empty -> tick, all in the page", async () => {
+		const calls = await searched("serif bold");
+		expect(tagCalls(calls)).toHaveLength(1);
+		expect(lastQuery(calls).tags).toBe("serif:1,bold:1");
 
 		userEvent.click(box("serif", "included"));                     // tick -> empty
-		await waitFor(() => expect(box("serif", "off")).toHaveClass("TagBox-off"));
-		expect(lastParams(calls)).toMatchObject({ ignore: "serif", page: "1" });
-		expect(lastParams(calls).tags).toBeUndefined();
+		await waitFor(() => expect(box("serif", "off")).toBeInTheDocument());
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("bold:1"));
 
 		userEvent.click(box("serif", "off"));                          // empty -> cross
 		await waitFor(() => expect(box("serif", "excluded")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ tags: "-serif" });
-		expect(lastParams(calls).ignore).toBeUndefined();
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("-serif:1,bold:1"));
 
 		userEvent.click(box("serif", "excluded"));                     // cross -> empty
 		await waitFor(() => expect(box("serif", "off")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ ignore: "serif" });
-		expect(lastParams(calls).tags).toBeUndefined();
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("bold:1"));
 
 		userEvent.click(box("serif", "off"));                          // empty -> tick
 		await waitFor(() => expect(box("serif", "included")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ tags: "serif" });
-		expect(lastParams(calls).ignore).toBeUndefined();
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("serif:1,bold:1"));
 		expect(box("bold", "included")).toBeInTheDocument();           // the other tag never moved
+		expect(tagCalls(calls)).toHaveLength(1);                       // the server was never asked about the ticks
+		expect(window.location.search).toBe("?q=serif+bold");          // and they are not in the URL
+	});
+
+	test("a tag's weight rides along unchanged, with its sign from the box", async () => {
+		const calls = await searched("rounded serif");
+		expect(lastQuery(calls).tags).toBe("rounded:0.6,serif:1");
+		userEvent.click(box("rounded", "included"));
+		await waitFor(() => expect(box("rounded", "off")).toBeInTheDocument());
+		userEvent.click(box("rounded", "off"));
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("-rounded:0.6,serif:1"));
 	});
 
 	test("a box says what a click will do", async () => {
-		installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("serif");
-		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("serif");
+		await searched("serif");
 		expect(box("serif", "included")).toHaveAttribute("title", "Included. Click to turn off.");
 		userEvent.click(box("serif", "included"));
 		await waitFor(() => expect(box("serif", "off")).toHaveAttribute("title", "Off. Click to exclude."));
@@ -201,124 +225,102 @@ describe("tag line", () => {
 		await waitFor(() => expect(box("serif", "off")).toHaveAttribute("title", "Off. Click to include."));
 	});
 
-	test("a tag typed with 'not' starts crossed and can be ticked", async () => {
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("not thin");
-		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("thin");
+	test("a tag typed with 'not' starts crossed and goes to a tick after being emptied", async () => {
+		const calls = await searched("not thin");
 		userEvent.click(box("thin", "excluded"));
 		await waitFor(() => expect(box("thin", "off")).toBeInTheDocument());
-		userEvent.click(box("thin", "off"));                           // it came from a cross, so it goes to a tick
+		userEvent.click(box("thin", "off"));
 		await waitFor(() => expect(box("thin", "included")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ tags: "thin" });
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("thin:1"));
 	});
 
-	test("a guessed word shows what it was guessed as and has the same box", async () => {
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("airy");
-		const item = (await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("airy")).closest("li");
-		expect(item).toHaveTextContent("airy→ thin, feminine");
-		expect(item).toHaveAttribute("title", expect.stringContaining("Guessed"));
-		userEvent.click(box("airy", "included"));
-		await waitFor(() => expect(box("airy", "off")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ ignore: "airy" });
-		userEvent.click(box("airy", "off"));
-		await waitFor(() => expect(box("airy", "excluded")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ tags: "-airy" });
-		expect(within(line()).getByText("→ thin, feminine")).toBeInTheDocument();
-	});
-
-	test("suggestions are on the same line with empty boxes, and the first click ticks them", async () => {
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("serif slimy");
-		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("grunge");
-		expect(within(line()).getAllByRole("listitem").map(i => i.textContent))
-			.toEqual(["serif", "similar to “slimy”:", "grunge", "distressed", "horror"]);
-		expect(box("grunge", "off")).toHaveAttribute("title", "Off. Click to include.");
-		expect(within(line()).getByText("grunge").closest("li")).toHaveAttribute("title", "Similar to “dirty” (0.68)");
-		expect(calls[0].params.tags).toBeUndefined();
-
+	test("a suggestion starts empty and its first click ticks it, in place", async () => {
+		const calls = await searched("serif slimy");
+		expect(lastQuery(calls).tags).toBe("serif:1");
 		userEvent.click(box("grunge", "off"));
 		await waitFor(() => expect(box("grunge", "included")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ tags: "grunge" });
-		// it is part of the search now, in the main group, and not offered twice
-		expect(within(line()).getAllByText("grunge")).toHaveLength(1);
-		expect(within(line()).getAllByRole("listitem").map(i => i.textContent))
-			.toEqual(["serif", "grunge", "similar to “slimy”:", "distressed", "horror"]);
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("serif:1,grunge:1"));
+		expect(within(line()).getAllByRole("listitem").map(i => i.textContent)).toEqual(["serif", "grunge", "distressed", "horror"]);
 	});
 
-	test("an added suggestion stays visible when turned off, and can then be crossed", async () => {
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("slimy");
-		userEvent.click(await within(await screen.findByRole("list", { name: "Tags in your search" })).findByRole("button", { name: "grunge: off" }));
-		await waitFor(() => expect(box("grunge", "included")).toBeInTheDocument());
-		userEvent.click(box("grunge", "included"));
-		await waitFor(() => expect(box("grunge", "off")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ ignore: "grunge" });
+	test("with nothing ticked there are no fonts and the page says why", async () => {
+		const calls = await searched("slimy");
+		expect(await screen.findByText("Tick a tag to see fonts.")).toBeInTheDocument();
+		expect(lastQuery(calls).tags).toBe("");
 		userEvent.click(box("grunge", "off"));
-		await waitFor(() => expect(box("grunge", "excluded")).toBeInTheDocument());
-		expect(lastParams(calls)).toMatchObject({ tags: "-grunge" });
-		expect(lastParams(calls).ignore).toBeUndefined();
+		await waitFor(() => expect(screen.queryByText("Tick a tag to see fonts.")).toBeNull());
+		expect((await screen.findAllByRole("img"))).toHaveLength(24);
 	});
 
-	test("paging keeps the choices, a new search starts clean", async () => {
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await search("serif airy");
-		userEvent.click(await within(await screen.findByRole("list", { name: "Tags in your search" })).findByRole("button", { name: "airy: included" }));
-		await waitFor(() => expect(box("airy", "off")).toBeInTheDocument());
+	test("changing a tag goes back to the first page; paging keeps the choices without asking again", async () => {
+		const calls = await searched("serif bold");
 		userEvent.click(await screen.findByRole("button", { name: "Next" }));
 		await screen.findByText("Page 2 of 2 · 30 fonts");
-		expect(lastParams(calls)).toMatchObject({ page: "2", ignore: "airy" });
-		expect(window.location.search).toBe("?q=serif+airy&ignore=airy&page=2");
-
-		userEvent.clear(screen.getByLabelText("Describe a font"));
-		userEvent.type(screen.getByLabelText("Describe a font"), "serif airy{enter}");
-		await waitFor(() => expect(box("airy", "included")).toBeInTheDocument());
-		expect(lastParams(calls).ignore).toBeUndefined();
-		expect(window.location.search).toBe("?q=serif+airy");
+		expect(lastQuery(calls)).toMatchObject({ page: "2", tags: "serif:1,bold:1" });
+		userEvent.click(box("bold", "included"));
+		await screen.findByText("Page 1 of 2 · 30 fonts");
+		expect(lastQuery(calls)).toMatchObject({ page: "1", tags: "serif:1" });
+		userEvent.click(await screen.findByRole("button", { name: "Next" }));
+		await screen.findByText("Page 2 of 2 · 30 fonts");
+		expect(lastQuery(calls)).toMatchObject({ page: "2", tags: "serif:1" });   // still without bold
+		expect(box("bold", "off")).toBeInTheDocument();
+		expect(tagCalls(calls)).toHaveLength(1);
+		expect(window.location.search).toBe("?q=serif+bold&page=2");
 	});
 
-	test("choices come back from a shared link, including tags that are off", async () => {
-		window.history.replaceState({}, "", "/?q=serif+bold&tags=-bold&ignore=serif");
-		const calls = installFetch({ "/api/font/query": backend() });
-		render(<SearchPage username={null} />);
-		await within(await screen.findByRole("list", { name: "Tags in your search" })).findByText("bold");
-		expect(lastParams(calls)).toMatchObject({ tags: "-bold", ignore: "serif" });
-		expect(box("bold", "excluded")).toBeInTheDocument();
-		expect(box("serif", "off")).toBeInTheDocument();               // not in the response, kept from the link
+	test("searching again, even the same words, starts clean", async () => {
+		const calls = await searched("serif bold");
+		userEvent.click(box("serif", "included"));
+		await waitFor(() => expect(box("serif", "off")).toBeInTheDocument());
+		userEvent.type(screen.getByLabelText("Describe a font"), "{enter}");   // the same text again
+		await waitFor(() => expect(box("serif", "included")).toBeInTheDocument());
+		expect(tagCalls(calls)).toHaveLength(2);
+		expect(lastQuery(calls).tags).toBe("serif:1,bold:1");
+	});
 
-		window.history.pushState({}, "", "/?q=serif+bold");
+	test("a different query loads its own tags; back/forward does too", async () => {
+		const calls = await searched("serif");
+		userEvent.clear(screen.getByLabelText("Describe a font"));
+		userEvent.type(screen.getByLabelText("Describe a font"), "bold{enter}");
+		await waitFor(() => expect(box("bold", "included")).toBeInTheDocument());
+		expect(within(line()).queryByText("serif")).toBeNull();
+
+		window.history.pushState({}, "", "/?q=serif");
 		act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
 		await waitFor(() => expect(box("serif", "included")).toBeInTheDocument());
-		expect(box("bold", "included")).toBeInTheDocument();
+		expect(tagCalls(calls).map(c => c.params.query)).toEqual(["serif", "bold", "serif"]);
 	});
 
-	test("words that match nothing and have no suggestions are listed as not recognised", async () => {
-		installFetch({ "/api/font/query": backend() });
+	test("opening a shared link loads the tags for its query and page", async () => {
+		window.history.replaceState({}, "", "/?q=serif+bold&page=2");
+		const calls = installFetch(backend());
 		render(<SearchPage username={null} />);
-		await search("serif qwerty slimy");
+		await screen.findByText("Page 2 of 2 · 30 fonts");
+		expect(lastQuery(calls)).toMatchObject({ query: "serif bold", tags: "serif:1,bold:1", page: "2" });
+	});
+
+	test("words that match nothing are listed as not recognised", async () => {
+		await searched("serif qwerty");
 		expect(await screen.findByText("Not recognised: qwerty.")).toBeInTheDocument();
-		expect(within(line()).getByText("similar to “slimy”:")).toBeInTheDocument();
 	});
 
 	test("nothing recognised says so", async () => {
-		installFetch({ "/api/font/query": backend() });
+		installFetch({
+			"/api/font/tags": () => jsonResponse({ tags: [], suggested: [], unmatched: ["qwerty"] }),
+			"/api/font/query": () => jsonResponse(makePage({ total: 0, tags: [] })),
+		});
 		render(<SearchPage username={null} />);
 		await search("qwerty");
 		expect(await screen.findByText("No tags recognised in that description.")).toBeInTheDocument();
 		expect(screen.getByText("Not recognised: qwerty.")).toBeInTheDocument();
 	});
 
-	test("an older backend without inferred/suggested still renders", async () => {
-		installFetch({ "/api/font/query": () => jsonResponse((({ inferred, suggested, ...rest }) => rest)(makePage({ total: 5 }))) });
+	test("a failure listing the tags is shown", async () => {
+		installFetch({ "/api/font/tags": () => jsonResponse({ message: "Query is longer than 200 characters" }, 400) });
 		render(<SearchPage username={null} />);
-		await search("serif");
-		await screen.findAllByRole("img");
-		expect(within(line()).getAllByRole("listitem")).toHaveLength(1);
+		await search("x");
+		expect(await screen.findByRole("alert")).toHaveTextContent("Query is longer than 200 characters");
+		expect(screen.queryByText("Searching…")).toBeNull();
 	});
 });
 
@@ -386,7 +388,7 @@ describe("pagination", () => {
 		const calls = installFetch({ "/api/font/query": queryHandler(288) });
 		render(<SearchPage username={null} />);
 		await screen.findByText("Page 3 of 12 · 288 fonts");
-		expect(calls[0].params).toMatchObject({ query: "script", page: "3" });
+		expect(queryCalls(calls)[0].params).toMatchObject({ query: "script", page: "3" });
 		expect(screen.getByLabelText("Describe a font")).toHaveValue("script");
 	});
 
@@ -395,7 +397,7 @@ describe("pagination", () => {
 		const calls = installFetch({ "/api/font/query": queryHandler(50) });
 		render(<SearchPage username={null} />);
 		await screen.findByText("Page 3 of 3 · 50 fonts");
-		expect(calls.map(c => c.params.page)).toEqual(["99", "3"]);
+		expect(queryCalls(calls).map(c => c.params.page)).toEqual(["99", "3"]);
 	});
 
 	test("garbage in the URL is ignored", async () => {
@@ -403,7 +405,7 @@ describe("pagination", () => {
 		const calls = installFetch({ "/api/font/query": queryHandler(50) });
 		render(<SearchPage username={null} />);
 		await screen.findAllByRole("img");
-		expect(calls[0].params.page).toBe("1");
+		expect(queryCalls(calls)[0].params.page).toBe("1");
 	});
 });
 
@@ -519,7 +521,7 @@ describe("feedback", () => {
 	});
 
 	test("logging in re-fetches so the user's own votes show", async () => {
-		const calls = installFetch({ "/api/font/query": () => jsonResponse({ ...makePage({ total: 1 }), results: [makeResult(0, { vote: calls.length > 1 ? 1 : 0 })] }) });
+		const calls = installFetch({ "/api/font/query": () => jsonResponse({ ...makePage({ total: 1 }), results: [makeResult(0, { vote: queryCalls(calls).length > 1 ? 1 : 0 })] }) });
 		const view = render(<SearchPage username={null} />);
 		await search("serif");
 		await screen.findAllByRole("img");

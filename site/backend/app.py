@@ -176,6 +176,20 @@ def createApp(overrides=None):
 
     # ------------------------------------------------------------ search
 
+    @app.route("/api/font/tags", methods=["GET"])
+    @limiter.limit("120 per minute")
+    def describeQuery():
+        """The list of tags a query means, to show and edit; /api/font/query then ranks the list it is sent."""
+        query = request.args.get("query", "")
+        if len(query) > MAX_QUERY:
+            return jsonify({"message": f"Query is longer than {MAX_QUERY} characters"}), 400
+        terms, suggested, unmatched = index.describe(query)
+        return jsonify({
+            "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
+            "suggested": [{"tag": name, "via": via, "similarity": similarity} for name, via, similarity in suggested],
+            "unmatched": unmatched,
+        }), 200
+
     @app.route("/api/font/query", methods=["GET"])
     @limiter.limit("120 per minute")
     @dbRequired
@@ -191,13 +205,15 @@ def createApp(overrides=None):
         if page < 1 or not 1 <= pageSize <= MAX_PAGE_SIZE:
             return jsonify({"message": f"page must be >= 1 and pageSize 1-{MAX_PAGE_SIZE}"}), 400
 
-        ignore = {w.strip().lower() for w in request.args.get("ignore", "").split(",") if w.strip()}
-        # tags the user added from the chips, "-name" to exclude one
-        added = []
-        for name in (t.strip().lower() for t in request.args.get("tags", "").split(",")):
-            if name:
-                added.append((name[1:], -1.0) if name.startswith("-") else (name, 1.0))
-        order, terms, unmatched, inferred, suggested = index.searchDetailed(query, ignore, added)
+        if "tags" in request.args:
+            # the page's own list (it holds the ticks and crosses); the query text is then only the label for votes
+            try:
+                terms = index.parseChoices(request.args["tags"])
+            except ValueError as error:
+                return jsonify({"message": f"Invalid tags: {error}"}), 400
+        else:
+            terms, _, _ = index.describe(query, suggest=False)
+        order = index.rank(terms)
         total = len(order)
         ids = [int(i) for i in order[(page - 1) * pageSize: page * pageSize]]
         keys = [bundle.fonts[i]["key"] for i in ids]
@@ -241,11 +257,6 @@ def createApp(overrides=None):
             "total": total,
             "totalPages": math.ceil(total / pageSize),
             "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
-            "unmatched": unmatched,
-            "inferred": [{"word": word, "tags": groups, "weight": round(float(weight), 3)}
-                         for word, groups, weight in inferred],
-            "suggested": [{"word": word, "tags": [{"tag": g, "via": via, "similarity": sim} for g, via, sim in options]}
-                          for word, options in suggested],
         }), 200
 
     @app.route("/api/font/specimen/<int:i>", methods=["GET"])

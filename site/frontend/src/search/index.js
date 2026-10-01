@@ -134,10 +134,9 @@ function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 	</article>;
 }
 
-const listParam = (params, name) => (params.get(name) || "").split(",").map(x => x.trim()).filter(Boolean);
-
-// What the engine understood, on one line: each tag (or guessed word, or suggested synonym) with a box that is
-// ticked (included), crossed (excluded) or empty (off). Clicking steps through tick -> empty -> cross -> empty -> tick.
+// The tags a search uses, on one line. Each is a word with a box that is ticked (included), crossed (excluded) or
+// empty (off); clicking steps through tick -> empty -> cross -> empty -> tick. Suggested synonyms are in the same list,
+// unticked. The server only lists the tags for a query; the boxes are this page's state.
 const STATE_NAME = { on: "included", off: "off", neg: "excluded" };
 
 function StateIcon({ state }) {
@@ -148,51 +147,27 @@ function StateIcon({ state }) {
 	return null;
 }
 
-export function TagLine({ data, ignored, nextAfterOff, onChange }) {
-	const inferred = data.inferred || [];
-	const suggested = data.suggested || [];
-	const seen = new Set();
-	const chips = [];
-	const push = (chip) => { if (!seen.has(chip.name)) { seen.add(chip.name); chips.push(chip); } };
-	data.tags.forEach(t => push({ name: t.tag, state: t.weight < 0 ? "neg" : "on" }));
-	inferred.forEach(i => push({ name: i.word, state: i.weight < 0 ? "neg" : "on",
-		hint: i.tags.join(", "), title: `"${i.word}" is not a tag. Guessed from fonts described that way.` }));
-	// turned off: the server no longer reports these, so they are kept from the URL to stay visible
-	ignored.forEach(name => push({ name, state: "off" }));
-	const offered = suggested.map(({ word, tags }) => ({
-		word, chips: tags.filter(t => !seen.has(t.tag)).map(t => ({ name: t.tag, state: "off",
-			title: `Similar to “${t.via}” (${t.similarity})` })),
-	})).filter(group => group.chips.length > 0);
-
-	const suggestedWords = new Set(suggested.map(s => s.word));
-	const notRecognised = data.unmatched.filter(word => !suggestedWords.has(word) && !seen.has(word));
-
-	const nextState = (chip) => chip.state === "off" ? (nextAfterOff.current[chip.name] || "on") : "off";
-
-	const renderChip = (chip, extra = "") => {
-		const next = nextState(chip);
-		return <li key={chip.name} className={"Tag " + extra} title={chip.title}>
-			<span className="TagWord">{chip.name}</span>
-			{chip.hint ? <span className="TagHint">→ {chip.hint}</span> : null}
-			<button type="button" className={"TagBox TagBox-" + chip.state} onClick={() => onChange(chip, next)}
-				aria-label={`${chip.name}: ${STATE_NAME[chip.state]}`}
-				title={`${STATE_NAME[chip.state][0].toUpperCase() + STATE_NAME[chip.state].slice(1)}. Click to ${next === "on" ? "include" : next === "neg" ? "exclude" : "turn off"}.`}>
-				<StateIcon state={chip.state} />
-			</button>
-		</li>;
-	};
-
+export function TagLine({ tags, unmatched, nextAfterOff, onToggle }) {
+	// an empty box becomes a tick or a cross depending on where it came from
+	const nextState = (tag) => tag.state === "off" ? (nextAfterOff.current[tag.tag] || "on") : "off";
 	return <div className="TagLine">
-		{chips.length === 0 ? <span className="TagLabel" role="status">No tags recognised in that description.</span>
-			: <span className="TagLabel" role="status">Searching for:</span>}
+		<span className="TagLabel" role="status">
+			{tags.length === 0 ? "No tags recognised in that description." : "Searching for:"}
+		</span>
 		<ul className="Tags" aria-label="Tags in your search">
-			{chips.map(chip => renderChip(chip))}
-			{offered.map(({ word, chips: group }) => [
-				<li key={"for|" + word} className="TagFor">similar to “{word}”:</li>,
-				...group.map(chip => renderChip(chip, "TagSuggested")),
-			])}
+			{tags.map(tag => {
+				const next = nextState(tag);
+				return <li key={tag.tag} className="Tag">
+					<span className="TagWord">{tag.tag}</span>
+					<button type="button" className={"TagBox TagBox-" + tag.state} onClick={() => onToggle(tag, next)}
+						aria-label={`${tag.tag}: ${STATE_NAME[tag.state]}`}
+						title={`${STATE_NAME[tag.state][0].toUpperCase() + STATE_NAME[tag.state].slice(1)}. Click to ${next === "on" ? "include" : next === "neg" ? "exclude" : "turn off"}.`}>
+						<StateIcon state={tag.state} />
+					</button>
+				</li>;
+			})}
 		</ul>
-		{notRecognised.length > 0 ? <span className="TagLabel">Not recognised: {notRecognised.join(", ")}.</span> : null}
+		{unmatched.length > 0 ? <span className="TagLabel">Not recognised: {unmatched.join(", ")}.</span> : null}
 	</div>;
 }
 
@@ -202,22 +177,50 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 	const [text, setText] = useState(initial.get("q") || "");
 	const [query, setQuery] = useState(initial.get("q") || "");
 	const [page, setPage] = useState(Math.max(1, parseInt(initial.get("page"), 10) || 1));
-	const [added, setAdded] = useState(listParam(initial, "tags"));      // tags added from suggestions ("-name" excludes)
-	const [ignored, setIgnored] = useState(listParam(initial, "ignore")); // words whose guessed tags were removed
+	const [searchId, setSearchId] = useState(0);   // bumps on every submit, so searching the same text starts over
+	const [tagSet, setTagSet] = useState(null);    // {tags: [{tag, weight, state}], unmatched}; null while loading
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
 	const topRef = useRef(null);
 	const generation = useRef(0);
+	const nextAfterOff = useRef({});
 
+	// 1. The tags a query means. Nothing else about the query is asked of the server again.
 	useEffect(() => {
+		setTagSet(null);
 		if (!query.trim()) { setData(null); return undefined; }
 		const controller = new AbortController();
 		setLoading(true);
 		setError("");
-		const params = new URLSearchParams({ query, page, pageSize: PAGE_SIZE });
-		if (added.length) params.set("tags", added.join(","));
-		if (ignored.length) params.set("ignore", ignored.join(","));
+		fetch('/api/font/tags?' + new URLSearchParams({ query }), { signal: controller.signal })
+			.then(async response => {
+				const json = await response.json();
+				if (!response.ok) throw new Error(json.message || "Search failed");
+				return json;
+			})
+			.then(json => setTagSet({
+				tags: [...json.tags.map(t => ({ tag: t.tag, weight: Math.abs(t.weight), state: t.weight < 0 ? "neg" : "on" })),
+					...json.suggested.map(s => ({ tag: s.tag, weight: 1, state: "off" }))],
+				unmatched: json.unmatched,
+			}))
+			.catch(e => {
+				if (e.name === "AbortError") return;
+				setError(e.message || String(e));
+				setLoading(false);
+			});
+		return () => controller.abort();
+	}, [query, searchId]);
+
+	// 2. The fonts for the tags that are ticked or crossed. query stays only as the label votes are filed under.
+	const tagParam = tagSet === null ? null : tagSet.tags.filter(t => t.state !== "off")
+		.map(t => `${t.state === "neg" ? "-" : ""}${t.tag}:${t.weight}`).join(",");
+	useEffect(() => {
+		if (tagParam === null) return undefined;
+		const controller = new AbortController();
+		setLoading(true);
+		setError("");
+		const params = new URLSearchParams({ query, tags: tagParam, page, pageSize: PAGE_SIZE });
 		fetch('/api/font/query?' + params, { signal: controller.signal })
 			.then(async response => {
 				const json = await response.json();
@@ -240,20 +243,16 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 				setLoading(false);
 			});
 		return () => controller.abort();
-	}, [query, page, added, ignored, username]);
+	}, [query, page, tagParam, username]);
 
-	const navigate = useCallback((nextQuery, nextPage, nextAdded = [], nextIgnored = []) => {
+	const navigate = useCallback((nextQuery, nextPage) => {
 		const params = new URLSearchParams();
 		if (nextQuery) params.set("q", nextQuery);
-		if (nextAdded.length) params.set("tags", nextAdded.join(","));
-		if (nextIgnored.length) params.set("ignore", nextIgnored.join(","));
 		if (nextPage > 1) params.set("page", nextPage);
 		const search = params.toString();
 		window.history.pushState({}, "", window.location.pathname + (search ? "?" + search : ""));
 		setQuery(nextQuery);
 		setPage(nextPage);
-		setAdded(nextAdded);
-		setIgnored(nextIgnored);
 	}, []);
 
 	// Back and forward buttons
@@ -263,28 +262,21 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			setText(params.get("q") || "");
 			setQuery(params.get("q") || "");
 			setPage(Math.max(1, parseInt(params.get("page"), 10) || 1));
-			setAdded(listParam(params, "tags"));
-			setIgnored(listParam(params, "ignore"));
 		};
 		window.addEventListener("popstate", onPop);
 		return () => window.removeEventListener("popstate", onPop);
 	}, []);
 
-	// An empty box becomes a tick or a cross depending on where it came from: tick -> empty -> cross -> empty -> tick
-	const nextAfterOff = useRef({});
-	const setChoice = (chip, next) => {
-		if (chip.state === "on") nextAfterOff.current[chip.name] = "neg";
-		if (chip.state === "neg") nextAfterOff.current[chip.name] = "on";
-		const others = added.filter(t => t.replace(/^-/, "") !== chip.name);
-		const rest = ignored.filter(w => w !== chip.name);
-		// changing the tags changes the results, so this goes back to page 1
-		if (next === "on") navigate(query, 1, [...others, chip.name], rest);
-		else if (next === "neg") navigate(query, 1, [...others, "-" + chip.name], rest);
-		else navigate(query, 1, others, [...rest, chip.name]);
+	// tick -> empty -> cross -> empty -> tick: remember which way an empty box goes next
+	const toggleTag = (tag, next) => {
+		if (tag.state === "on") nextAfterOff.current[tag.tag] = "neg";
+		if (tag.state === "neg") nextAfterOff.current[tag.tag] = "on";
+		setTagSet(set => ({ ...set, tags: set.tags.map(t => t.tag === tag.tag ? { ...t, state: next } : t) }));
+		if (page !== 1) navigate(query, 1);   // different tags, different results: back to the first page
 	};
 
 	const goToPage = (p) => {
-		navigate(query, p, added, ignored);
+		navigate(query, p);
 		if (topRef.current && topRef.current.scrollIntoView) topRef.current.scrollIntoView({ block: "start" });
 	};
 
@@ -312,7 +304,13 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			Please enter a description to search for a font
 		</p>
 
-		<form className="SearchForm" onSubmit={e => { e.preventDefault(); if (text.trim()) { nextAfterOff.current = {}; navigate(text.trim(), 1); } }}>
+		<form className="SearchForm" onSubmit={e => {
+			e.preventDefault();
+			if (!text.trim()) return;
+			nextAfterOff.current = {};
+			setSearchId(n => n + 1);
+			navigate(text.trim(), 1);
+		}}>
 			<input type="text" name="description" aria-label="Describe a font" value={text}
 				onChange={e => setText(e.target.value)} maxLength={200} />
 		</form>
@@ -320,9 +318,12 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		<div ref={topRef} className="ResultsTop"></div>
 		{error ? <p className="SearchMessage" role="alert">{error}</p> : null}
 
-		{data === null && loading ? <p className="SearchMessage" role="status">Searching…</p> : null}
-		{data === null ? null : <>
-			<TagLine data={data} ignored={ignored} nextAfterOff={nextAfterOff} onChange={setChoice} />
+		{tagSet === null && data === null && loading ? <p className="SearchMessage" role="status">Searching…</p> : null}
+		{tagSet === null ? null
+			: <TagLine tags={tagSet.tags} unmatched={tagSet.unmatched} nextAfterOff={nextAfterOff} onToggle={toggleTag} />}
+		{data === null || tagSet === null ? null : <>
+			{data.total === 0 && tagSet.tags.length > 0
+				? <p className="SearchMessage">Tick a tag to see fonts.</p> : null}
 			<div className={loading ? "Results ResultsLoading" : "Results"} aria-busy={loading}>
 				{data.results.map(result =>
 					<Result key={data.generation + "|" + result.key} result={result} query={query}
