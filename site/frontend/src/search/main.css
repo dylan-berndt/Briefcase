@@ -4,8 +4,9 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 120px 48px 64px;
+    justify-content: flex-start;
+    /* Where the title and search box sit on first load, so a search (or scrolling down and back up) never moves them */
+    padding: max(120px, calc(50vh - 100px)) 48px 64px;
     gap: 0;
   }
 
@@ -34,52 +35,105 @@
     font-size: clamp(14px, 2vmin, 16px);
     background: var(--col-surface-2);
     color: var(--col-text);
-    border: 1px solid var(--col-border);
-    border-radius: 6px;
-    padding: 12px 18px;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 20px;
     width: 100%;
     outline: none;
-    transition: border-color 0.2s;
+    /* straight down, no sideways offset */
+    box-shadow: 0 8px 12px -4px rgba(0, 0, 0, 0.7);
+    transition: box-shadow 0.2s;
     caret-color: var(--col-accent);
   }
-  
+
   .Center input[type="text"]::placeholder {
     color: var(--col-text-muted);
   }
   
+  /* no border to recolour: focus is a slightly lighter field with a deeper shadow */
   .Center input[type="text"]:focus {
-    border-color: var(--col-accent);
+    background: #25262d;
+    box-shadow: 0 10px 16px -4px rgba(0, 0, 0, 0.85);
   }
 
   .SearchForm {
     display: flex;
-    gap: 8px;
     width: min(720px, 100%);
-  }
-
-  .Pagination button,
-  .ResultActions button {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--col-text-muted);
-    background: transparent;
-    border: 1px solid var(--col-border);
-    border-radius: 4px;
-    padding: 6px 12px;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: color 0.2s, border-color 0.2s;
-  }
-
-  .Pagination button:hover:not(:disabled),
-  .ResultActions button:hover {
-    color: var(--col-text);
-    border-color: var(--col-border-hover);
   }
 
   .ResultsTop {
     scroll-margin-top: 72px;
+  }
+
+  /* ── Tags: what the engine understood, one line of words with a tick box each ── */
+
+  /* wider than the search bar, with room underneath before the results */
+  .TagLine {
+    width: 100%;
+    margin: 24px 0 40px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 14px;
+    font-size: 14px;
+  }
+
+  .TagLabel {
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    color: var(--col-text-muted);
+  }
+
+  .Tags {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 18px;
+    list-style: none;
+  }
+
+  .Tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .TagWord {
+    color: var(--col-text);
+  }
+
+
+
+
+  .TagBox {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--col-accent);
+    background: transparent;
+    border: 2px solid var(--col-edge-hover);
+    border-radius: 0;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .TagBox:hover {
+    border-color: var(--col-text-muted);
+  }
+
+  .TagBox-on {
+    border-color: var(--col-accent);
+  }
+
+  .TagBox-neg {
+    color: var(--col-negative);
+    border-color: var(--col-negative);
   }
 
   .SearchMessage {
@@ -105,56 +159,65 @@
     opacity: 0.5;
   }
 
+  /* Thick, square edges to match the blocky background */
   .ResultWindow {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: stretch;
     background: var(--col-surface-2);
-    border: 1px solid var(--col-border);
-    border-radius: 8px;
-    overflow: hidden;
+    border: 4px solid var(--col-edge);
     transition: border-color 0.2s;
   }
 
   .ResultWindow:hover {
-    border-color: var(--col-border-hover);
+    border-color: var(--col-edge-hover);
   }
 
+  /* The specimen images are 640x180 with the text in the middle and about 55px of blank space above and below it.
+     Show the preview at its full width but only the middle 140 rows, so the blank bands do not make the card taller. */
   .Specimen {
-    flex: 0 1 560px;
+    flex: 1 1 440px;
+    max-width: 640px;
     min-width: 0;
-    display: block;
+    display: flex;
+    align-items: center;
     line-height: 0;
-    padding: 4px 8px;
+    padding: 0 8px;
   }
 
   .Specimen img {
     width: 100%;
     height: auto;
-    aspect-ratio: 640 / 180;
+    aspect-ratio: 640 / 140;
+    object-fit: cover;
   }
 
   .ResultInfo {
-    flex: 1 1 280px;
+    flex: 1 1 270px;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px 24px;
+    align-items: flex-end;
+    gap: 16px;
+    padding: 12px 20px;
   }
 
+  /* the name and source sit on the right edge of the card */
   .ResultTitle {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 0;
+    text-align: right;
   }
 
   .ResultTitle a {
     color: var(--col-text);
     text-decoration: none;
-    font-size: 14px;
+    font-size: clamp(18px, 2.4vmin, 24px);
+    line-height: 1.15;
+    overflow-wrap: anywhere;
   }
 
   .ResultTitle a:hover {
@@ -163,70 +226,72 @@
 
   .ResultSource {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--col-text-muted);
-    text-align: right;
   }
 
-  .ResultActions {
+  /* the thumbs sit at the bottom of the card, with whatever room is left between them and the source */
+  .ResultFeedback {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 12px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    margin-top: auto;
   }
 
   .Votes {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
   }
 
-  .ResultActions .VoteOn {
+  .Votes button,
+  .DescribeToggle,
+  .Pagination button {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: 2px solid var(--col-edge-hover);
+    border-radius: 0;
+    padding: 6px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+
+  .Votes button {
+    display: flex;
+    align-items: center;
+    padding: 5px 9px;
+  }
+
+  .Votes button:hover,
+  .DescribeToggle:hover,
+  .Pagination button:hover:not(:disabled) {
+    color: var(--col-text);
+    border-color: var(--col-text-muted);
+  }
+
+  .Votes .VoteOn {
     color: var(--col-bg);
     background: var(--col-accent);
     border-color: var(--col-accent);
   }
 
-  .Stars {
-    display: flex;
-    align-items: center;
-  }
-
-  .ResultActions .Star {
-    border: none;
-    padding: 0 1px;
-    font-size: 18px;
-    line-height: 1;
-    color: var(--col-border-hover);
-  }
-
-  .ResultActions .StarOn {
-    color: var(--col-accent);
-  }
-
-  .RatingSummary {
-    margin-left: 8px;
-    font-size: 11px;
-    color: var(--col-text-muted);
-  }
-
-  .ResultActions .DescribeToggle {
-    margin-left: auto;
-  }
-
   .ResultMessage {
     flex-basis: 100%;
-    padding: 0 24px 12px;
+    padding: 0 20px 12px;
     font-size: 11px;
     color: var(--col-text-muted);
   }
 
   .DescriptionField {
     flex-basis: 100%;
-    border-top: 1px solid var(--col-border);
-    padding: 12px 16px;
+    border-top: 4px solid var(--col-edge);
+    padding: 12px 20px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -244,8 +309,7 @@
     font-size: 14px;
     background: var(--col-surface-2);
     color: var(--col-text);
-    border: 1px solid var(--col-border);
-    border-radius: 4px;
+    border: 2px solid var(--col-edge-hover);
     padding: 8px 12px;
     width: 100%;
     outline: none;
@@ -263,7 +327,7 @@
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin-top: 32px;
   }
 

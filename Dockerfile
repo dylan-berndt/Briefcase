@@ -31,6 +31,7 @@ COPY site/backend ./backend
 # The query parser and its reviewed vocabulary are shared with the research code, which owns them
 COPY utils/tagVocabulary.py ./backend/tagVocabulary.py
 COPY configs/tagVocabulary.json ./backend/configs/tagVocabulary.json
+COPY configs/wordTags.json ./backend/configs/wordTags.json
 
 # Inject React build into Flask static folder
 COPY --from=frontend-build /frontend/build ./backend/static

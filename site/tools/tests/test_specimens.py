@@ -47,3 +47,13 @@ def test_long_lines_are_shrunk_to_fit(tmp_path):
     alpha = np.asarray(decode(renderSpecimen(wide)))[:, :, 3]
     columns = np.where((alpha > 0).any(axis=0))[0]
     assert columns.min() >= 8 and columns.max() <= WIDTH - 8  # nothing cut off at the edges
+
+
+def test_a_font_that_cannot_be_scaled_is_left_out_not_fatal(tmp_path, monkeypatch):
+    # fixed-size bitmap fonts (colour emoji, PCF) raise "invalid pixel size" from FreeType at any other size
+    import specimens
+    path = makeFont(tmp_path / "bitmap.ttf", LOWER + UPPER + DIGITS + " ")
+    def refuse(*args, **kwargs):
+        raise OSError("invalid pixel size")
+    monkeypatch.setattr(specimens.ImageFont, "truetype", refuse)
+    assert renderSpecimen(path) is None

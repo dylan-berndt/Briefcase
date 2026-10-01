@@ -13,7 +13,7 @@ export function makeResult(i, overrides = {}) {
 	};
 }
 
-export function makePage({ query = "serif", page = 1, pageSize = 24, total = 100, tags, unmatched = [] } = {}) {
+export function makePage({ query = "serif", page = 1, pageSize = 24, total = 100, tags, unmatched = [], inferred = [], suggested = [] } = {}) {
 	const totalPages = Math.ceil(total / pageSize);
 	const start = (page - 1) * pageSize;
 	const count = Math.max(0, Math.min(pageSize, total - start));
@@ -21,7 +21,7 @@ export function makePage({ query = "serif", page = 1, pageSize = 24, total = 100
 		results: Array.from({ length: count }, (_, k) => makeResult(start + k)),
 		page, pageSize, total, totalPages,
 		tags: tags || [{ tag: query, weight: 1.0 }],
-		unmatched,
+		unmatched, inferred, suggested,
 	};
 }
 
@@ -31,13 +31,18 @@ export function jsonResponse(body, status = 200) {
 
 // handlers: {"/api/font/query": (url, init) => response promise}. Unhandled paths fail the test loudly.
 export function installFetch(handlers) {
+	// unless a test says otherwise, a query means one tag named after it
+	const routes = {
+		"/api/font/tags": ({ params }) => jsonResponse({ tags: params.query ? [{ tag: params.query, weight: 1 }] : [], suggested: [], unmatched: [] }),
+		...handlers,
+	};
 	const calls = [];
 	global.fetch = jest.fn((input, init = {}) => {
 		const url = new URL(input, "http://localhost");
 		const call = { path: url.pathname, params: Object.fromEntries(url.searchParams), init,
 			body: init.body && typeof init.body === "string" ? JSON.parse(init.body) : init.body };
 		calls.push(call);
-		const handler = handlers[url.pathname];
+		const handler = routes[url.pathname];
 		if (!handler) throw new Error("unexpected fetch " + url.pathname);
 		return new Promise((resolve, reject) => {
 			Promise.resolve(handler(call)).then(response => {

@@ -1,0 +1,11 @@
+# Caption words that site/tools/buildWordTags.py must not turn into inferred tags: common words the captions use
+# for reasons unrelated to style, whose associations are accidents of phrasing ("appropriate" -> transitional).
+# Reviewed by hand from the table's output; add to it when an inferred chip is nonsense.
+accents      # diacritics, not ornament
+appropriate
+article
+cutting
+head
+organized
+original
+width

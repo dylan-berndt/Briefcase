@@ -41,7 +41,7 @@ def test_search_shows_specimens_that_load(page, site):
     search(page, "zebra stripe")
     expect(page.locator(".ResultWindow")).to_have_count(24)
     imagesLoaded(page)
-    expect(page.get_by_role("status").first).to_contain_text("Searching for: zebra-stripe")
+    expect(page.get_by_label("Tags in your search")).to_have_text("zebra-stripe")
     # 30 fonts have the tag planted, so the whole first page is made of them
     planted = {k.split(":", 1)[1] for k, g in site["planted"].items() if "zebra-stripe" in g}
     assert len(planted) == 30 and set(names(page)) <= planted
@@ -103,10 +103,158 @@ def test_shared_link_past_the_end_lands_on_last_page(page):
     expect(page.get_by_text("Page 13 of 13")).to_be_visible()
 
 
+def test_scrolling_down_and_back_up_returns_to_the_first_view(page):
+    def where():
+        return page.evaluate("""() => ({ scrollY: Math.round(scrollY),
+            title: Math.round(document.querySelector('.Center > div').getBoundingClientRect().top),
+            input: Math.round(document.querySelector('.SearchForm').getBoundingClientRect().top) })""")
+    page.goto("/")
+    first = where()
+    search(page, "bold")
+    page.locator(".ResultWindow").first.wait_for()
+    assert where() == first  # results appear below, nothing above them moves
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    assert where()["scrollY"] > 1000
+    page.evaluate("window.scrollTo(0, 0)")
+    assert where() == first
+
+
+def test_card_has_no_stars_and_name_source_and_thumbs_are_right_aligned(page):
+    page.goto("/")
+    search(page, "serif")
+    card = page.locator(".ResultWindow").first
+    assert card.get_by_role("button", name=re.compile("Rate")).count() == 0 and "unrated" not in card.inner_text()
+    edge = card.bounding_box()["x"] + card.bounding_box()["width"]
+    name, source, thumbs = card.locator(".ResultTitle a"), card.locator(".ResultSource"), card.locator(".Votes")
+    for part in (name, source, thumbs):
+        box = part.bounding_box()
+        assert edge - (box["x"] + box["width"]) < 40          # all three sit against the right edge of the card
+    assert name.bounding_box()["y"] < source.bounding_box()["y"] < thumbs.bounding_box()["y"]
+    box = card.bounding_box()
+    thumbs_box, source_box = thumbs.bounding_box(), source.bounding_box()
+    assert box["y"] + box["height"] - (thumbs_box["y"] + thumbs_box["height"]) < 40      # thumbs at the bottom of the card
+    assert thumbs_box["y"] - (source_box["y"] + source_box["height"]) >= 16              # with room under the source
+    assert box["height"] <= 150                                                          # and the whole result is short
+    img = card.locator(".Specimen img").bounding_box()
+    assert img["width"] >= 430                                                           # the preview keeps its size...
+    assert abs(img["width"] / img["height"] - 640 / 140) < 0.1                           # ...but not the blank bands above and below
+    up = card.get_by_role("button", name="This font matched my query")
+    assert up.get_attribute("title") == "This font matched my query"
+    assert card.get_by_role("button", name="This font did not match my query").get_attribute("title") == "This font did not match my query"
+    assert card.get_by_role("button", name="Describe").count() == 0
+
+
+def test_info_sits_beside_the_preview_on_a_desktop(page):
+    page.goto("/")
+    search(page, "serif")
+    card = page.locator(".ResultWindow").first
+    img, info = card.locator(".Specimen").bounding_box(), card.locator(".ResultInfo").bounding_box()
+    assert img["x"] + img["width"] <= info["x"] + 1          # to the right of the preview, not under it
+    assert abs((img["y"] + img["height"] / 2) - (info["y"] + info["height"] / 2)) < img["height"]  # same row
+
+
+def test_tag_line_is_one_line_when_it_fits(page):
+    page.goto("/")
+    search(page, "elegant script not thin")
+    tags = page.get_by_label("Tags in your search")
+    expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
+    boxes = tags.get_by_role("button").all()
+    assert len(boxes) == 3 and len({round(b.bounding_box()["y"]) for b in boxes}) == 1   # words side by side
+    assert tags.get_by_role("listitem").first.bounding_box()["x"] < boxes[0].bounding_box()["x"]  # word, then its box
+    assert page.get_by_text("Searching for:").count() == 0       # no label, just the words
+
+
+def test_tag_line_ticks_are_page_state_and_change_the_results(page):
+    page.goto("/")
+    requests = []
+    page.on("request", lambda r: requests.append(r.url) if "/api/font/" in r.url else None)
+    search(page, "elegant script not thin airy slimy")
+    tags = page.get_by_label("Tags in your search")
+    expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
+    expect(tags.get_by_role("button", name="thin: excluded")).to_be_visible()
+    expect(tags.get_by_role("button", name="feminine: included")).to_be_visible()   # guessed for "airy", a plain tag
+    suggestion = tags.get_by_role("button", name=re.compile(r": off$")).first         # suggested for "slimy", unticked
+    expect(suggestion).to_be_visible()
+    text = tags.inner_text()
+    assert "→" not in text and "similar" not in text.lower()
+    shot(page, "tags")
+    assert sum("/api/font/tags" in u for u in requests) == 1
+
+    def results():
+        return page.locator(".ResultTitle a").all_inner_texts()
+
+    def settles(condition):
+        """The fonts are fetched after the box changes, so wait for the list to satisfy the condition."""
+        for _ in range(60):
+            if condition(results()):
+                return
+            page.wait_for_timeout(100)
+        raise AssertionError(f"the fonts never settled: {results()[:4]}")
+
+    before = results()
+    # tick -> empty -> cross -> empty -> tick on a typed tag; every step changes the fonts shown
+    page.get_by_role("button", name="script: included").click()
+    expect(tags.get_by_role("button", name="script: off")).to_be_visible()
+    settles(lambda r: r != before)
+    off = results()
+    tags.get_by_role("button", name="script: off").click()
+    expect(tags.get_by_role("button", name="script: excluded")).to_be_visible()
+    settles(lambda r: r != off)
+    tags.get_by_role("button", name="script: excluded").click()
+    expect(tags.get_by_role("button", name="script: off")).to_be_visible()
+    settles(lambda r: r == off)
+    tags.get_by_role("button", name="script: off").click()
+    expect(tags.get_by_role("button", name="script: included")).to_be_visible()
+    settles(lambda r: r == before)
+
+    # a suggestion's first click ticks it
+    name = suggestion.get_attribute("aria-label").removesuffix(": off")
+    suggestion.click()
+    expect(tags.get_by_role("button", name=f"{name}: included")).to_be_visible()
+    settles(lambda r: r != before)
+
+    # none of that was sent to the server as anything but the final list, and the URL stays q/page
+    assert sum("/api/font/tags" in u for u in requests) == 1
+    assert "tags=" not in page.url and "ignore" not in page.url
+    page.reload()                                                 # a reload starts from the query's own tags
+    expect(tags.get_by_role("button", name=f"{name}: off")).to_be_visible()
+
+
+def test_unticking_everything_shows_a_prompt(page):
+    page.goto("/")
+    search(page, "bold")
+    tags = page.get_by_label("Tags in your search")
+    tags.get_by_role("button", name="bold: included").click()
+    expect(page.get_by_text("Tick a tag to see fonts.")).to_be_visible()
+    expect(page.locator(".ResultWindow")).to_have_count(0)
+
+
+def test_search_bar_has_no_border_rounded_corners_and_a_shadow_below(page):
+    page.goto("/")
+    style = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('.SearchForm input'));
+        return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, shadow: s.boxShadow } }""")
+    assert style["border"] == "0px"
+    assert float(style["radius"].removesuffix("px")) >= 8
+    shadow = style["shadow"]            # "rgba(...) 0px 8px 12px -4px": straight down, no sideways offset
+    assert "0px 8px" in shadow
+    page.get_by_label("Describe a font").focus()      # focus must not bring a border back
+    focused = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('.SearchForm input'));
+        return { border: s.borderTopWidth, outline: s.outlineStyle } }""")
+    assert focused == {"border": "0px", "outline": "none"}
+    shot(page, "searchbar")
+
+
+def test_the_prompt_is_smaller(page):
+    page.goto("/")
+    size = page.evaluate("""() => parseFloat(getComputedStyle(document.querySelector('.Center > p')).fontSize)""")
+    assert size <= 22     # it was 3vmin, 30px at this viewport
+
+
 def test_unrecognised_query(page):
     page.goto("/")
     search(page, "qwertyuiop")
-    expect(page.get_by_text("No tags recognised")).to_contain_text("Not recognised: qwertyuiop")
+    expect(page.get_by_text("No tags recognised in that description.")).to_be_visible()
+    expect(page.get_by_text("Not recognised: qwertyuiop.")).to_be_visible()
     expect(page.locator(".ResultWindow")).to_have_count(0)
 
 
@@ -114,7 +262,7 @@ def test_feedback_needs_login_then_persists(page):
     page.goto("/")
     search(page, "serif")
     card = page.locator(".ResultWindow").first
-    card.get_by_role("button", name="This font matches my search").click()
+    card.get_by_role("button", name="This font matched my query").click()
     expect(card.get_by_text("Log in to give feedback")).to_be_visible()
     expect(page.get_by_label("Username:")).to_be_visible()
 
@@ -122,32 +270,27 @@ def test_feedback_needs_login_then_persists(page):
     # logging in reloads the results with this user's state
     card = page.locator(".ResultWindow").first
     title = card.locator(".ResultTitle a").inner_text()
-    yes = card.get_by_role("button", name="This font matches my search")
+    yes = card.get_by_role("button", name="This font matched my query")
     yes.click()
     expect(yes).to_have_attribute("aria-pressed", "true")
-    card.get_by_role("button", name="Rate 4 stars").click()
-    expect(card.get_by_text("4 (1)")).to_be_visible()
     shot(page, "feedback")
 
     page.reload()
     card = page.locator(".ResultWindow").first
     expect(page.get_by_role("button", name=name)).to_be_visible()  # session survived the reload
     assert card.locator(".ResultTitle a").inner_text() == title
-    expect(card.get_by_role("button", name="This font matches my search")).to_have_attribute("aria-pressed", "true")
-    expect(card.get_by_text("4 (1)")).to_be_visible()
+    expect(card.get_by_role("button", name="This font matched my query")).to_have_attribute("aria-pressed", "true")
 
-    # the vote belongs to that query; the rating to the font
+    # the vote belongs to that query
     search(page, "serif bold")
     other = page.locator(".ResultWindow", has_text=title)
     if other.count():
-        expect(other.get_by_role("button", name="This font matches my search")).to_have_attribute("aria-pressed", "false")
-        expect(other.get_by_text("4 (1)")).to_be_visible()
+        expect(other.get_by_role("button", name="This font matched my query")).to_have_attribute("aria-pressed", "false")
 
-    card = page.locator(".ResultWindow").first
     page.get_by_role("button", name=name).click()
     page.get_by_role("button", name="Log out").click()
     expect(page.get_by_role("button", name="Login")).to_be_visible()
-    expect(page.locator(".ResultWindow").first.get_by_role("button", name="Rate 4 stars")).to_have_attribute("aria-pressed", "false")
+    expect(page.locator(".ResultWindow").first.get_by_role("button", name="This font matched my query")).to_have_attribute("aria-pressed", "false")
 
 
 def test_login_errors_are_shown(page):

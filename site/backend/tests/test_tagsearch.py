@@ -135,3 +135,117 @@ def test_canonical_without_model_tags_counts_as_unmatched(tmp_path):
     index = TagIndex(Bundle(str(tmp_path)))
     order, terms, unmatched = index.search("serif")
     assert len(order) == 0 and terms == [] and unmatched == ["serif"]
+
+
+def test_inflected_words_reach_their_tag_by_stem(index):
+    # stems are compared on both sides: "scripts" -> script, "swirling" -> the phrase "swirls"; negation carries over;
+    # a word whose stem no phrase shares stays unmatched
+    vocabulary = index.vocabulary
+    assert vocabulary.stem is not None
+    assert index.parse("scripts") == ([("script", 1.0)], [])
+    assert index.parse("not scripts") == ([("script", -1.0)], [])
+    assert index.parse("swirling")[0] == [(c, w) for c, w in vocabulary.aliases[("swirls",)]]
+    assert index.parse("glorping") == ([], ["glorping"])
+
+
+def test_stems_do_not_chop_adjectives():
+    # the suffix rules this replaced turned "slimy" into "slim"; a stemmer applied to both sides cannot
+    from tagsearch import findVocabularyConfig, loadVocabularyClass
+    vocabulary = loadVocabularyClass()(findVocabularyConfig())
+    assert vocabulary.stemMatch("slimy", vocabulary.aliasStems) is None
+    assert vocabulary.stemMatch("sketched", vocabulary.aliasStems) == "sketch"
+    assert vocabulary.stemMatch("classically", vocabulary.aliasStems) == "classical"
+
+
+def inferableWord(index):
+    """A word the caption table maps to tags this bundle has, which nothing else in the parser matches."""
+    for word, groups in sorted(index.vocabulary.wordTags.items()):
+        if any(g in index.groups for g in groups) and index.parse(word) == ([], [word]):
+            return word
+    pytest.skip("no caption-table word maps onto the fake bundle's tags")
+
+
+def test_caption_table_is_separate_from_parse(index):
+    word = inferableWord(index)
+    # parse() is unchanged: the word stays unmatched; parseDetailed() reports the guess
+    assert index.parse(word) == ([], [word])
+    terms, unmatched, inferred = index.parseDetailed(word)
+    assert terms == [] and unmatched == []
+    assert len(inferred) == 1 and inferred[0][0] == word and inferred[0][2] == 0.5
+    assert all(g in index.groups for g in inferred[0][1])
+
+
+def test_guessed_words_become_ordinary_tags_at_half_weight(index):
+    word = inferableWord(index)
+    _, _, inferred = index.parseDetailed("not " + word)
+    assert inferred[0][2] == -0.5
+    terms, suggested, left = index.describe(word)
+    assert left == [] and suggested == []
+    assert {g for g, _ in terms} == set(inferred[0][1]) and all(w == 0.5 for _, w in terms)
+    negated, _, _ = index.describe("not " + word)
+    assert all(w == -0.5 for _, w in negated)
+    order, _, _ = index.search(word)
+    assert len(order) == index.numFonts
+
+
+def test_a_guessed_tag_is_not_listed_twice(index):
+    word = inferableWord(index)
+    guessed = index.describe(word)[0]
+    both = index.describe(f"{guessed[0][0]} {word}")[0]
+    assert [n for n, _ in both].count(guessed[0][0]) == 1
+    assert dict(both)[guessed[0][0]] == 1.0          # what was typed wins over the guess
+
+
+def test_rank_orders_exactly_the_given_tags(index, planted):
+    expected = withGroup(planted, "serif")
+    order = index.rank([("serif", 1.0)])
+    assert set(keysOf(index, order[:len(expected)])) == expected
+    assert len(index.rank([])) == 0
+    assert (index.rank([("serif", 1.0), ("bold", -1.0)]) == index.search("serif not bold")[0]).all()
+
+
+def test_choices_parse_signs_and_weights(index):
+    assert index.parseChoices("serif,-bold:0.6, Script:0.5 ") == [("serif", 1.0), ("bold", -0.6), ("script", 0.5)]
+    assert index.parseChoices("") == []
+    assert index.parseChoices("serif,serif:0.5") == [("serif", 0.5)]          # the last one wins
+    assert index.parseChoices("no-such-tag,serif") == [("serif", 1.0)]         # unknown names are skipped
+
+
+@pytest.mark.parametrize("text", ["serif:abc", "serif:0", "serif:1.5", "serif:-0.2", "serif:nan"])
+def test_bad_choices_are_rejected(index, text):
+    with pytest.raises(ValueError):
+        index.parseChoices(text)
+
+
+def test_too_many_choices_are_rejected(index):
+    with pytest.raises(ValueError, match="at most"):
+        index.parseChoices(",".join(["serif"] * 65))
+
+
+@pytest.fixture(scope="module")
+def withSynonyms(fake):
+    pytest.importorskip("en_core_web_md")
+    index = TagIndex(Bundle(fake[0]), synonymModel="en_core_web_md")
+    assert index.suggester is not None
+    return index
+
+
+def test_unknown_words_get_suggestions_not_scores(withSynonyms):
+    # "ghastly" is not a phrase or a caption word; its neighbours (horror words) are suggested, not searched
+    terms, suggested, left = withSynonyms.describe("ghastly")
+    assert terms == [] and left == [] and suggested
+    for group, via, similarity in suggested:
+        assert group in withSynonyms.groups and similarity >= withSynonyms.suggester.minSimilarity
+    assert len(withSynonyms.search("ghastly")[0]) == 0
+    assert len({g for g, _, _ in suggested}) == len(suggested)
+
+
+def test_suggestions_skip_tags_already_in_the_query(withSynonyms):
+    terms, suggested, _ = withSynonyms.describe("horror ghastly")
+    assert ("horror", 1.0) in terms
+    assert all(group != "horror" for group, _, _ in suggested)
+
+
+def test_suggestions_off_without_a_model(fake):
+    index = TagIndex(Bundle(fake[0]), synonymModel="")
+    assert index.suggester is None and index.describe("ghastly") == ([], [], ["ghastly"])

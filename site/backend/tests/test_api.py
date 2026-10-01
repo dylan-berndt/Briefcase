@@ -19,7 +19,7 @@ def test_query_shape(client):
     assert response.status_code == 200
     body = response.json
     assert body["page"] == 1 and body["pageSize"] == 5 and body["total"] == 300 and body["totalPages"] == 60
-    assert body["tags"] == [{"tag": "serif", "weight": 1.0}] and body["unmatched"] == []
+    assert body["tags"] == [{"tag": "serif", "weight": 1.0}]
     first = body["results"][0]
     assert set(first) == {"key", "name", "source", "url", "creator", "specimen", "rating", "vote"}
     assert first["specimen"].startswith("/api/font/specimen/") and "?v=" in first["specimen"]
@@ -67,17 +67,16 @@ def test_query_length_limit(client):
     assert query(client, "serif " * 33).status_code == 200  # 198 chars
 
 
-def test_unmatched_and_empty(client):
+def test_nothing_matched_gives_no_results(client):
     body = query(client, "qwertyuiop").json
-    assert body["results"] == [] and body["total"] == 0 and body["totalPages"] == 0
-    assert body["unmatched"] == ["qwertyuiop"]
+    assert body["results"] == [] and body["total"] == 0 and body["totalPages"] == 0 and body["tags"] == []
     body = query(client, "").json
-    assert body["results"] == [] and body["unmatched"] == []
+    assert body["results"] == [] and body["tags"] == []
 
 
-def test_partly_matched_query(client):
+def test_partly_matched_query_ranks_on_what_matched(client):
     body = query(client, "serif qwerty").json
-    assert body["total"] == 300 and body["unmatched"] == ["qwerty"]
+    assert body["total"] == 300 and body["tags"] == [{"tag": "serif", "weight": 1.0}]
 
 
 def test_query_is_case_and_punctuation_tolerant(client):
@@ -344,6 +343,13 @@ def test_static_and_spa_fallback(client):
     assert b"root:" not in client.get("/..%2f..%2fetc/passwd").data
 
 
+def test_missing_files_are_404_not_the_app(client):
+    # the Map page loads /flower.html in an iframe; a missing file used to show the whole app inside it
+    for path in ("/flower.html", "/static/js/missing.js", "/nothing.png"):
+        assert client.get(path).status_code == 404
+    assert b"index" in client.get("/map").data  # extensionless paths are still client routes
+
+
 def test_unknown_api_path_is_json_404(client):
     response = client.get("/api/font/nothing")
     assert response.status_code == 404 and response.json == {"message": "Not found"}
@@ -366,7 +372,9 @@ def test_server_does_not_import_torch():
             "from fakeBundle import makeFakeBundle; import tempfile\n"
             "d = tempfile.mkdtemp(); makeFakeBundle(d, 20)\n"
             "from app import createApp\n"
-            "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db'})\n"
+            # suggestions off: spaCy imports requests at load time, and torch too wherever torch happens to be
+            # installed (the server image has none); this checks the server's own imports
+            "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db', 'SYNONYM_MODEL': ''})\n"
             "bad = [m for m in ('torch', 'transformers', 'sqlite_vec', 'requests', 'cv2') if m in sys.modules]\n"
             "assert not bad, bad")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
@@ -384,3 +392,66 @@ def test_bad_bundle_refuses_to_start(makeApp, tmp_path):
     from bundle import BundleError
     with pytest.raises(BundleError):
         makeApp(BUNDLE_DIR=str(tmp_path / "empty"))
+
+
+def tagsOf(body):
+    return {t["tag"]: t["weight"] for t in body["tags"]}
+
+
+def test_tags_endpoint_lists_what_a_query_means(client):
+    body = client.get("/api/font/tags", query_string={"query": "elegant script not thin"}).json
+    assert tagsOf(body) == {"elegant": 1.0, "script": 1.0, "thin": -1.0}
+    assert body["suggested"] == [] or all(set(s) == {"tag", "via", "similarity"} for s in body["suggested"])
+    assert body["unmatched"] == []
+    nothing = client.get("/api/font/tags", query_string={"query": "zzqx"}).json
+    assert nothing["tags"] == [] and nothing["unmatched"] == ["zzqx"]
+    assert client.get("/api/font/tags", query_string={"query": "a" * 201}).status_code == 400
+    assert client.get("/api/font/tags").json["tags"] == []
+
+
+def test_tags_endpoint_flattens_guesses_into_tags(client, app):
+    index = app.extensions["tagIndex"]
+    word = next((w for w, g in sorted(index.vocabulary.wordTags.items())
+                 if any(x in index.groups for x in g) and index.parse(w) == ([], [w])), None)
+    if word is None:
+        pytest.skip("no caption-table word maps onto the fake bundle's tags")
+    body = client.get("/api/font/tags", query_string={"query": word}).json
+    assert body["tags"] and all(t["weight"] == 0.5 for t in body["tags"]) and body["unmatched"] == []
+
+
+def test_query_ranks_exactly_the_tags_it_is_given(client):
+    typed = query(client, "serif bold").json
+    assert tagsOf(typed) == {"serif": 1.0, "bold": 1.0}
+    given = query(client, "serif bold", tags="serif:1,-bold:0.6").json
+    assert tagsOf(given) == {"serif": 1.0, "bold": -0.6}          # the text is not parsed again
+    assert [r["key"] for r in given["results"]] != [r["key"] for r in typed["results"]]
+    only = query(client, "serif bold", tags="bold").json
+    assert tagsOf(only) == {"bold": 1.0}
+    assert [r["key"] for r in only["results"]] == [r["key"] for r in query(client, "bold").json["results"]]
+
+
+def test_query_with_an_empty_tag_list_has_no_results(client):
+    body = query(client, "serif", tags="").json
+    assert body["tags"] == [] and body["results"] == [] and body["total"] == 0
+
+
+def test_query_skips_unknown_tags_and_rejects_bad_ones(client):
+    assert tagsOf(query(client, "x", tags="serif,no-such-tag").json) == {"serif": 1.0}
+    for tags in ("serif:abc", "serif:2", "serif:0", ",".join(["serif"] * 65)):
+        assert query(client, "x", tags=tags).status_code == 400
+
+
+def test_pages_of_a_tag_list_tile_like_any_other(client):
+    seen = []
+    for page in (1, 2, 3):
+        seen += [r["key"] for r in query(client, "x", tags="serif,-bold:0.5", page=page, pageSize=100).json["results"]]
+    assert len(seen) == 300 == len(set(seen))
+
+
+def test_tags_endpoint_suggests_tags_for_unknown_words(makeApp):
+    pytest.importorskip("en_core_web_md")
+    body = makeApp(SYNONYM_MODEL="en_core_web_md").test_client().get(
+        "/api/font/tags", query_string={"query": "ghastly"}).json
+    assert body["tags"] == [] and body["unmatched"] == [] and body["suggested"]
+    assert set(body["suggested"][0]) == {"tag", "via", "similarity"}
+    assert len({s["tag"] for s in body["suggested"]}) == len(body["suggested"])

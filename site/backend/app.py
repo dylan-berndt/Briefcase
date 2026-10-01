@@ -34,6 +34,8 @@ def createApp(overrides=None):
         VERIFY_BUNDLE=os.getenv("VERIFY_BUNDLE") == "1",
         STATIC_DIR=os.getenv("STATIC_DIR", os.path.join(HERE, "static")),
         VOCABULARY=os.getenv("TAG_VOCABULARY"),
+        # spaCy vectors model for suggested tags on unknown words; "" turns suggestions off
+        SYNONYM_MODEL=os.getenv("SYNONYM_MODEL", "en_core_web_md"),
         COOKIE_SECURE=os.getenv("COOKIE_SECURE", "1") == "1",
         RATELIMIT_ENABLED=True,
     )
@@ -50,7 +52,7 @@ def createApp(overrides=None):
     app.limiter = limiter  # Flask-Limiter only keeps a weak reference to itself
 
     bundle = Bundle(app.config["BUNDLE_DIR"], verify=app.config["VERIFY_BUNDLE"])
-    index = TagIndex(bundle, app.config["VOCABULARY"])
+    index = TagIndex(bundle, app.config["VOCABULARY"], app.config["SYNONYM_MODEL"])
     specimenType = bundle.manifest["specimen"]["mimetype"]
     initializeDB(app.config["DATABASE"])
 
@@ -174,6 +176,20 @@ def createApp(overrides=None):
 
     # ------------------------------------------------------------ search
 
+    @app.route("/api/font/tags", methods=["GET"])
+    @limiter.limit("120 per minute")
+    def describeQuery():
+        """The list of tags a query means, to show and edit; /api/font/query then ranks the list it is sent."""
+        query = request.args.get("query", "")
+        if len(query) > MAX_QUERY:
+            return jsonify({"message": f"Query is longer than {MAX_QUERY} characters"}), 400
+        terms, suggested, unmatched = index.describe(query)
+        return jsonify({
+            "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
+            "suggested": [{"tag": name, "via": via, "similarity": similarity} for name, via, similarity in suggested],
+            "unmatched": unmatched,
+        }), 200
+
     @app.route("/api/font/query", methods=["GET"])
     @limiter.limit("120 per minute")
     @dbRequired
@@ -189,7 +205,15 @@ def createApp(overrides=None):
         if page < 1 or not 1 <= pageSize <= MAX_PAGE_SIZE:
             return jsonify({"message": f"page must be >= 1 and pageSize 1-{MAX_PAGE_SIZE}"}), 400
 
-        order, terms, unmatched = index.search(query)
+        if "tags" in request.args:
+            # the page's own list (it holds the ticks and crosses); the query text is then only the label for votes
+            try:
+                terms = index.parseChoices(request.args["tags"])
+            except ValueError as error:
+                return jsonify({"message": f"Invalid tags: {error}"}), 400
+        else:
+            terms, _, _ = index.describe(query, suggest=False)
+        order = index.rank(terms)
         total = len(order)
         ids = [int(i) for i in order[(page - 1) * pageSize: page * pageSize]]
         keys = [bundle.fonts[i]["key"] for i in ids]
@@ -233,7 +257,6 @@ def createApp(overrides=None):
             "total": total,
             "totalPages": math.ceil(total / pageSize),
             "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
-            "unmatched": unmatched,
         }), 200
 
     @app.route("/api/font/specimen/<int:i>", methods=["GET"])
@@ -327,6 +350,9 @@ def createApp(overrides=None):
         staticDir = app.config["STATIC_DIR"]
         if path != "" and os.path.isfile(os.path.join(staticDir, path)):
             return send_from_directory(staticDir, path)
+        # A missing file (the Map page's iframe, say) is a 404, not the app; only extensionless paths are routes
+        if os.path.splitext(path)[1]:
+            abort(404)
         return send_from_directory(staticDir, "index.html")
 
     @app.errorhandler(404)
