@@ -6,7 +6,7 @@ import aboutUrl from './about.md';
 // The page is about.md, rendered. Edit that file; nothing else needs to change. The table of contents at the top is
 // made from its ## and ### headings (the # heading is the page title and is left out), and is left out entirely
 // when the file has fewer than two of them.
-const TOC_DEPTHS = [2, 3];
+const TOC_DEPTHS = [1, 2, 3, 4];
 
 const escapeAttr = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -43,7 +43,7 @@ export function renderMarkdown(text) {
 	for (const token of tokens) {
 		if (token.type !== "heading") continue;
 		token.slug = slugify(token.text, seen);
-		if (TOC_DEPTHS.includes(token.depth)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth });
+		if (TOC_DEPTHS.includes(token.depth)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth + 1 });
 	}
 	const hasTitle = tokens.length > 0 && tokens[0].type === "heading" && tokens[0].depth === 1;
 	return {
@@ -70,6 +70,7 @@ export default function AboutPage() {
 	}, []);
 
 	const page = useMemo(() => source === null ? null : renderMarkdown(source), [source]);
+	const top = page === null || page.toc.length === 0 ? 0 : Math.min(...page.toc.map(entry => entry.depth));
 
 	const goTo = (event, id) => {
 		const target = document.getElementById(id);
@@ -83,10 +84,11 @@ export default function AboutPage() {
 		{page === null && !error ? <p className="AboutMessage" role="status">Loading…</p> : null}
 		{page === null ? null : <article className="AboutBody">
 			{page.titleHtml ? <div className="AboutText AboutTitle" dangerouslySetInnerHTML={{ __html: page.titleHtml }} /> : null}
-			{page.toc.length >= 2 ? <nav className="AboutContents" aria-label="Table of contents">
+			{page.toc.length >= 1 ? <nav className="AboutContents" aria-label="Table of contents">
 				<p className="AboutContentsTitle">Contents</p>
 				<ol>
-					{page.toc.map(entry => <li key={entry.id} className={"AboutContents-" + entry.depth}>
+					{page.toc.map(entry => <li key={entry.id} className={entry.depth > top ? "AboutContents-nested" : undefined}
+						style={{ paddingLeft: (entry.depth - top) * 20 }}>
 						<a href={"#" + entry.id} onClick={e => goTo(e, entry.id)}>{entry.text}</a>
 					</li>)}
 				</ol>

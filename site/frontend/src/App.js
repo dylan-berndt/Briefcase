@@ -10,12 +10,18 @@ import MapPage from './map';
 
 
 const fragmentSource = `
-#define PIXEL_SIZE 4.0f
+#define PIXEL_SIZE 8.0f
 #define CELL_SIZE 64
+
+#define OCTAVES 3
+#define LACUNARITY 2.0
+#define GAIN 0.5
+
+#define DIMMING 0.8
 
 #define MOD 32
 
-#define SPEED 0.75f
+#define SPEED 0.6f
 
 float interp(float a, float b, float t) {
     return (b - a) * t + a;
@@ -77,7 +83,20 @@ float perlin(vec3 position) {
 }
 
 float noise(vec3 position) {
-    return perlin(position);
+    float strength = 1.0;
+    float zoom = 1.0;
+    float total = 0.0;
+    float weight = 0.0;
+    
+    for (int i = 0; i < OCTAVES; i++) {
+        total += strength * perlin(position * zoom);
+        weight += strength;
+        
+        strength *= GAIN;
+        zoom *= LACUNARITY;
+    }
+    
+    return total * DIMMING;
 }
 
 uniform float iTime;
