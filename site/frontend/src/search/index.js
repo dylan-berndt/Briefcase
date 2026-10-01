@@ -136,48 +136,63 @@ function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 
 const listParam = (params, name) => (params.get(name) || "").split(",").map(x => x.trim()).filter(Boolean);
 
-// What the engine understood. Solid chips are tags in the search (matched from the words typed, or added from a
-// suggestion, which can be removed again). Dashed chips are the engine's guesses for words it did not know; they are
-// applied, and can be dropped. Plain "+" chips are synonym suggestions that are not applied until clicked.
-export function TagChips({ data, added, onAdd, onRemoveAdded, onIgnore }) {
+// What the engine understood, on one line: each tag (or guessed word, or suggested synonym) with a box that is
+// ticked (included), crossed (excluded) or empty (off). Clicking steps through tick -> empty -> cross -> empty -> tick.
+const STATE_NAME = { on: "included", off: "off", neg: "excluded" };
+
+function StateIcon({ state }) {
+	if (state === "on") return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+		<path d="M2 8.5 6 12.5 14 3.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="square" /></svg>;
+	if (state === "neg") return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+		<path d="M3 3 13 13M13 3 3 13" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="square" /></svg>;
+	return null;
+}
+
+export function TagLine({ data, ignored, nextAfterOff, onChange }) {
 	const inferred = data.inferred || [];
 	const suggested = data.suggested || [];
-	const addedNames = new Set(added.map(t => t.replace(/^-/, "")));
-	const suggestedWords = new Set(suggested.map(s => s.word));
-	const notRecognised = data.unmatched.filter(word => !suggestedWords.has(word));
-	const hasTags = data.tags.length > 0 || inferred.length > 0;
+	const seen = new Set();
+	const chips = [];
+	const push = (chip) => { if (!seen.has(chip.name)) { seen.add(chip.name); chips.push(chip); } };
+	data.tags.forEach(t => push({ name: t.tag, state: t.weight < 0 ? "neg" : "on" }));
+	inferred.forEach(i => push({ name: i.word, state: i.weight < 0 ? "neg" : "on",
+		hint: i.tags.join(", "), title: `"${i.word}" is not a tag. Guessed from fonts described that way.` }));
+	// turned off: the server no longer reports these, so they are kept from the URL to stay visible
+	ignored.forEach(name => push({ name, state: "off" }));
+	const offered = suggested.map(({ word, tags }) => ({
+		word, chips: tags.filter(t => !seen.has(t.tag)).map(t => ({ name: t.tag, state: "off",
+			title: `Similar to “${t.via}” (${t.similarity})` })),
+	})).filter(group => group.chips.length > 0);
 
-	return <div className="Chips">
-		<div className="ChipRow">
-			<span className="ChipLabel" role="status">
-				{hasTags ? "Searching for:" : "No tags recognised in that description."}
-			</span>
-			{!hasTags ? null : <ul className="ChipList" aria-label="Tags in your search">
-				{data.tags.map(t => <li key={"tag|" + t.tag} className={t.weight < 0 ? "Chip ChipTag ChipNot" : "Chip ChipTag"}>
-					{t.weight < 0 ? "not " : ""}{t.tag}
-					{addedNames.has(t.tag)
-						? <button type="button" aria-label={`Remove ${t.tag}`} title="Remove" onClick={() => onRemoveAdded(t.tag)}>×</button>
-						: null}
-				</li>)}
-				{inferred.map(i => <li key={"guess|" + i.word} className={i.weight < 0 ? "Chip ChipGuess ChipNot" : "Chip ChipGuess"}
-					title={`"${i.word}" is not a tag. Guessed from fonts described that way.`}>
-					{i.weight < 0 ? "not " : ""}{i.word} → {i.tags.join(", ")}
-					<button type="button" aria-label={`Remove the guess for ${i.word}`} title="Remove this guess" onClick={() => onIgnore(i.word)}>×</button>
-				</li>)}
-			</ul>}
-		</div>
-		{suggested.map(({ word, tags }) => <div className="ChipRow" key={"suggest|" + word}>
-			<span className="ChipLabel">Did you mean for “{word}”:</span>
-			<ul className="ChipList" aria-label={`Suggested tags for ${word}`}>
-				{tags.map(t => <li key={t.tag}>
-					<button type="button" className="Chip ChipSuggest" onClick={() => onAdd(t.tag)}
-						aria-label={`Add ${t.tag}, similar to ${t.via}`} title={`Similar to “${t.via}” (${t.similarity})`}>+ {t.tag}</button>
-				</li>)}
-			</ul>
-		</div>)}
-		{notRecognised.length > 0
-			? <p className="ChipNote">Not recognised: {notRecognised.join(", ")}.</p>
-			: null}
+	const suggestedWords = new Set(suggested.map(s => s.word));
+	const notRecognised = data.unmatched.filter(word => !suggestedWords.has(word) && !seen.has(word));
+
+	const nextState = (chip) => chip.state === "off" ? (nextAfterOff.current[chip.name] || "on") : "off";
+
+	const renderChip = (chip, extra = "") => {
+		const next = nextState(chip);
+		return <li key={chip.name} className={"Tag " + extra} title={chip.title}>
+			<span className="TagWord">{chip.name}</span>
+			{chip.hint ? <span className="TagHint">→ {chip.hint}</span> : null}
+			<button type="button" className={"TagBox TagBox-" + chip.state} onClick={() => onChange(chip, next)}
+				aria-label={`${chip.name}: ${STATE_NAME[chip.state]}`}
+				title={`${STATE_NAME[chip.state][0].toUpperCase() + STATE_NAME[chip.state].slice(1)}. Click to ${next === "on" ? "include" : next === "neg" ? "exclude" : "turn off"}.`}>
+				<StateIcon state={chip.state} />
+			</button>
+		</li>;
+	};
+
+	return <div className="TagLine">
+		{chips.length === 0 ? <span className="TagLabel" role="status">No tags recognised in that description.</span>
+			: <span className="TagLabel" role="status">Searching for:</span>}
+		<ul className="Tags" aria-label="Tags in your search">
+			{chips.map(chip => renderChip(chip))}
+			{offered.map(({ word, chips: group }) => [
+				<li key={"for|" + word} className="TagFor">similar to “{word}”:</li>,
+				...group.map(chip => renderChip(chip, "TagSuggested")),
+			])}
+		</ul>
+		{notRecognised.length > 0 ? <span className="TagLabel">Not recognised: {notRecognised.join(", ")}.</span> : null}
 	</div>;
 }
 
@@ -255,10 +270,18 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		return () => window.removeEventListener("popstate", onPop);
 	}, []);
 
-	// Changing the tags changes the results, so these go back to page 1
-	const addTag = (tag) => navigate(query, 1, [...added.filter(t => t.replace(/^-/, "") !== tag), tag], ignored);
-	const removeAdded = (tag) => navigate(query, 1, added.filter(t => t.replace(/^-/, "") !== tag), ignored);
-	const ignoreGuess = (word) => navigate(query, 1, added, [...ignored.filter(w => w !== word), word]);
+	// An empty box becomes a tick or a cross depending on where it came from: tick -> empty -> cross -> empty -> tick
+	const nextAfterOff = useRef({});
+	const setChoice = (chip, next) => {
+		if (chip.state === "on") nextAfterOff.current[chip.name] = "neg";
+		if (chip.state === "neg") nextAfterOff.current[chip.name] = "on";
+		const others = added.filter(t => t.replace(/^-/, "") !== chip.name);
+		const rest = ignored.filter(w => w !== chip.name);
+		// changing the tags changes the results, so this goes back to page 1
+		if (next === "on") navigate(query, 1, [...others, chip.name], rest);
+		else if (next === "neg") navigate(query, 1, [...others, "-" + chip.name], rest);
+		else navigate(query, 1, others, [...rest, chip.name]);
+	};
 
 	const goToPage = (p) => {
 		navigate(query, p, added, ignored);
@@ -289,7 +312,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			Please enter a description to search for a font
 		</p>
 
-		<form className="SearchForm" onSubmit={e => { e.preventDefault(); if (text.trim()) navigate(text.trim(), 1); }}>
+		<form className="SearchForm" onSubmit={e => { e.preventDefault(); if (text.trim()) { nextAfterOff.current = {}; navigate(text.trim(), 1); } }}>
 			<input type="text" name="description" aria-label="Describe a font" value={text}
 				onChange={e => setText(e.target.value)} maxLength={200} />
 		</form>
@@ -299,7 +322,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 
 		{data === null && loading ? <p className="SearchMessage" role="status">Searching…</p> : null}
 		{data === null ? null : <>
-			<TagChips data={data} added={added} onAdd={addTag} onRemoveAdded={removeAdded} onIgnore={ignoreGuess} />
+			<TagLine data={data} ignored={ignored} nextAfterOff={nextAfterOff} onChange={setChoice} />
 			<div className={loading ? "Results ResultsLoading" : "Results"} aria-busy={loading}>
 				{data.results.map(result =>
 					<Result key={data.generation + "|" + result.key} result={result} query={query}

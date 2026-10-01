@@ -61,93 +61,86 @@
     scroll-margin-top: 72px;
   }
 
-  /* ── Tag chips: what the engine understood ── */
+  /* ── Tags: what the engine understood, one line of words with a tick box each ── */
 
-  .Chips {
+  .TagLine {
     width: min(720px, 100%);
     margin-top: 20px;
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .ChipRow {
-    display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 10px;
+    gap: 8px 14px;
+    font-size: 14px;
   }
 
-  .ChipLabel {
+  .TagLabel {
     font-size: 12px;
     letter-spacing: 0.03em;
     color: var(--col-text-muted);
   }
 
-  .ChipList {
+  .Tags {
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    align-items: center;
+    gap: 8px 18px;
     list-style: none;
   }
 
-  .Chip {
+  .Tag {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-family: var(--font-mono);
+  }
+
+  .TagWord {
+    color: var(--col-text);
+  }
+
+  .TagHint {
     font-size: 12px;
-    line-height: 1;
-    padding: 6px 10px;
-    border: 2px solid var(--col-accent);
-    border-radius: 0;
-    color: var(--col-text);
-    background: var(--col-accent-dim);
-  }
-
-  .Chip button {
-    font: inherit;
     color: var(--col-text-muted);
-    background: transparent;
-    border: none;
-    padding: 0 0 0 2px;
-    cursor: pointer;
   }
 
-  .Chip button:hover {
-    color: var(--col-text);
-  }
-
-  /* a negated tag */
-  .ChipNot {
-    border-color: var(--col-negative);
-    background: rgba(201, 138, 138, 0.12);
-  }
-
-  /* the engine's guess for a word it did not know: applied, but dashed to say it is not something you typed */
-  .ChipGuess {
-    border-style: dashed;
-    background: transparent;
-  }
-
-  /* a suggestion, not applied until clicked */
-  .ChipSuggest {
-    cursor: pointer;
-    color: var(--col-text-muted);
-    background: transparent;
-    border: 2px dotted var(--col-edge-hover);
-    transition: color 0.2s, border-color 0.2s;
-  }
-
-  .ChipSuggest:hover {
-    color: var(--col-text);
-    border-color: var(--col-accent);
-  }
-
-  .ChipNote {
+  .TagFor {
     font-size: 12px;
     letter-spacing: 0.03em;
     color: var(--col-text-muted);
+    margin-left: 8px;
+  }
+
+  .TagSuggested .TagWord {
+    color: var(--col-text-muted);
+  }
+
+  .TagBox {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--col-accent);
+    background: transparent;
+    border: 2px solid var(--col-edge-hover);
+    border-radius: 0;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .TagBox:hover {
+    border-color: var(--col-text-muted);
+  }
+
+  .TagBox-on {
+    border-color: var(--col-accent);
+  }
+
+  .TagBox-neg {
+    color: var(--col-negative);
+    border-color: var(--col-negative);
   }
 
   .SearchMessage {

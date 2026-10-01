@@ -64,12 +64,15 @@ unselected chips and send a chosen one back in `tags=`. Word vectors put antonym
 model shares one vector between many rare words, so suggestions are noisy by design. `SYNONYM_MODEL=` (empty) turns
 them off; they are also off when spaCy or the model is not installed.
 
-**Chips.** The page shows what the engine understood under the search box. Solid chips are tags in the search (matched
-from the typed words, or added from a suggestion, which can be removed again); a red chip is a negated tag. A dashed chip
-is a caption-table guess for a word the vocabulary does not know ("airy → thin, feminine"); removing it sends the word in
-`ignore=`. Dotted `+` chips are synonym suggestions for words that matched nothing; clicking one sends it in `tags=`. Both
-lists are in the page URL (`?q=...&tags=a,b&ignore=word`), so reload, back/forward and shared links keep them, and a new
-search starts clean. Words with suggestions are not also listed as "not recognised".
+**The tag line.** The page shows what the engine understood as one line of words under the search box, each with a box
+that is ticked (included), crossed in red (excluded) or empty (off). The words are the tags the query matched (a negated
+one starts crossed), the caption-table guess for a word the vocabulary does not know ("airy → thin, feminine"), and, in
+muted text after "similar to “word”:", the synonym suggestions (empty until clicked). A click steps tick → empty → cross →
+empty → tick; an empty suggestion becomes a tick on its first click. The choices are sent as `tags=` (`name` included,
+`-name` excluded) and `ignore=` (off), which override the query: a typed tag takes the chosen sign, a tag in `ignore` is
+dropped, a guessed word can be excluded or turned off. Both lists are in the page URL (`?q=...&tags=a,-b&ignore=c`), so
+reload, back/forward and shared links keep them; changing one goes back to page 1 and a new search starts clean. Words
+with suggestions are not also listed as "not recognised". The list wraps when it does not fit one line.
 
 ## Building the bundle
 
@@ -129,7 +132,7 @@ Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, desc
 
 | | |
 |---|---|
-| `GET /api/font/query?query=&page=1&pageSize=24&ignore=&tags=` | `{results, page, pageSize, total, totalPages, tags, unmatched, inferred}`; `pageSize` 1-100; a page past the end is empty. `inferred` is `[{word, tags, weight}]` for words matched only through the caption table; `ignore` is a comma-separated list of such words not to infer. `suggested` is `[{word, tags: [{tag, via, similarity}]}]` for words that matched nothing (not used in the ranking); `tags` is a comma-separated list of tags to add to the query, `-name` to exclude one (unknown names come back in `unmatched`). Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
+| `GET /api/font/query?query=&page=1&pageSize=24&ignore=&tags=` | `{results, page, pageSize, total, totalPages, tags, unmatched, inferred}`; `pageSize` 1-100; a page past the end is empty. `inferred` is `[{word, tags, weight}]` for words matched only through the caption table; `ignore` is a comma-separated list of things turned off: guessed words are not inferred and tags are dropped from the query. `suggested` is `[{word, tags: [{tag, via, similarity}]}]` for words that matched nothing (not used in the ranking); `tags` is a comma-separated list of choices, `name` to include a tag and `-name` to exclude it: a tag the query already matched (or a word it was guessed from) takes that sign, any other tag is added, unknown names come back in `unmatched`. Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query (queries are lower-cased and whitespace-collapsed) |
 | `POST /api/font/rate` `{fontKey, rating}` | is this a good font: 1-5, or 0 to clear. Per user, per font |

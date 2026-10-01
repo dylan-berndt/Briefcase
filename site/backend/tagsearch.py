@@ -128,18 +128,29 @@ class TagIndex:
         return order, terms, unmatched
 
     def searchDetailed(self, query, ignore=(), tags=()):
-        """search() with caption-inferred tags, tags the user added and synonym suggestions:
-        (order, terms, unmatched, inferred, suggested). tags: [(group, weight)] added on top of the query (a name the
-        index does not know goes to unmatched); suggested: [(word, [(group, via word, similarity)])] for words that
-        matched nothing, not used in the ranking."""
+        """search() with caption-inferred tags, the user's own choices and synonym suggestions:
+        (order, terms, unmatched, inferred, suggested).
+
+        The choices override what the query said. tags: [(name, sign)], sign +1 (included) or -1 (excluded): a tag
+        the query already matched, or a word it was guessed from, takes that sign (keeping its weight); any other tag
+        is added; a name the index does not know goes to unmatched. ignore: names turned off, a tag is dropped from the
+        query and a word is not guessed at. suggested: [(word, [(group, via word, similarity)])] for words that matched
+        nothing, not used in the ranking."""
         terms, unmatched, inferred = self.parseDetailed(query, ignore)
-        present = {name for name, _ in terms}
-        for name, weight in tags:
-            if name not in self.groups:
-                unmatched.append(name)
-            elif name not in present:
-                terms.append((name, weight))
+        signs, off = dict(tags), set(ignore)
+        terms = [(name, abs(weight) * signs[name] if name in signs else weight)
+                 for name, weight in terms if name not in off]
+        inferred = [(word, groups, abs(weight) * signs[word] if word in signs else weight)
+                    for word, groups, weight in inferred]
+        present, guessed = {name for name, _ in terms}, {word for word, _, _ in inferred}
+        for name, sign in signs.items():
+            if name in present or name in guessed or name in off:
+                continue
+            if name in self.groups:
+                terms.append((name, sign))
                 present.add(name)
+            elif name not in unmatched:
+                unmatched.append(name)
         suggested = []
         if self.suggester is not None:
             taken = present | {g for _, groups, _ in inferred for g in groups}

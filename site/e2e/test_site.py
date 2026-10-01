@@ -143,37 +143,62 @@ def test_info_sits_beside_the_preview_on_a_desktop(page):
     assert abs((img["y"] + img["height"] / 2) - (info["y"] + info["height"] / 2)) < img["height"]  # same row
 
 
-def test_chips_show_typed_tags_guesses_and_suggestions(page):
+def test_tag_line_is_one_line_when_it_fits(page):
+    page.goto("/")
+    search(page, "elegant script not thin")
+    tags = page.get_by_label("Tags in your search")
+    expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
+    boxes = tags.get_by_role("button").all()
+    assert len(boxes) == 3 and len({round(b.bounding_box()["y"]) for b in boxes}) == 1   # words side by side
+    assert tags.get_by_role("listitem").first.bounding_box()["x"] < boxes[0].bounding_box()["x"]  # word, then its box
+    label = page.get_by_text("Searching for:").bounding_box()
+    assert abs(label["y"] - tags.get_by_role("listitem").first.bounding_box()["y"]) < 20  # the label shares the line
+
+
+def test_tag_line_shows_typed_tags_guesses_and_suggestions_with_tick_boxes(page):
     page.goto("/")
     search(page, "elegant script not thin airy slimy")
     tags = page.get_by_label("Tags in your search")
-    expect(tags.get_by_text("elegant", exact=True)).to_be_visible()
-    expect(tags.get_by_text("not thin")).to_be_visible()
-    guess = tags.get_by_text("airy → thin, feminine")            # the engine's guess for a word it did not know
-    expect(guess).to_be_visible()
-    suggestions = page.get_by_label("Suggested tags for slimy")  # synonyms, offered but not applied
-    expect(suggestions.get_by_role("button").first).to_be_visible()
-    assert "slimy" not in tags.inner_text()
-    shot(page, "chips")
+    expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
+    expect(tags.get_by_role("button", name="thin: excluded")).to_be_visible()
+    expect(tags.get_by_role("button", name="airy: included")).to_be_visible()       # the engine's guess
+    expect(tags.get_by_text("→ thin, feminine")).to_be_visible()
+    suggestion = tags.get_by_role("button", name=re.compile(r": off$")).first         # synonyms: off until clicked
+    expect(suggestion).to_be_visible()
+    assert "slimy" not in tags.inner_text().replace("similar to “slimy”:", "")
+    label = page.get_by_text("Searching for:").bounding_box()
+    assert abs(label["y"] - tags.get_by_role("listitem").first.bounding_box()["y"]) < 20  # even when the list wraps
+    shot(page, "tags")
 
-    # a suggestion becomes part of the search and the URL; removing it undoes that
-    first = suggestions.get_by_role("button").first
-    tag = first.inner_text().removeprefix("+ ")
-    first.click()
-    chip = tags.get_by_role("listitem").filter(has_text=tag)
-    expect(chip).to_be_visible()
-    assert f"tags={tag}" in page.url
-    chip.get_by_role("button", name=f"Remove {tag}").click()
-    expect(chip).to_have_count(0)
-    assert "tags=" not in page.url
+    def results():
+        return page.locator(".ResultTitle a").all_inner_texts()
 
-    # dropping the guess puts the word back among the unmatched
-    guess.get_by_role("button", name="Remove the guess for airy").click()
-    expect(tags.get_by_text("airy → thin, feminine")).to_have_count(0)
-    assert "ignore=airy" in page.url
-    page.reload()                                                 # and it survives a reload
-    expect(tags.get_by_text("airy → thin, feminine")).to_have_count(0)
-    expect(tags.get_by_text("not thin")).to_be_visible()
+    before = results()
+    # tick -> empty -> cross -> empty -> tick on a typed tag
+    page.get_by_role("button", name="script: included").click()
+    expect(tags.get_by_role("button", name="script: off")).to_be_visible()
+    assert "ignore=script" in page.url and results() != before
+    tags.get_by_role("button", name="script: off").click()
+    expect(tags.get_by_role("button", name="script: excluded")).to_be_visible()
+    assert "tags=-script" in page.url
+    tags.get_by_role("button", name="script: excluded").click()
+    expect(tags.get_by_role("button", name="script: off")).to_be_visible()
+    tags.get_by_role("button", name="script: off").click()
+    expect(tags.get_by_role("button", name="script: included")).to_be_visible()
+
+    # a suggestion: first click ticks it
+    name = suggestion.get_attribute("aria-label").removesuffix(": off")
+    suggestion.click()
+    expect(tags.get_by_role("button", name=f"{name}: included")).to_be_visible()
+    assert name in page.url
+
+    # a guess can be turned off, and it all survives a reload
+    tags.get_by_role("button", name="airy: included").click()
+    expect(tags.get_by_role("button", name="airy: off")).to_be_visible()
+    page.reload()
+    expect(tags.get_by_role("button", name="airy: off")).to_be_visible()
+    expect(tags.get_by_role("button", name=f"{name}: included")).to_be_visible()
+    expect(tags.get_by_role("button", name="thin: excluded")).to_be_visible()
 
 
 def test_unrecognised_query(page):

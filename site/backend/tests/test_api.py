@@ -407,6 +407,17 @@ def test_query_takes_added_tags(client):
     assert body["total"] > 0 and "suggested" in body
 
 
+def test_query_choices_override_and_drop_typed_tags(client):
+    typed = query(client, "serif bold").json
+    assert {t["tag"]: t["weight"] for t in typed["tags"]} == {"serif": 1.0, "bold": 1.0}
+    crossed = query(client, "serif bold", tags="-serif").json
+    assert {t["tag"]: t["weight"] for t in crossed["tags"]} == {"serif": -1.0, "bold": 1.0}
+    off = query(client, "serif bold", ignore="serif").json
+    assert [t["tag"] for t in off["tags"]] == ["bold"]
+    assert [r["key"] for r in crossed["results"]] != [r["key"] for r in typed["results"]]
+    assert [r["key"] for r in off["results"]] != [r["key"] for r in typed["results"]]
+
+
 def test_query_suggests_tags_for_unknown_words(makeApp):
     pytest.importorskip("en_core_web_md")
     body = makeApp(SYNONYM_MODEL="en_core_web_md").test_client().get(

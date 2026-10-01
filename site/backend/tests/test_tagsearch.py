@@ -213,6 +213,38 @@ def test_added_tags_join_the_query(withSynonyms):
     assert ("horror", 1.0) in terms and "no-such-tag" in unmatched and len(order) == withSynonyms.numFonts
 
 
+def test_choices_override_the_query(index):
+    # a typed tag takes the chosen sign, keeping its weight; a tag turned off is dropped; a new one is added
+    _, terms, _, _, _ = index.searchDetailed("serif bold", tags=[("serif", -1.0)])
+    assert dict(terms) == {"serif": -1.0, "bold": 1.0}
+    _, terms, _, _, _ = index.searchDetailed("not serif", tags=[("serif", 1.0)])
+    assert dict(terms) == {"serif": 1.0}
+    _, terms, _, _, _ = index.searchDetailed("serif bold", ignore={"serif"})
+    assert dict(terms) == {"bold": 1.0}
+    _, terms, _, _, _ = index.searchDetailed("serif", tags=[("bold", -1.0)], ignore={"serif"})
+    assert dict(terms) == {"bold": -1.0}
+
+
+def test_choices_for_a_tag_that_is_also_ignored_lose_to_ignore(index):
+    _, terms, _, _, _ = index.searchDetailed("serif", tags=[("serif", -1.0)], ignore={"serif"})
+    assert terms == []
+
+
+def test_a_guessed_word_can_be_excluded_or_turned_off(index):
+    word = inferableWord(index)
+    _, _, _, inferred, _ = index.searchDetailed(word)
+    assert inferred[0][2] == 0.5
+    _, _, _, inferred, _ = index.searchDetailed(word, tags=[(word, -1.0)])
+    assert inferred[0][2] == -0.5 and inferred[0][0] == word
+    _, terms, unmatched, inferred, _ = index.searchDetailed(word, ignore={word})
+    assert inferred == [] and unmatched == [word] and terms == []
+
+
+def test_unknown_names_are_reported_once(index):
+    _, _, unmatched, _, _ = index.searchDetailed("zzqx", tags=[("no-such-tag", 1.0), ("zzqx", 1.0)])
+    assert unmatched.count("no-such-tag") == 1 and unmatched.count("zzqx") == 1
+
+
 def test_suggestions_off_without_a_model(fake):
     index = TagIndex(Bundle(fake[0]), synonymModel="")
     assert index.suggester is None and index.searchDetailed("ghastly")[4] == []
