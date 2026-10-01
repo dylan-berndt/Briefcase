@@ -1,10 +1,12 @@
 # Only the site goes into the image: the frontend source, the backend with its search bundle, and the parser and
-# vocabulary the backend shares with the research code (see the Dockerfile).
+# vocabulary files the backend shares with the research code. Every file the Dockerfile copies from outside site/ must be
+# listed here: tests/test_docker_context.py checks that.
 *
 !site/backend
 !site/frontend
 !utils/tagVocabulary.py
 !configs/tagVocabulary.json
+!configs/wordTags.json
 
 **/node_modules
 site/frontend/build
