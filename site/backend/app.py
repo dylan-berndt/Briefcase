@@ -13,7 +13,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from bundle import Bundle
-from db import initializeDB, normalizeQuery, MAX_QUERY
+from db import initializeDB, normalizeQuery, tagsKey, MAX_QUERY
 from tagsearch import TagIndex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -230,7 +230,8 @@ def createApp(overrides=None):
                                [user["id"], *keys])
                 mine = {row["fontKey"]: row["rating"] for row in cursor.fetchall()}
                 cursor.execute(f"SELECT fontKey, vote FROM fontVotes WHERE userID = ? AND query = ? "
-                               f"AND fontKey IN ({marks})", [user["id"], normalizeQuery(query), *keys])
+                               f"AND tags = ? AND fontKey IN ({marks})",
+                               [user["id"], normalizeQuery(query), tagsKey(terms), *keys])
                 votes = {row["fontKey"]: row["vote"] for row in cursor.fetchall()}
 
         results = []
@@ -277,7 +278,9 @@ def createApp(overrides=None):
     @dbRequired
     @loginRequired
     def approveFont(cursor, user):
-        """Does this font answer this query? vote is 1 (yes), -1 (no) or 0 (clear the user's vote)."""
+        """Does this font answer this query? vote is 1 (yes), -1 (no) or 0 (clear the user's vote). The vote is filed
+        under the query and under the tags the results were ranked on (`tags`, the same list /api/font/query takes;
+        without it, the tags the query text means)."""
         fontKey = fontFromKey(bodyField("fontKey"))
         query = bodyField("query")
         vote = bodyField("vote")
@@ -285,15 +288,26 @@ def createApp(overrides=None):
             return jsonify({"message": "Invalid query"}), 400
         if vote not in (-1, 0, 1) or isinstance(vote, bool):
             return jsonify({"message": "vote must be 1, -1 or 0"}), 400
-        query = normalizeQuery(query)
+        tags = bodyField("tags")
+        if tags is None:
+            terms, _, _ = index.describe(query, suggest=False)
+        elif isinstance(tags, str):
+            try:
+                terms = index.parseChoices(tags)
+            except ValueError as error:
+                return jsonify({"message": f"Invalid tags: {error}"}), 400
+        else:
+            return jsonify({"message": "tags must be a string"}), 400
+        query, tags = normalizeQuery(query), tagsKey(terms)
 
         if vote == 0:
-            cursor.execute("DELETE FROM fontVotes WHERE userID = ? AND fontKey = ? AND query = ?",
-                           (user["id"], fontKey, query))
+            cursor.execute("DELETE FROM fontVotes WHERE userID = ? AND fontKey = ? AND query = ? AND tags = ?",
+                           (user["id"], fontKey, query, tags))
         else:
-            cursor.execute("INSERT INTO fontVotes (userID, fontKey, query, vote, created) VALUES (?, ?, ?, ?, ?) "
-                           "ON CONFLICT (userID, fontKey, query) DO UPDATE SET vote = excluded.vote, "
-                           "created = excluded.created", (user["id"], fontKey, query, vote, now()))
+            cursor.execute("INSERT INTO fontVotes (userID, fontKey, query, tags, vote, created) "
+                           "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (userID, fontKey, query, tags) "
+                           "DO UPDATE SET vote = excluded.vote, created = excluded.created",
+                           (user["id"], fontKey, query, tags, vote, now()))
         return jsonify({"message": "Successful", "vote": vote}), 200
 
     @app.route("/api/font/rate", methods=["POST"])

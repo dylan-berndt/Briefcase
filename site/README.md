@@ -33,17 +33,16 @@ git-lfs (`.gitattributes`); `manifest.json` is plain text.
 ### How a query is scored
 
 `utils/tagVocabulary.py` turns the text into weighted tag groups using the reviewed alias table in
-`configs/tagVocabulary.json` (186 canonical tags merging 606 MyFonts tags, with negation). Every other tag the model
+`configs/tagVocabulary.json` (186 canonical tags merging 606 MyFonts tags). Every other tag the model
 predicts is searchable by its own name, so the tagger's whole vocabulary is reachable, not only the reviewed one.
 
 Each font's tag probabilities are normalised to sum to 1 over the whole vocabulary (a semantic multinomial,
-Turnbull et al. 2008; it removes the bias towards fonts that score high on everything). A positive group scores
-`w * log(mass on the group's tags)`, a negated group `|w| * log(probability of none of them)`, and the terms are
-summed. The whole corpus is ranked on every request (about 10 ms for 40k fonts x 1.3k tags) and sliced into pages, so
+Turnbull et al. 2008; it removes the bias towards fonts that score high on everything). A group scores
+`w * log(mass on the group's tags)` and the terms are summed. There is no negation: "not thin" yields no tag. The whole corpus is ranked on every request (about 10 ms for 40k fonts x 1.3k tags) and sliced into pages, so
 pages never overlap and there is no depth limit.
 
-The negation term and using the full vocabulary for normalisation are design choices made without real-data
-validation; `e23_scoring.py` measured the multinomial for positive multi-tag queries only.
+Using the full vocabulary for normalisation is a design choice made without real-data validation; `e23_scoring.py`
+measured the multinomial for positive multi-tag queries only.
 
 **Words the vocabulary does not know.** A word that matches no phrase as typed matches a single-word phrase with the
 same Porter2 stem (the snowballstemmer package's English stemmer, applied to both sides: sketched -> sketch, swirling -> swirls; of
@@ -65,10 +64,9 @@ them off; they are also off when spaCy or the model is not installed.
 
 **The tag line.** The server only lists tags; the page owns the ticks. On a search the page asks
 `GET /api/font/tags?query=` once, and shows the answer as one line of words under the search box, each with a box: ticked
-(included), crossed in red (excluded) or empty (off). The words are the tags the query matched (a negated one starts
-crossed), the tags guessed for unknown words (ticked, ordinary tags) and the synonym suggestions (empty). A click steps
-tick → empty → cross → empty → tick (an empty suggestion ticks on its first click). Every change is page state and sends
-the new list to `GET /api/font/query?tags=name:weight,-name:weight,...`, which ranks exactly those tags; the weight is the one
+(included) or empty (off). The words are the tags the query matched, the tags guessed for unknown words (ticked,
+ordinary tags) and the synonym suggestions (empty). A click flips the box (an empty suggestion ticks on its first click). Every change is page state and sends
+the new list to `GET /api/font/query?tags=name:weight,name:weight,...`, which ranks exactly those tags; the weight is the one
 `/api/font/tags` reported (0.6 for a loose alias, 0.5 for a guess), the page just passes it along. Nothing about the ticks is
 in the URL (`?q=...&page=`) or stored: a reload starts from the query's own tags. Changing a tag goes back to page 1; searching
 again, even the same words, starts clean. The list wraps when it does not fit one line. Because a guessed word's tags are
@@ -132,18 +130,19 @@ Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, desc
 
 | | |
 |---|---|
-| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, similarity}], unmatched}`. `weight` is negative for "not x"; `suggested` are synonyms of words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
-| `GET /api/font/query?query=&tags=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags}`; `pageSize` 1-100; a page past the end is empty. With `tags` (comma-separated `name`, `-name` to exclude, each optionally `:weight` above 0 and up to 1) the fonts are ranked on exactly that list and `query` is only the label votes are filed under; unknown names are skipped, a bad entry is a 400, an empty list gives no results. Without `tags` the query text is parsed (guesses included). Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
+| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, similarity}], unmatched}`. `suggested` are synonyms of words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
+| `GET /api/font/query?query=&tags=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags}`; `pageSize` 1-100; a page past the end is empty. With `tags` (comma-separated `name`, each optionally `:weight` above 0 and up to 1; `-name` is a 400, there is no exclusion) the fonts are ranked on exactly that list and `query` is only the label votes are filed under; unknown names are skipped, a bad entry is a 400, an empty list gives no results. Without `tags` the query text is parsed (guesses included). Results carry `rating {average, count, mine}` and the caller's `vote` for this query and these tags |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
-| `POST /api/font/approve` `{fontKey, query, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query (queries are lower-cased and whitespace-collapsed) |
+| `POST /api/font/approve` `{fontKey, query, tags?, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query and tag list: the query is lower-cased and whitespace-collapsed, `tags` is the list the results were ranked on (same format as `/api/font/query`, stored sorted as `bold:1,serif:0.5`; without it, the tags the query text means). The same font and query under other ticks is a separate vote |
 | `POST /api/font/rate` `{fontKey, rating}` | is this a good font: 1-5, or 0 to clear. Per user, per font (not used by the page at the moment) |
 | `POST /api/font/describe` `{fontKey, description}` | up to 500 characters |
 | `POST /api/font/register`, `login`, `logout`; `GET /api/font/me` | accounts; a 1-hour JWT in an HttpOnly cookie |
 
 The three feedback endpoints need a login. Votes, ratings and descriptions live in SQLite (`fontVotes`,
-`fontRatings`, `fontDescriptions`) keyed by font key. The tables of the previous schema (`fonts`, `fontsMeta`,
-`registry`, `ratings`, `approvals`, `descriptions`) are left in an existing database untouched; only `users` carries
-over.
+`fontRatings`, `fontDescriptions`) keyed by font key. A `fontVotes` row is `userID, fontKey, query, tags, vote, created`;
+databases from before `tags` existed are rebuilt on startup and their votes keep `tags = ''` (unknown). The tables of
+the previous schema (`fonts`, `fontsMeta`, `registry`, `ratings`, `approvals`, `descriptions`) are left in an existing
+database untouched; only `users` carries over.
 
 ## Map page
 

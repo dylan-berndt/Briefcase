@@ -55,11 +55,11 @@ describe("searching", () => {
 
 	test("shows specimen images linking out, with the matched tags", async () => {
 		const calls = installFetch({
-			"/api/font/tags": () => jsonResponse({ tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: -1 }], suggested: [], unmatched: [] }),
+			"/api/font/tags": () => jsonResponse({ tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: 1 }], suggested: [], unmatched: [] }),
 			"/api/font/query": queryHandler(30),
 		});
 		render(<SearchPage username={null} />);
-		await search("serif not bold");
+		await search("serif bold");
 
 		const images = await screen.findAllByRole("img");
 		expect(images).toHaveLength(24);
@@ -70,9 +70,9 @@ describe("searching", () => {
 		expect(images[0].closest("a").getAttribute("rel")).toContain("noopener");
 		const chips = within(await screen.findByRole("list", { name: "Tags in your search" })).getAllByRole("listitem");
 		expect(chips.map(c => c.textContent)).toEqual(["serif", "bold"]);
-		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "bold: excluded");
-		expect(calls[0]).toMatchObject({ path: "/api/font/tags", params: { query: "serif not bold" } });
-		expect(calls[1].params).toEqual({ query: "serif not bold", tags: "serif:1,-bold:1", page: "1", pageSize: "24" });
+		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "bold: included");
+		expect(calls[0]).toMatchObject({ path: "/api/font/tags", params: { query: "serif bold" } });
+		expect(calls[1].params).toEqual({ query: "serif bold", tags: "serif:1,bold:1", page: "1", pageSize: "24" });
 		expect(screen.getAllByText("Google Fonts")).toHaveLength(12);
 		expect(screen.getAllByText("DaFont · Some Designer")).toHaveLength(12);
 	});
@@ -135,7 +135,7 @@ describe("tag line", () => {
 		const words = query.split(" ");
 		const tags = [];
 		words.forEach((w, i) => {
-			if (["serif", "bold", "thin", "script", "feminine"].includes(w)) tags.push({ tag: w, weight: words[i - 1] === "not" ? -1 : 1 });
+			if (["serif", "bold", "thin", "script", "feminine"].includes(w) && words[i - 1] !== "not") tags.push({ tag: w, weight: 1 });
 			if (w === "rounded") tags.push({ tag: "rounded", weight: 0.6 });
 			if (w === "airy") ["thin", "feminine"].forEach(t => { if (!tags.some(x => x.tag === t)) tags.push({ tag: t, weight: 0.5 }); });
 		});
@@ -147,7 +147,7 @@ describe("tag line", () => {
 		return {
 			"/api/font/tags": ({ params }) => jsonResponse(tagsFor(params.query)),
 			"/api/font/query": ({ params }) => jsonResponse(makePage({ query: params.query, page: Number(params.page), total: params.tags ? 30 : 0,
-				tags: params.tags.split(",").filter(Boolean).map(t => ({ tag: t.replace(/^-/, "").split(":")[0], weight: 1 })) })),
+				tags: params.tags.split(",").filter(Boolean).map(t => ({ tag: t.split(":")[0], weight: 1 })) })),
 		};
 	}
 	const line = () => screen.getByRole("list", { name: "Tags in your search" });
@@ -161,12 +161,12 @@ describe("tag line", () => {
 		return calls;
 	}
 
-	test("each tag is a word with a ticked box, and an excluded one is crossed", async () => {
+	test("each tag is a word with a ticked box; there is no negation", async () => {
 		await searched("serif bold not thin");
-		expect(within(line()).getAllByRole("listitem").map(i => i.textContent)).toEqual(["serif", "bold", "thin"]);
+		expect(within(line()).getAllByRole("listitem").map(i => i.textContent)).toEqual(["serif", "bold"]);
 		expect(box("serif", "included")).toHaveClass("TagBox-on");
 		expect(box("bold", "included")).toBeInTheDocument();
-		expect(box("thin", "excluded")).toHaveClass("TagBox-neg");
+		expect(screen.queryByRole("button", { name: /excluded/ })).toBeNull();
 		expect(screen.queryByText("Searching for:")).toBeNull();          // the words speak for themselves
 	});
 
@@ -180,20 +180,12 @@ describe("tag line", () => {
 		expect(screen.queryByText(/→/)).toBeNull();
 	});
 
-	test("clicking steps tick -> empty -> cross -> empty -> tick, all in the page", async () => {
+	test("clicking flips a box between ticked and empty, all in the page", async () => {
 		const calls = await searched("serif bold");
 		expect(tagCalls(calls)).toHaveLength(1);
 		expect(lastQuery(calls).tags).toBe("serif:1,bold:1");
 
 		userEvent.click(box("serif", "included"));                     // tick -> empty
-		await waitFor(() => expect(box("serif", "off")).toBeInTheDocument());
-		await waitFor(() => expect(lastQuery(calls).tags).toBe("bold:1"));
-
-		userEvent.click(box("serif", "off"));                          // empty -> cross
-		await waitFor(() => expect(box("serif", "excluded")).toBeInTheDocument());
-		await waitFor(() => expect(lastQuery(calls).tags).toBe("-serif:1,bold:1"));
-
-		userEvent.click(box("serif", "excluded"));                     // cross -> empty
 		await waitFor(() => expect(box("serif", "off")).toBeInTheDocument());
 		await waitFor(() => expect(lastQuery(calls).tags).toBe("bold:1"));
 
@@ -205,33 +197,38 @@ describe("tag line", () => {
 		expect(window.location.search).toBe("?q=serif+bold");          // and they are not in the URL
 	});
 
-	test("a tag's weight rides along unchanged, with its sign from the box", async () => {
+	test("a tag's weight rides along unchanged", async () => {
 		const calls = await searched("rounded serif");
 		expect(lastQuery(calls).tags).toBe("rounded:0.6,serif:1");
 		userEvent.click(box("rounded", "included"));
 		await waitFor(() => expect(box("rounded", "off")).toBeInTheDocument());
 		userEvent.click(box("rounded", "off"));
-		await waitFor(() => expect(lastQuery(calls).tags).toBe("-rounded:0.6,serif:1"));
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("rounded:0.6,serif:1"));
 	});
 
 	test("a box says what a click will do", async () => {
 		await searched("serif");
 		expect(box("serif", "included")).toHaveAttribute("title", "Included. Click to turn off.");
 		userEvent.click(box("serif", "included"));
-		await waitFor(() => expect(box("serif", "off")).toHaveAttribute("title", "Off. Click to exclude."));
-		userEvent.click(box("serif", "off"));
-		await waitFor(() => expect(box("serif", "excluded")).toHaveAttribute("title", "Excluded. Click to turn off."));
-		userEvent.click(box("serif", "excluded"));
 		await waitFor(() => expect(box("serif", "off")).toHaveAttribute("title", "Off. Click to include."));
 	});
 
-	test("a tag typed with 'not' starts crossed and goes to a tick after being emptied", async () => {
-		const calls = await searched("not thin");
-		userEvent.click(box("thin", "excluded"));
-		await waitFor(() => expect(box("thin", "off")).toBeInTheDocument());
-		userEvent.click(box("thin", "off"));
-		await waitFor(() => expect(box("thin", "included")).toBeInTheDocument());
-		await waitFor(() => expect(lastQuery(calls).tags).toBe("thin:1"));
+	test("a vote is filed under the tags the results were ranked on", async () => {
+		const calls = installFetch({ ...backend(), "/api/font/approve": ({ body }) => jsonResponse({ message: "Successful", vote: body.vote }) });
+		render(<SearchPage username="alice" />);
+		await search("serif bold");
+		await screen.findAllByRole("img");
+		const vote = async (name) => {
+			userEvent.click(within(screen.getAllByRole("article")[0]).getByRole("button", { name }));
+			await waitFor(() => expect(calls.filter(c => c.path === "/api/font/approve").length).toBeGreaterThan(0));
+			return calls.filter(c => c.path === "/api/font/approve").pop().body;
+		};
+		expect(await vote("This font matched my query")).toEqual({ fontKey: "google:Font 0", query: "serif bold", tags: "serif:1,bold:1", vote: 1 });
+
+		userEvent.click(box("bold", "included"));
+		await waitFor(() => expect(lastQuery(calls).tags).toBe("serif:1"));
+		await waitFor(() => expect(screen.getAllByRole("article")[0].querySelector("[aria-pressed=true]")).toBeNull());
+		expect(await vote("This font did not match my query")).toEqual({ fontKey: "google:Font 0", query: "serif bold", tags: "serif:1", vote: -1 });
 	});
 
 	test("a suggestion starts empty and its first click ticks it, in place", async () => {
@@ -437,7 +434,7 @@ describe("feedback", () => {
 
 		userEvent.click(yes());
 		await waitFor(() => expect(yes()).toHaveAttribute("aria-pressed", "true"));
-		expect(calls[calls.length - 1].body).toEqual({ fontKey: "google:Font 0", query: "serif", vote: 1 });
+		expect(calls[calls.length - 1].body).toEqual({ fontKey: "google:Font 0", query: "serif", tags: "serif:1", vote: 1 });
 
 		userEvent.click(no());
 		await waitFor(() => expect(no()).toHaveAttribute("aria-pressed", "true"));

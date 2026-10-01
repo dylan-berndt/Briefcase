@@ -131,11 +131,6 @@
     border-color: var(--col-accent);
   }
 
-  .TagBox-neg {
-    color: var(--col-negative);
-    border-color: var(--col-negative);
-  }
-
   .SearchMessage {
     margin-top: 24px;
     font-size: 12px;

@@ -227,6 +227,47 @@ def test_votes_are_per_user(client, app):
     assert top(client)["vote"] == 0  # anonymous sees no vote
 
 
+def storedVotes(app):
+    import sqlite3
+    db = sqlite3.connect(app.config["DATABASE"])
+    return db.execute("SELECT fontKey, query, tags, vote FROM fontVotes ORDER BY created, rowid").fetchall()
+
+
+def test_vote_stores_the_query_and_the_tags(user, app):
+    key = firstKey(user, "serif bold")
+    user.post("/api/font/approve", json={"fontKey": key, "query": " Serif  Bold ", "vote": 1})
+    assert storedVotes(app) == [(key, "serif bold", "bold:1,serif:1", 1)]          # no tags sent: the query's own
+    user.post("/api/font/approve", json={"fontKey": key, "query": "serif bold", "vote": -1,
+                                          "tags": "serif:0.5,bold:1"})
+    assert storedVotes(app) == [(key, "serif bold", "bold:1,serif:1", 1), (key, "serif bold", "bold:1,serif:0.5", -1)]
+
+
+def test_a_vote_belongs_to_the_tags_the_results_were_ranked_on(user, app):
+    key = firstKey(user, "serif")
+    user.post("/api/font/approve", json={"fontKey": key, "query": "serif", "vote": 1, "tags": "serif:1,bold:0.5"})
+
+    def shown(**params):
+        for page in (1, 2, 3):
+            for r in query(user, "serif", page=page, pageSize=100, **params).json["results"]:
+                if r["key"] == key:
+                    return r["vote"]
+
+    assert shown(tags="bold:0.5,serif") == 1          # order and spelling of the list do not matter
+    assert shown() == 0 and shown(tags="serif") == 0  # same query, other ticks: not voted there
+    user.post("/api/font/approve", json={"fontKey": key, "query": "serif", "vote": 0, "tags": "serif"})
+    assert len(storedVotes(app)) == 1                 # clearing one tag set leaves the other
+    user.post("/api/font/approve", json={"fontKey": key, "query": "serif", "vote": 0, "tags": "bold:0.5,serif"})
+    assert storedVotes(app) == []
+
+
+def test_vote_tags_are_validated(user):
+    key = firstKey(user)
+    for tags in ("-serif", "serif:abc", "serif:2", 5, ["serif"]):
+        body = {"fontKey": key, "query": "serif", "vote": 1, "tags": tags}
+        assert user.post("/api/font/approve", json=body).status_code == 400
+    assert user.post("/api/font/approve", json={"fontKey": key, "query": "x", "vote": 1, "tags": ""}).status_code == 200
+
+
 @pytest.mark.parametrize("body", [
     {"query": "serif", "vote": 1},                               # no font
     {"fontKey": "nope:nope", "query": "serif", "vote": 1},       # unknown font
@@ -400,7 +441,7 @@ def tagsOf(body):
 
 def test_tags_endpoint_lists_what_a_query_means(client):
     body = client.get("/api/font/tags", query_string={"query": "elegant script not thin"}).json
-    assert tagsOf(body) == {"elegant": 1.0, "script": 1.0, "thin": -1.0}
+    assert tagsOf(body) == {"elegant": 1.0, "script": 1.0}          # there is no negation: "not thin" is dropped
     assert body["suggested"] == [] or all(set(s) == {"tag", "via", "similarity"} for s in body["suggested"])
     assert body["unmatched"] == []
     nothing = client.get("/api/font/tags", query_string={"query": "zzqx"}).json
@@ -422,8 +463,8 @@ def test_tags_endpoint_flattens_guesses_into_tags(client, app):
 def test_query_ranks_exactly_the_tags_it_is_given(client):
     typed = query(client, "serif bold").json
     assert tagsOf(typed) == {"serif": 1.0, "bold": 1.0}
-    given = query(client, "serif bold", tags="serif:1,-bold:0.6").json
-    assert tagsOf(given) == {"serif": 1.0, "bold": -0.6}          # the text is not parsed again
+    given = query(client, "serif bold", tags="serif:1,bold:0.6").json
+    assert tagsOf(given) == {"serif": 1.0, "bold": 0.6}          # the text is not parsed again
     assert [r["key"] for r in given["results"]] != [r["key"] for r in typed["results"]]
     only = query(client, "serif bold", tags="bold").json
     assert tagsOf(only) == {"bold": 1.0}
@@ -437,14 +478,14 @@ def test_query_with_an_empty_tag_list_has_no_results(client):
 
 def test_query_skips_unknown_tags_and_rejects_bad_ones(client):
     assert tagsOf(query(client, "x", tags="serif,no-such-tag").json) == {"serif": 1.0}
-    for tags in ("serif:abc", "serif:2", "serif:0", ",".join(["serif"] * 65)):
+    for tags in ("-serif", "serif:abc", "serif:2", "serif:0", ",".join(["serif"] * 65)):
         assert query(client, "x", tags=tags).status_code == 400
 
 
 def test_pages_of_a_tag_list_tile_like_any_other(client):
     seen = []
     for page in (1, 2, 3):
-        seen += [r["key"] for r in query(client, "x", tags="serif,-bold:0.5", page=page, pageSize=100).json["results"]]
+        seen += [r["key"] for r in query(client, "x", tags="serif,bold:0.5", page=page, pageSize=100).json["results"]]
     assert len(seen) == 300 == len(set(seen))
 
 

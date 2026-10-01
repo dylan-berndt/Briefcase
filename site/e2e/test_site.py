@@ -155,11 +155,11 @@ def test_info_sits_beside_the_preview_on_a_desktop(page):
 
 def test_tag_line_is_one_line_when_it_fits(page):
     page.goto("/")
-    search(page, "elegant script not thin")
+    search(page, "elegant script not thin")           # there is no negation: "not thin" gives no tag
     tags = page.get_by_label("Tags in your search")
     expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
     boxes = tags.get_by_role("button").all()
-    assert len(boxes) == 3 and len({round(b.bounding_box()["y"]) for b in boxes}) == 1   # words side by side
+    assert len(boxes) == 2 and tags.get_by_text("thin").count() == 0 and len({round(b.bounding_box()["y"]) for b in boxes}) == 1   # words side by side
     assert tags.get_by_role("listitem").first.bounding_box()["x"] < boxes[0].bounding_box()["x"]  # word, then its box
     assert page.get_by_text("Searching for:").count() == 0       # no label, just the words
 
@@ -168,10 +168,10 @@ def test_tag_line_ticks_are_page_state_and_change_the_results(page):
     page.goto("/")
     requests = []
     page.on("request", lambda r: requests.append(r.url) if "/api/font/" in r.url else None)
-    search(page, "elegant script not thin airy slimy")
+    search(page, "elegant script airy slimy")
     tags = page.get_by_label("Tags in your search")
     expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
-    expect(tags.get_by_role("button", name="thin: excluded")).to_be_visible()
+    assert page.get_by_label("Tags in your search").locator("[aria-label$=excluded]").count() == 0
     expect(tags.get_by_role("button", name="feminine: included")).to_be_visible()   # guessed for "airy", a plain tag
     suggestion = tags.get_by_role("button", name=re.compile(r": off$")).first         # suggested for "slimy", unticked
     expect(suggestion).to_be_visible()
@@ -192,17 +192,12 @@ def test_tag_line_ticks_are_page_state_and_change_the_results(page):
         raise AssertionError(f"the fonts never settled: {results()[:4]}")
 
     before = results()
-    # tick -> empty -> cross -> empty -> tick on a typed tag; every step changes the fonts shown
+    # tick -> empty -> tick on a typed tag; every step changes the fonts shown
     page.get_by_role("button", name="script: included").click()
     expect(tags.get_by_role("button", name="script: off")).to_be_visible()
     settles(lambda r: r != before)
     off = results()
-    tags.get_by_role("button", name="script: off").click()
-    expect(tags.get_by_role("button", name="script: excluded")).to_be_visible()
-    settles(lambda r: r != off)
-    tags.get_by_role("button", name="script: excluded").click()
-    expect(tags.get_by_role("button", name="script: off")).to_be_visible()
-    settles(lambda r: r == off)
+    assert off != before
     tags.get_by_role("button", name="script: off").click()
     expect(tags.get_by_role("button", name="script: included")).to_be_visible()
     settles(lambda r: r == before)
