@@ -28,12 +28,13 @@ def normalize(text):
 
 
 def loadStemmer():
-    """The Porter2 (Snowball English) stemmer, or None when nltk is not installed (then words only match as typed)."""
+    """The Porter2 (Snowball English) stemmer, or None when snowballstemmer is not installed (then words only match
+    as typed)."""
     try:
-        from nltk.stem.snowball import SnowballStemmer
+        import snowballstemmer
     except ImportError:
         return None
-    return SnowballStemmer("english").stem
+    return snowballstemmer.stemmer("english").stemWord
 
 
 def stemIndex(words, stem):
@@ -65,8 +66,8 @@ class TagVocabulary:
         nor drops become single-member canonicals named after themselves, so all of the model's tags are searchable.
         wordTags: the caption co-occurrence table (site/tools/buildWordTags.py); "auto" loads wordTags.json next to
         the vocabulary file if there is one. It is only consulted by parse(..., inferred={}).
-        stemmer: word -> stem, applied to both the query word and the known words; "auto" is Porter2 via nltk if
-        installed, None matches words only as typed."""
+        stemmer: word -> stem, applied to both the query word and the known words; "auto" is Porter2 (the
+        snowballstemmer package) if installed, None matches words only as typed."""
         self.stem = loadStemmer() if stemmer == "auto" else stemmer
         with open(path) as f:
             data = json.load(f)

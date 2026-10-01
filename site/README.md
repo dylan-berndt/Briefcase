@@ -45,7 +45,7 @@ The negation term and using the full vocabulary for normalisation are design cho
 validation; `e23_scoring.py` measured the multinomial for positive multi-tag queries only.
 
 **Words the vocabulary does not know.** A word that matches no phrase as typed matches a single-word phrase with the
-same Porter2 stem (nltk's Snowball English stemmer, applied to both sides: sketched -> sketch, swirling -> swirls; of
+same Porter2 stem (the snowballstemmer package's English stemmer, applied to both sides: sketched -> sketch, swirling -> swirls; of
 several such phrases, the one sharing the longest prefix). Stems do not reduce comparatives (bolder) or -y adjectives
 to their root (slimy is not slim). A word that still matches nothing is looked up, as typed or by stem, in
 `configs/wordTags.json`, a table of caption words and the tags they co-occur with, learned from the LLM captions of MyFonts fonts (the captions
