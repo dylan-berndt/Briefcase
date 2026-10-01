@@ -215,7 +215,7 @@
   .ResultTitle a {
     color: var(--col-text);
     text-decoration: none;
-    font-size: clamp(20px, 2.8vmin, 28px);
+    font-size: clamp(18px, 2.4vmin, 24px);
     line-height: 1.15;
     overflow-wrap: anywhere;
   }
