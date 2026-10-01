@@ -244,6 +244,20 @@ def test_search_bar_has_no_border_rounded_corners_and_a_shadow_below(page):
     shot(page, "searchbar")
 
 
+@pytest.mark.parametrize("width,column,content", [(1400, 980, 744), (1920, 1344, 1004)])
+def test_the_column_is_70_percent_wide_with_the_content_at_its_own_width(browser, site, width, column, content):
+    context = browser.new_context(viewport={"width": width, "height": 1000}, base_url=site["url"])
+    page = context.new_page()
+    page.goto("/")
+    search(page, "serif")
+    page.locator(".ResultWindow").first.wait_for()
+    sizes = page.evaluate("""() => ({ column: document.querySelector('.Shadow').getBoundingClientRect().width,
+        results: document.querySelector('.Results').getBoundingClientRect().width })""")
+    context.close()
+    assert abs(sizes["column"] - column) <= 2     # as wide as it was before it was narrowed
+    assert abs(sizes["results"] - content) <= 2   # the results keep the width they have now
+
+
 def test_the_prompt_is_smaller(page):
     page.goto("/")
     size = page.evaluate("""() => parseFloat(getComputedStyle(document.querySelector('.Center > p')).fontSize)""")

@@ -50,7 +50,10 @@
   --col-accent-dim: rgba(200, 184, 154, 0.12);
   --font-sans: 'Aldrich', sans-serif;
   --font-mono: 'Aldrich', monospace;
-  --ui-width: clamp(340px, 60vw, 1100px);
+  /* the dark column is 70% of the window (340px at least, so a phone still has room) ... */
+  --ui-width: max(70vw, 340px);
+  /* ... and what is inside it is 60% of the window less its old 48px side padding, between 244px and 1004px */
+  --content-width: clamp(244px, calc(60vw - 96px), 1004px);
 }
 
 body {
