@@ -173,23 +173,27 @@
     border-color: var(--col-edge-hover);
   }
 
-  /* the preview's width sets the card's height (the image is 640x180), so it is capped */
+  /* The specimen images are 640x180 with the text in the middle and about 55px of blank space above and below it.
+     Show the preview at its full width but only the middle 140 rows, so the blank bands do not make the card taller. */
   .Specimen {
-    flex: 0 1 440px;
+    flex: 1 1 440px;
+    max-width: 640px;
     min-width: 0;
-    display: block;
+    display: flex;
+    align-items: center;
     line-height: 0;
-    padding: 2px 8px;
+    padding: 0 8px;
   }
 
   .Specimen img {
     width: 100%;
     height: auto;
-    aspect-ratio: 640 / 180;
+    aspect-ratio: 640 / 140;
+    object-fit: cover;
   }
 
   .ResultInfo {
-    flex: 1 1 240px;
+    flex: 1 1 270px;
     min-width: 0;
     display: flex;
     flex-direction: column;

@@ -135,6 +135,9 @@ def test_card_has_no_stars_and_name_source_and_thumbs_are_right_aligned(page):
     assert box["y"] + box["height"] - (thumbs_box["y"] + thumbs_box["height"]) < 40      # thumbs at the bottom of the card
     assert thumbs_box["y"] - (source_box["y"] + source_box["height"]) >= 16              # with room under the source
     assert box["height"] <= 150                                                          # and the whole result is short
+    img = card.locator(".Specimen img").bounding_box()
+    assert img["width"] >= 430                                                           # the preview keeps its size...
+    assert abs(img["width"] / img["height"] - 640 / 140) < 0.1                           # ...but not the blank bands above and below
     up = card.get_by_role("button", name="This font matched my query")
     assert up.get_attribute("title") == "This font matched my query"
     assert card.get_by_role("button", name="This font did not match my query").get_attribute("title") == "This font did not match my query"
