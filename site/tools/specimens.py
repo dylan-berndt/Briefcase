@@ -46,8 +46,11 @@ def renderSpecimen(fontPath, quality=80):
     canvas = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     # first line large, the rest at 60% of that size's ceiling
-    fonts = [fitLine(fontPath, line, WIDTH - 2 * PADDING, MAX_SIZE if i == 0 else int(MAX_SIZE * 0.6))
-             for i, line in enumerate(lines)]
+    try:
+        fonts = [fitLine(fontPath, line, WIDTH - 2 * PADDING, MAX_SIZE if i == 0 else int(MAX_SIZE * 0.6))
+                 for i, line in enumerate(lines)]
+    except OSError:
+        return None  # e.g. a fixed-size bitmap font that cannot be scaled; that one font is left out, not the build
     heights = [font.getmetrics()[0] + font.getmetrics()[1] for font in fonts]
     gap = 10
     y = (HEIGHT - sum(heights) - gap * (len(lines) - 1)) // 2
