@@ -194,7 +194,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 12px;
+    gap: 20px;
     padding: 16px 20px;
   }
 
@@ -228,11 +228,13 @@
     color: var(--col-text-muted);
   }
 
+  /* the thumbs sit at the bottom of the card, with whatever room is left between them and the source */
   .ResultFeedback {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     gap: 10px;
+    margin-top: auto;
   }
 
   .Votes {
@@ -259,7 +261,7 @@
   .Votes button {
     display: flex;
     align-items: center;
-    padding: 5px 9px;
+    padding: 2px 9px;
   }
 
   .Votes button:hover,

@@ -130,6 +130,11 @@ def test_card_has_no_stars_and_name_source_and_thumbs_are_right_aligned(page):
         box = part.bounding_box()
         assert edge - (box["x"] + box["width"]) < 40          # all three sit against the right edge of the card
     assert name.bounding_box()["y"] < source.bounding_box()["y"] < thumbs.bounding_box()["y"]
+    box = card.bounding_box()
+    thumbs_box, source_box = thumbs.bounding_box(), source.bounding_box()
+    assert box["y"] + box["height"] - (thumbs_box["y"] + thumbs_box["height"]) < 40      # thumbs at the bottom of the card
+    assert thumbs_box["y"] - (source_box["y"] + source_box["height"]) >= 20              # with room under the source
+    assert max(b.bounding_box()["height"] for b in card.locator(".Votes button").all()) <= 32  # and a little shorter
     up = card.get_by_role("button", name="This font matched my query")
     assert up.get_attribute("title") == "This font matched my query"
     assert card.get_by_role("button", name="This font did not match my query").get_attribute("title") == "This font did not match my query"
