@@ -3,8 +3,9 @@
 Free-text font search over Google Fonts and the dafonts-free subset of DaFont. A query is parsed into style tags
 ("elegant script, not too thin" -> `elegant`, `script`, not `thin`), every font is scored on those tags, and the
 results are shown as specimen images, 24 to a page, with as many pages as the user cares to read. Each result links
-out to its Google Fonts or DaFont page. Logged-in users can mark a result as matching or not matching the search,
-rate the font 1-5 stars, and describe it.
+out to its Google Fonts or DaFont page. Logged-in users can mark a result as matching or not matching the search
+(thumbs up/down). The page no longer shows star ratings or the description box, but `/api/font/rate` and
+`/api/font/describe` are still there.
 
 No model runs on the server. A tagger scores every font offline; the server only reads the scores.
 
@@ -135,7 +136,7 @@ Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, desc
 | `GET /api/font/query?query=&tags=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags}`; `pageSize` 1-100; a page past the end is empty. With `tags` (comma-separated `name`, `-name` to exclude, each optionally `:weight` above 0 and up to 1) the fonts are ranked on exactly that list and `query` is only the label votes are filed under; unknown names are skipped, a bad entry is a 400, an empty list gives no results. Without `tags` the query text is parsed (guesses included). Results carry `rating {average, count, mine}` and the caller's `vote` for this query |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query (queries are lower-cased and whitespace-collapsed) |
-| `POST /api/font/rate` `{fontKey, rating}` | is this a good font: 1-5, or 0 to clear. Per user, per font |
+| `POST /api/font/rate` `{fontKey, rating}` | is this a good font: 1-5, or 0 to clear. Per user, per font (not used by the page at the moment) |
 | `POST /api/font/describe` `{fontKey, description}` | up to 500 characters |
 | `POST /api/font/register`, `login`, `logout`; `GET /api/font/me` | accounts; a 1-hour JWT in an HttpOnly cookie |
 

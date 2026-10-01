@@ -49,24 +49,8 @@ function Thumb({ down = false }) {
 	</svg>;
 }
 
-function Stars({ rating, onRate }) {
-	const [hover, setHover] = useState(0);
-	const shown = hover || rating.mine || 0;
-	return <div className="Stars" onMouseLeave={() => setHover(0)}>
-		{[1, 2, 3, 4, 5].map(n => <button key={n} type="button"
-			className={n <= shown ? "Star StarOn" : "Star"}
-			aria-label={`Rate ${n} star${n > 1 ? "s" : ""}`} aria-pressed={rating.mine === n}
-			onMouseEnter={() => setHover(n)}
-			onClick={() => onRate(rating.mine === n ? 0 : n)}>★</button>)}
-		<span className="RatingSummary">
-			{rating.count > 0 ? `${rating.average} (${rating.count})` : "unrated"}
-		</span>
-	</div>;
-}
-
 function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 	const [vote, setVote] = useState(result.vote);
-	const [rating, setRating] = useState(result.rating);
 	const [message, setMessage] = useState("");
 	const [describing, setDescribing] = useState(false);
 	const [description, setDescription] = useState("");
@@ -91,7 +75,6 @@ function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 
 	const castVote = (value) => send('/api/font/approve', { fontKey: result.key, query, vote: vote === value ? 0 : value },
 		json => setVote(json.vote));
-	const rate = (stars) => send('/api/font/rate', { fontKey: result.key, rating: stars}, json => setRating(json.rating));
 	const describe = (e) => {
 		e.preventDefault();
 		send('/api/font/describe', { fontKey: result.key, description },
@@ -108,7 +91,6 @@ function Result({ result, query, username, onNeedLogin, allowDescriptions }) {
 				<span className="ResultSource">{result.source === "google" ? "Google Fonts" : "DaFont"}{result.creator ? ` · ${result.creator}` : ""}</span>
 			</div>
 			<div className="ResultFeedback">
-				<Stars rating={rating} onRate={rate} />
 				<div className="Votes" role="group" aria-label="Does this font answer your query?">
 					<button type="button" aria-pressed={vote === 1} className={vote === 1 ? "VoteOn" : ""}
 						aria-label="This font matched my query" title="This font matched my query" onClick={() => castVote(1)}>
@@ -151,9 +133,8 @@ export function TagLine({ tags, unmatched, nextAfterOff, onToggle }) {
 	// an empty box becomes a tick or a cross depending on where it came from
 	const nextState = (tag) => tag.state === "off" ? (nextAfterOff.current[tag.tag] || "on") : "off";
 	return <div className="TagLine">
-		<span className="TagLabel" role="status">
-			{tags.length === 0 ? "No tags recognised in that description." : "Searching for:"}
-		</span>
+		{tags.length === 0
+			? <span className="TagLabel" role="status">No tags recognised in that description.</span> : null}
 		<ul className="Tags" aria-label="Tags in your search">
 			{tags.map(tag => {
 				const next = nextState(tag);
@@ -300,7 +281,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			</p>
 		</div>
 		<div style={{ height: "6vmin" }}></div>
-		<p style={{ fontSize: "3vmin", marginBottom: "4vh" }}>
+		<p style={{ fontSize: "2vmin", marginBottom: "4vh" }}>
 			Please enter a description to search for a font
 		</p>
 

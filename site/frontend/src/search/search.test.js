@@ -167,7 +167,7 @@ describe("tag line", () => {
 		expect(box("serif", "included")).toHaveClass("TagBox-on");
 		expect(box("bold", "included")).toBeInTheDocument();
 		expect(box("thin", "excluded")).toHaveClass("TagBox-neg");
-		expect(screen.getByText("Searching for:")).toBeInTheDocument();
+		expect(screen.queryByText("Searching for:")).toBeNull();          // the words speak for themselves
 	});
 
 	test("guessed tags and suggestions are plain tags in the same list: guesses ticked, suggestions not", async () => {
@@ -425,7 +425,7 @@ describe("feedback", () => {
 		userEvent.click(within(firstCard()).getByRole("button", { name: "This font matched my query" }));
 		expect(onNeedLogin).toHaveBeenCalled();
 		expect(within(firstCard()).getByRole("status")).toHaveTextContent("Log in to give feedback");
-		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 3 stars" }));
+		userEvent.click(within(firstCard()).getByRole("button", { name: "This font did not match my query" }));
 		expect(calls.filter(c => c.init.method === "POST")).toHaveLength(0);
 	});
 
@@ -456,36 +456,21 @@ describe("feedback", () => {
 		expect(no).toHaveAttribute("aria-pressed", "true");
 	});
 
-	test("rating shows the server's average and can be cleared", async () => {
-		const sent = [];
-		await loaded("alice", { "/api/font/rate": ({ body }) => {
-			sent.push(body.rating);
-			return jsonResponse({ message: "Successful", rating: body.rating ? { average: 4, count: 3, mine: body.rating } : { average: 4.5, count: 2, mine: null } });
-		} });
-		expect(within(firstCard()).getByText("unrated")).toBeInTheDocument();
-		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 4 stars" }));
-		await within(firstCard()).findByText("4 (3)");
-		expect(within(firstCard()).getByRole("button", { name: "Rate 4 stars" })).toHaveAttribute("aria-pressed", "true");
-		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 4 stars" }));
-		await within(firstCard()).findByText("4.5 (2)");
-		expect(sent).toEqual([4, 0]);
-	});
-
 	test("an expired session asks to log in again", async () => {
-		const { onNeedLogin } = await loaded("alice", { "/api/font/rate": () => jsonResponse({ message: "Session expired" }, 401) });
-		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 2 stars" }));
+		const { onNeedLogin } = await loaded("alice", { "/api/font/approve": () => jsonResponse({ message: "Session expired" }, 401) });
+		userEvent.click(within(firstCard()).getByRole("button", { name: "This font did not match my query" }));
 		await within(firstCard()).findByText("Your session ended, please log in again");
 		expect(onNeedLogin).toHaveBeenCalled();
 	});
 
 	test("server and network errors are shown on the card", async () => {
+		let call = 0;
 		await loaded("alice", {
-			"/api/font/approve": () => jsonResponse({ message: "Font not found" }, 404),
-			"/api/font/rate": () => Promise.reject(new Error("offline")),
+			"/api/font/approve": () => ++call === 1 ? jsonResponse({ message: "Font not found" }, 404) : Promise.reject(new Error("offline")),
 		});
 		userEvent.click(within(firstCard()).getByRole("button", { name: "This font matched my query" }));
 		await within(firstCard()).findByText("Font not found");
-		userEvent.click(within(firstCard()).getByRole("button", { name: "Rate 5 stars" }));
+		userEvent.click(within(firstCard()).getByRole("button", { name: "This font did not match my query" }));
 		await within(firstCard()).findByText("Could not reach the server");
 	});
 
@@ -502,13 +487,15 @@ describe("feedback", () => {
 		expect(down).toHaveAttribute("title", "This font did not match my query");
 	});
 
-	test("the source sits under the font name, and the rating above the thumbs", async () => {
+	test("the source sits under the font name, there are no stars, and the thumbs are the only feedback", async () => {
 		await loaded("alice");
 		const card = firstCard();
 		const title = card.querySelector(".ResultTitle");
 		expect([...title.children].map(e => e.className || e.tagName)).toEqual(["A", "ResultSource"]);
 		const feedback = card.querySelector(".ResultFeedback");
-		expect([...feedback.children].map(e => e.className)).toEqual(["Stars", "Votes"]);
+		expect([...feedback.children].map(e => e.className)).toEqual(["Votes"]);
+		expect(within(card).queryByRole("button", { name: /Rate \d star/ })).toBeNull();
+		expect(within(card).queryByText("unrated")).toBeNull();
 	});
 
 	test("describing a font", async () => {
