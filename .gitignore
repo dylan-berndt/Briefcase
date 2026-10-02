@@ -56,8 +56,8 @@ embeddings/*
 /results/*.html
 /site/frontend/public/*.html
 # The Map page's Plotly exports (generated elsewhere, committed through git-lfs; see .gitattributes)
-!/site/frontend/public/flower.html
-!/site/frontend/public/blob.html
+!/site/frontend/public/maps/flower.html
+!/site/frontend/public/maps/blob.html
 !/site/frontend/public.index.html
 
 # Sept 2026 cleanup before merging into staging: exploratory scripts and intermediate results that are kept

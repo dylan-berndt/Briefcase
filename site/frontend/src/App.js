@@ -286,7 +286,7 @@ function App() {
 					<header className="Bar">
 						<div>
 							<button className="HomeButton" onClick={() => setLocation("search")}>Home</button>
-							<button className="HomeButton" onClick={() => setLocation("map")}>Map</button>
+							<button className="HomeButton" onClick={() => setLocation("map")}>Maps</button>
 							<button className="HomeButton" onClick={() => setLocation("about")}>About</button>
 						</div>
 						<div>

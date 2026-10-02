@@ -47,8 +47,7 @@ export function renderMarkdown(text, depths = TOC_DEPTHS) {
 		if (TOC_DEPTHS.includes(token.depth)) toc.push({ id: token.slug, text: token.text.replace(/[*_`]/g, ""), depth: token.depth });
 	}
 	return {
-		titleHtml: hasTitle ? marked.parser([tokens[0]]) : "",
-		html: marked.parser(hasTitle ? tokens.slice(1) : tokens),
+		html: marked.parser(tokens),
 		toc,
 	};
 }
@@ -83,7 +82,7 @@ export default function AboutPage() {
 		{error ? <p className="AboutMessage" role="alert">{error}</p> : null}
 		{page === null && !error ? <p className="AboutMessage" role="status">Loading…</p> : null}
 		{page === null ? null : <article className="AboutBody">
-			{page.titleHtml ? <div className="AboutText AboutTitle" dangerouslySetInnerHTML={{ __html: page.titleHtml }} /> : null}
+			<div className="AboutText" dangerouslySetInnerHTML={{ __html: page.html }} />
 			{page.toc.length >= 1 ? <nav className="AboutContents" aria-label="Table of contents">
 				<p className="AboutContentsTitle">Contents</p>
 				<ol>
@@ -93,7 +92,6 @@ export default function AboutPage() {
 					</li>)}
 				</ol>
 			</nav> : null}
-			<div className="AboutText" dangerouslySetInnerHTML={{ __html: page.html }} />
 		</article>}
 	</div>;
 }

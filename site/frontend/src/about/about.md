@@ -14,7 +14,7 @@ All fonts are hosted on DaFont and Google Fonts, this site just acts to score th
 
 ## Usage
 
-The search mostly operates like any Google search. You figure out what you want to look for, and the underlying models try to figure out what content best matches your query. In the case of this project, the search relies on a fixed set of visual tags that describe each font. For this reason, if you can't seem to find a font you're looking for, or the search doesn't return tags that are useful to you, it can help to use synonyms of the visual concept you're looking for. Or just scroll, there's a hell of a lot of fonts. This system also isn't perfect. All the tags that are assigned to the fonts were assigned by a model, and can have errors. If you encounter an error, make sure to hit the disapprove button on the search result, that helps me build better models for next time.
+The search mostly operates like any Google search. You figure out what you want to look for, and the underlying models try to figure out what content best matches your query. In the case of this project, the search relies on a fixed set of visual tags that describe each font. For this reason, if you can't seem to find a font you're looking for, or the search doesn't return tags that are useful to you, it can help to use synonyms of the visual concept you're looking for. Or just scroll, there's a hell of a lot of fonts. This system also isn't perfect. All the tags that are assigned to the fonts were assigned by a model, and can have errors. If you encounter an error, make sure to hit the disapprove button on the search result, that helps me build better models for next time. For issues with things other than poor search results, please email me directly <a href="mailto:dylanberndt123@gmail.com">here</a>.
 
 ## Architectural Overview
 
@@ -23,6 +23,10 @@ This project was a huge head-bash into neural networks -- particularly pre-train
 These tags are acquired from a public dataset of fonts put together in this paper: ____. Note: It's necessary to predict tags for fonts because the MyFonts dataset contains fonts that aren't publicly available, and the DaFont/Google Fonts fonts don't have robust tagging. I could have spent money or talked to people about getting proper human-curated tags, but I'm a computer scientist. 
 
 The predicted ratings for each font are normalized across the dataset and can then be searched by the tag search engine. The tag search engine uses basic natural language processing (snowballstemmer, spacy synonym-matching) to determine which tags are closest to the words in your query (the vocab only contains ~1800 tags, and there's a lot of adjectives in the world), and uses the matched tags and close-enough tags to search the corpus. 
+
+## Me
+
+____. I created this tool mostly by myself [citation needed]. I'm a Research Analyst, Risk and Emerging Technologies at Associated Electric Cooperative. 
 
 # Creating the Tool
 
@@ -36,7 +40,7 @@ Let's start here. This project was originally an exercise into investigating pre
 
 The first dataset and model I implemented were the default fonts on my Windows computer and a UNet. UNets are models that I am very familiar with that got their start in medical imaging, but have a lot of useful properties and are very easy to implement. So I did. I trained the model to take in an image of a lowercase letter rendered as a 32x32 image and output the uppercased version of that image. This worked okayish. 
 
-![Figure 1: An image of a standard UNet architecture.](./images/unet.png)
+![An image of a standard UNet architecture.](./images/unet.png)
 Figure 1: An image of a standard UNet architecture. Obtained from here: [brain segmentation](https://github.com/mateuszbuda/brain-segmentation-pytorch)
 
 There were several problems. First, the model didn't know where exactly to place the uppercased letter thanks to some rendering bugs and ascent and descent and all that. Second, because the model didn't have any idea which letter it was looking at (and didn't care to figure it out apparently), it usually output a blob of some kind that looked a little bit like the letter if you weren't looking at the monitor. So I added auxiliary tasks to make the model better at its job. The first was to reduce similarity between the input image and the output image. That way, the model was striving to produce something new even early on in training. This didn't really change much in terms of the model's score, but I liked that it produced images that were more interesting. The second auxiliary task was much more effective, but a little disappointing. I trained the model to produce an internal representation that could be transformed to predict the specific letter the model was looking at. To be clear, I just took the most downsampled layer activations in the UNet and fed it into a feed-forward network trained with softmax. This drastically improved the model, but it did make sure that the model didn't produce bonkers results for an uppercase 4. Oh well. 
@@ -44,11 +48,11 @@ There were several problems. First, the model didn't know where exactly to place
 ![Image of the results of the uppercasing model. Shows a crudely drawn pixel lowercase e on the left, and a blurry but legible uppercase e on the right](./images/upper.png)
 Figure 2: The results of one of the best uppercasing models, shown on a crudely drawn lowercase e.
 
-As a result of this second task, though, I could generate my own fonts. Not by "generating" a font with "generative neural networks". Gross. We steal again from Tom7, and ask our fully-trained model to rank a random image of noise, ask it if it looks like an F, and if it doesn't, we edit the image until it does. Optimize until you get its favorite F ever. I produced two full "fonts" with this, one of them utilizing softmax (this is an F and only an F) and another using plain maximization (>100% F). These fonts I have titled: serif-fim and Oblivion, respectively.
+As a result of this second task, though, I could generate my own fonts. Not by "generating" a font with "generative neural networks". Gross. We steal again from Tom7, and ask our fully-trained model to rank a random image of noise, ask it if it looks like an F, and if it doesn't, we edit the image until it does. Optimize until you get its favorite F ever. I produced two full "fonts" with this, one of them utilizing softmax (this is an F and only an F) and another using plain maximization (>100% F). These fonts I have titled: serif-phim and Oblivion, respectively.
 
 <img src="./images/font_samples.png" width="100%" alt="Renderings of the serif-fim and oblivion fonts">
 
-Figure 3: Renderings of the serif-fim and Oblivion fonts. These are showing a, b, c, d, and e obviously.
+Figure 3: Renderings of the serif-phim and Oblivion fonts. These are showing a, b, c, d, and e obviously.
 
 Somewhere along here, I also pulled in the Google Fonts repository of fonts to get a lot more training data. Anyways, this model worked well enough for my purposes. I could've extended it with diffusion to reduce the blurriness of the final images, but I prefer believing that uppercasing is a deterministic task.
 
@@ -57,17 +61,29 @@ Somewhere along here, I also pulled in the Google Fonts repository of fonts to g
 
 Having an uppercasing model is cool and all, but the goal here was to prove that the pretraining could encode style information and transfer that learning for use elsewhere. There are a few ways I could have properly tested this, but again, Head Basher 9000. This led to a few fun experiments in figuring out whether the models could encode style. 
 
-The first of these was pretty simple. ____ (Bolding). This showed what I needed it to, but I wasn't satisfied.
+The first of these was pretty simple because it relied on the simplest kind of style most fonts have. I would test whether the model had effectively learned the difference between the standard rendering of a font and its bold and italic versions. I essentially just had to compare the outputs of a few standard fonts with their bold and italic counterparts and meaure the difference. This technically showed that the model understood one part of style, but it didn't show differentiation between fonts. So I moved on.
 
 ____ (Bold results)
 
-Next up, we could measure the model's actual internal understanding of the fonts. The idea was this: if the model produces representations that look similar when they're from the same font (even when they're a different letter), but look different when they're the same letter (but a different font), then the model has in some way figured out that it should encode the style of the font it's looking at. These results were okay and the logic is annoying to explain, so I moved on.
+Next up, we could measure the model's actual internal understanding of the fonts. The idea was this: if the model produces representations that look similar when they're from the same font (even when they're a different letter), but look different when they're the same letter (but a different font), then the model has in some way figured out that it should encode the style of the font it's looking at. These results were okay, and better than the last. It showed that the model encoded fonts in a way that was somewhat consistent, but it was clear that a lot of the representations were dedicated to solving the letter being shown. 
 
-____ (Cosine results)
+![alt text](./images/sample.png)
+
+Figure 4: The fonts that were chosen to evaluate styling. These fonts were ordered to loosely represent a transition from one font style to another. The idea was for the cosine activations to look mostly like a gradient coming out from the diagonals if the model's understanding of visual similarity was similar to human's understanding
+
+![Plot showing several matrices with the cosine similarity between activations for a range of fonts](./images/different.png)
+
+Figure 5: Plot of the activation cosine similarity across different layers. In this case, we compare only situations with differing letters.
+
+![Plot showing several matrices with the cosine similarity between activations for a range of fonts](./images/same.png)
+
+Figure 6: Plot of the activation cosine similarity across different layers. In this case, we compare situations where the letter is identical, showing the similarity between styles.
 
 The next method is a lot more standard. Take PCA on the representations, then visualize the vectors on a chart. If similar looking fonts clump together, then the model is naturally learning to encode style. This one could be taken on each individual layer and produced some of the coolest results, with different font styles clumping together on different layers.
 
-____ (PCA results)
+![Image showing the PCA embedded vector placings for each font in the original corpus](./images/pca.png)
+
+Figure 7: This is the PCA embeddings for each font in the original corpus, by layer, color coded for the use of bold and italic. 
 
 Last up, plain clustering. This way, we can visualize the full structure of the learned representations without having to squish everything down to only 2 dimensions with PCA. Considering there's a lot of fonts and the dimension of the model is 256, we're leaving a lot of style information on the table if we squish that much. Here's the results for clustering at layer 4, which is somewhere in the middle of the model.
 
@@ -83,13 +99,13 @@ Great. We have a process. To test, I set up three pre-training methods of my own
 
 ### The Website
 
-____
+By this point, I decided I wanted to make this a real tool and not just a learning project. ____. ____. Creating this website did provide one motivation for the project. I was the one paying for hosting, and not hosting something there was wasteful.
 
-### Hiatus
+### Hiatus/Thesis
 
-____
+Oddly enough, right after deciding that I wanted to create an entire website around this already convoluted mess, I got tired of the project. That's not entirely true. I also started my thesis around this time (Octoberish 2025), and the work was enough to take me away from this project. So I worked on the thesis for months. My lofty goal was to produce a global river forecasting model that could outperform Google's Flood Hub. This was entirely my choosing, and my entire computer science department was unfamiliar with the methods I was using to achieve my goal. I toiled away at designing these spatiotemporal neural networks for ____. I ____, spending a significant portion of my winter break that year driving to campus so I could sit outside the student union in the 4-40 degree (Fahrenheit) weather for the wifi that connected to the (super?)computer that I used to run my experiments (40GB VRAM lol). I worked on this day and night ____.
 
-## Oh No
+## Trying Again
 
 I came back to the project in March of 2026. I had no good reason to, but I was now determined to use contrastive learning with vision transformers for the pre-training. I wanted to produce the best possible version of a font searching tool and I knew it had to be possible. This obsession with improving the tool would produce a lot of things, some good and some bad. The setup worked like this: take an image and run it through a vision transformer alongside an extra token, [CLS], that would be extracted afterwards and fed to the loss. The loss was InfoNCE paired with SIGReg (I had recently read up on JEPA and its siblings). InfoNCE acted to take the [CLS] token and pull the values in the token closer to the other tokens produced by the model running other glyphs from the same font, and push the values away from the other fonts. This would make the model invariant to the specific letter passed in, but require that it produced unique embeddings for each font that were identifying enough to match that font and no other font. This did work. 
 
@@ -105,7 +121,9 @@ Coming fresh off the heels of that good idea, I figured that maybe it would be b
 
 ### Detour
 
-The idea was pretty simple and relied on my terrible understanding of information theory and Akinator. If we ask the user to pick between two fonts, and we can divide the space of fonts in half on every question, then we only need to ask the user a few questions to get to the *exact* font they want. It works out on a piece of paper designed explicitly for fools. It looks like this: we have 40,000 fonts, so we need ceiling(log_2(40,000)) = 16 total bits of information or 16 total questions. We could even ask three-way, four-way, eight-way question, whatever! The more options, the less choices the user had to make. This is what I ended up calling the meander search (fitting name). I would take a few different shots at this, but my first implementations relied on updating a randomly initialized embedding vector to point towards which ever font the user selected, and away from the ones they didn't. That way, the vector moves towards ____.
+The idea was pretty simple and relied on my terrible understanding of information theory and Akinator. If we ask the user to pick between two fonts, and we can divide the space of fonts in half on every question, then we only need to ask the user a few questions to get to the *exact* font they want. It works out on a piece of paper designed explicitly for fools. It looks like this: we have 40,000 fonts, so we need $$ceiling(log_2(40000)) = 16$$ total bits of information or 16 total questions. We could even ask three-way, four-way, eight-way question, whatever! The more options, the less choices the user had to make. This is what I ended up calling the meander search (fitting name). I would take a few different shots at this, but my first implementations relied on updating a randomly initialized embedding vector to point towards which ever font the user selected, and away from the ones they didn't. That way, the vector moves towards ____.
+
+____ (animation of the thingy)
 
 This part of the project is where I began relying more on the use of generative LLMs like Claude. What a fool.
 
@@ -136,6 +154,7 @@ After testing the new variant of the LeVJEPA trained model, I was able to come u
 ## The Future
 
 I would love for this to be the best font searching experience there is. I really do care about it. I have mechanisms in place to capture usage for the sake of improving the model. The site just grabs the tags you used and the query you typed if you approve/disapprove. You also need to login to do this. Either way. I will probably still be obsessed with this. I will have a ton of silly new ideas that I have no idea how to begin verifying, and I will smash my head into a wall trying to prove myself right. Whether or not it works is up to the strength of the wall.
+
 
 # Conclusion
 

@@ -11,8 +11,11 @@
 }
 
 .AboutBody {
-  max-width: 720px;
+  max-width: 100%;
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: 5fr 3fr;
+  column-gap: 10%;
 }
 
 .AboutMessage {
@@ -34,6 +37,11 @@
   padding: 20px 24px;
   background: var(--col-surface-2);
   border-radius: 14px;
+  max-height: fit-content;
+  height: fit-content;
+
+  position: sticky;
+  top: 20px;
 }
 
 .AboutContentsTitle {
