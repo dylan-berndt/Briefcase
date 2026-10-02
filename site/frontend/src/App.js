@@ -10,14 +10,14 @@ import MapPage from './map';
 
 
 const fragmentSource = `
-#define PIXEL_SIZE 8.0f
+#define PIXEL_SIZE 6.0f
 #define CELL_SIZE 64
 
 #define OCTAVES 3
 #define LACUNARITY 2.0
 #define GAIN 0.5
 
-#define DIMMING 0.8
+#define DIMMING 0.6
 
 #define MOD 32
 
@@ -143,7 +143,7 @@ const BackgroundMaterial = shaderMaterial(
 
 extend({ BackgroundMaterial });
 
-function BackgroundShader({backgroundRef}) {
+function BackgroundShader({ backgroundRef }) {
 	const materialRef = useRef();
 
 	useFrame((_, delta) => {
@@ -157,9 +157,9 @@ function BackgroundShader({backgroundRef}) {
 	})
 
 	return (
-		<mesh scale={100}> {}
-		<planeGeometry args={[1, 1]} /> {}
-		<backgroundMaterial ref={materialRef} side={2} /> {}
+		<mesh scale={100}> { }
+			<planeGeometry args={[1, 1]} /> { }
+			<backgroundMaterial ref={materialRef} side={2} /> { }
 		</mesh>
 	)
 }
@@ -209,7 +209,7 @@ function LoginPopup({ username, onAuth }) {
 	}
 
 	const logout = async () => {
-		await fetch('/api/font/logout', { method: "post" }).catch(() => {});
+		await fetch('/api/font/logout', { method: "post" }).catch(() => { });
 		onAuth(null);
 	}
 
@@ -227,29 +227,29 @@ function LoginPopup({ username, onAuth }) {
 				<div style={{}}>
 					<label htmlFor="username">Username:</label>
 					<input
-					type="text"
-					id="username"
-					name="username"
-					value={loginForm.username}
-					onChange={loginChange}
+						type="text"
+						id="username"
+						name="username"
+						value={loginForm.username}
+						onChange={loginChange}
 					/>
 				</div>
-				<div style={{marginBottom: "2vh"}}>
+				<div style={{ marginBottom: "2vh" }}>
 					<label htmlFor="password">Password:</label>
 					<input
-					type="password"
-					id="password"
-					name="password"
-					value={loginForm.password}
-					onChange={loginChange}
+						type="password"
+						id="password"
+						name="password"
+						value={loginForm.password}
+						onChange={loginChange}
 					/>
 				</div>
 				<button type="submit">Submit</button>
 			</form>
 		</div>
 		<div>
-			<button style={{border: registerToggle ? "transparent": "#888888 2px solid"}} onClick={() => {setRegisterToggle(false)}}>Login</button>
-			<button style={{border: !registerToggle ? "transparent": "#888888 2px solid"}} onClick={() => {setRegisterToggle(true)}}>Register</button>
+			<button style={{ border: registerToggle ? "transparent" : "#888888 2px solid" }} onClick={() => { setRegisterToggle(false) }}>Login</button>
+			<button style={{ border: !registerToggle ? "transparent" : "#888888 2px solid" }} onClick={() => { setRegisterToggle(true) }}>Register</button>
 		</div>
 	</div>
 }
@@ -263,7 +263,7 @@ function App() {
 		fetch('/api/font/me')
 			.then(response => response.json())
 			.then(json => setUsername(json.username))
-			.catch(() => {});
+			.catch(() => { });
 	}, []);
 
 	const backgroundRef = useRef(null);
@@ -275,11 +275,11 @@ function App() {
 			<div className="App">
 				<div className="Shader">
 					<Canvas
-					camera={{ position: [0, 0, 1] }} // Position the camera slightly back
-					ref={backgroundRef}
+						camera={{ position: [0, 0, 1] }} // Position the camera slightly back
+						ref={backgroundRef}
 					>
-					<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
-					<BackgroundShader backgroundRef={backgroundRef}/>
+						<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
+						<BackgroundShader backgroundRef={backgroundRef} />
 					</Canvas>
 				</div>
 				<div className="Shadow">
@@ -290,8 +290,8 @@ function App() {
 							<button className="HomeButton" onClick={() => setLocation("about")}>About</button>
 						</div>
 						<div>
-							<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>{username || "Login"}</button>
-							{!loginVisible ? <></> : <LoginPopup username={username} onAuth={(name) => {setUsername(name); setLoginVisible(false);}}></LoginPopup>}
+							<button className="LoginButton" onClick={() => { setLoginVisible(!loginVisible) }}>{username || "Login"}</button>
+							{!loginVisible ? <></> : <LoginPopup username={username} onAuth={(name) => { setUsername(name); setLoginVisible(false); }}></LoginPopup>}
 						</div>
 					</header>
 					{location === "search" ? <SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage> : (location === "about" ? <AboutPage></AboutPage> : <MapPage></MapPage>)}
