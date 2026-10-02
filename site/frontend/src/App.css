@@ -123,7 +123,8 @@ body {
   justify-content: flex-end;
 }
 
-.Bar button {
+.Bar button,
+.Bar a {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -137,9 +138,20 @@ body {
   transition: color 0.2s, border-color 0.2s;
 }
 
-.Bar button:hover {
+/* the page links are anchors made to look like the buttons beside them */
+.Bar a {
+  text-decoration: none;
+  display: inline-block;
+}
+
+.Bar button:hover,
+.Bar a:hover {
   color: var(--col-text);
   border-color: var(--col-border-hover);
+}
+
+.Bar a.active {
+  color: var(--col-text);
 }
 
 /* ── Login popup ── */

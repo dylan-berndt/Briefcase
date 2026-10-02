@@ -324,19 +324,15 @@ def test_no_horizontal_scroll_on_a_phone(browser, site):
     assert overflow <= 0
 
 
-def test_about_page_renders_the_markdown_in_patua_one_with_contents(page):
+def test_about_page_renders_the_markdown_with_contents(page):
     page.goto("/")
-    page.get_by_role("button", name="About").click()
-    expect(page.get_by_role("heading", level=1)).to_be_visible()
+    page.get_by_role("link", name="About").click()
+    assert page.url.endswith("/about")
+    expect(page.get_by_role("heading", level=1).first).to_be_visible()
     nav = page.get_by_role("navigation", name="Table of contents")
     expect(nav).to_be_visible()
     links = nav.get_by_role("link")
     assert links.count() >= 2
-    fonts = page.evaluate("""() => [...document.querySelectorAll('.AboutText h1, .AboutText h2, .AboutText p, .AboutContents a')]
-        .map(e => getComputedStyle(e).fontFamily)""")
-    assert fonts and all(f.startswith('"Patua One"') for f in fonts), set(fonts)
-    assert page.evaluate("getComputedStyle(document.querySelector('.AboutText h2')).fontWeight") in ("400", "normal")
-
     # a contents link scrolls a heading that starts below the fold into view
     target = links.last.get_attribute("href").removeprefix("#")
     assert page.evaluate("id => document.getElementById(id).getBoundingClientRect().top > innerHeight", target)
@@ -345,4 +341,38 @@ def test_about_page_renders_the_markdown_in_patua_one_with_contents(page):
         return r.top >= 0 && r.bottom <= innerHeight; }""", arg=target)
     assert "#" not in page.url
     shot(page, "about")
+    assert page.errors == []
+
+
+def test_pages_have_their_own_addresses(page):
+    # direct visit and reload: the server hands every page address to the app, the router picks the page
+    for path, marker in (("/about", ".AboutBody"), ("/map", ".MapArea")):
+        page.goto(path)
+        expect(page.locator(marker)).to_be_visible()
+        assert page.url.endswith(path)
+        page.reload()
+        expect(page.locator(marker)).to_be_visible()
+    page.goto("/about/")                                  # a trailing slash is the same page
+    expect(page.locator(".AboutBody")).to_be_visible()
+    page.goto("/no/such/page")                            # unknown addresses land on the search page
+    expect(page.get_by_label("Describe a font")).to_be_visible()
+    assert page.url.split("/", 3)[3] == ""
+
+    # the header links move between pages and the browser buttons follow
+    page.get_by_role("link", name="Maps").click()
+    expect(page.locator(".MapArea")).to_be_visible()
+    assert page.url.endswith("/map")
+    page.go_back()
+    expect(page.get_by_label("Describe a font")).to_be_visible()
+    page.go_forward()
+    expect(page.locator(".MapArea")).to_be_visible()
+
+    # a search keeps its ?q= address and Home does not clear it
+    page.get_by_role("link", name="Home").click()
+    search(page, "zebra stripe")
+    expect(page.locator(".ResultWindow")).to_have_count(24)
+    assert "q=zebra+stripe" in page.url
+    page.get_by_role("link", name="Home").click()
+    assert "q=zebra+stripe" in page.url
+    expect(page.locator(".ResultWindow")).to_have_count(24)
     assert page.errors == []

@@ -1,5 +1,6 @@
 import './App.css';
 import React, { useState, useRef, useEffect } from 'react';
+import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { shaderMaterial } from '@react-three/drei';
 import { extend, useFrame } from '@react-three/fiber';
 import { Canvas } from '@react-three/fiber';
@@ -268,7 +269,8 @@ function App() {
 
 	const backgroundRef = useRef(null);
 
-	const [location, setLocation] = useState("search");
+	// Home while already on the search page does nothing, so the results (and their ?q=) stay as they are
+	const stayOnSearch = (event) => { if (window.location.pathname === "/") event.preventDefault(); };
 
 	return (
 		<>
@@ -285,16 +287,21 @@ function App() {
 				<div className="Shadow">
 					<header className="Bar">
 						<div>
-							<button className="HomeButton" onClick={() => setLocation("search")}>Home</button>
-							<button className="HomeButton" onClick={() => setLocation("map")}>Maps</button>
-							<button className="HomeButton" onClick={() => setLocation("about")}>About</button>
+							<NavLink className="HomeButton" to="/" end onClick={stayOnSearch}>Home</NavLink>
+							<NavLink className="HomeButton" to="/map">Maps</NavLink>
+							<NavLink className="HomeButton" to="/about">About</NavLink>
 						</div>
 						<div>
 							<button className="LoginButton" onClick={() => { setLoginVisible(!loginVisible) }}>{username || "Login"}</button>
 							{!loginVisible ? <></> : <LoginPopup username={username} onAuth={(name) => { setUsername(name); setLoginVisible(false); }}></LoginPopup>}
 						</div>
 					</header>
-					{location === "search" ? <SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage> : (location === "about" ? <AboutPage></AboutPage> : <MapPage></MapPage>)}
+					<Routes>
+						<Route path="/" element={<SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage>} />
+						<Route path="/map" element={<MapPage></MapPage>} />
+						<Route path="/about" element={<AboutPage></AboutPage>} />
+						<Route path="*" element={<Navigate to="/" replace />} />
+					</Routes>
 				</div>
 			</div>
 		</>
