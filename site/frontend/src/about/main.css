@@ -1,5 +1,4 @@
-/* The about page: about.md rendered in the site font (Patua One, one weight only, so headings and strong text are
-   not bolded: a synthesized bold of a display face looks smeared). */
+/* The about page: about.md rendered in the site font. Headings stay regular weight; **bold** text is bold. */
 
 .About {
   background-color: var(--col-surface);
@@ -23,11 +22,25 @@
   color: var(--col-text-muted);
 }
 
-.AboutBody *,
+/* code and pre default to a monospace face; the site font is used for them too. (Not set on every element: that would
+   override the fonts KaTeX draws equations with.) */
 .AboutBody code,
 .AboutBody pre {
   font-family: var(--font-sans);
+}
+
+.AboutBody h1,
+.AboutBody h2,
+.AboutBody h3,
+.AboutBody h4,
+.AboutBody h5,
+.AboutBody h6 {
   font-weight: normal;
+}
+
+.AboutBody strong,
+.AboutBody b {
+  font-weight: 700;
 }
 
 /* ── Table of contents ── */
