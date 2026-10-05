@@ -144,6 +144,20 @@ databases from before `tags` existed are rebuilt on startup and their votes keep
 the previous schema (`fonts`, `fontsMeta`, `registry`, `ratings`, `approvals`, `descriptions`) are left in an existing
 database untouched; only `users` carries over.
 
+## About page
+
+`site/frontend/src/about/about.md` is the page: edit it and rebuild, nothing else changes. It is rendered with `marked`
+in the site font (Patua One). A first-line `#` heading is the title; the `##` and `###` headings become a table of
+contents under it (left out when there are fewer than two). The file is built into the bundle as a static asset and
+fetched on load, so it is trusted content: raw HTML in it is passed through.
+
+## Pages and addresses
+
+The pages are routes (React Router, `BrowserRouter` in `src/index.js`, routes in `src/App.js`): `/` search, `/map`, `/about`;
+any other address redirects to `/`. The header entries are real links. Flask already serves `index.html` for every path
+without a file extension, so a direct visit or a reload of any of them works. The search keeps its own `?q=&page=`
+handling; Home does nothing while already on the search page, so the results stay.
+
 ## Map page
 
 The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in

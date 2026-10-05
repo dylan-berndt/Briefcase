@@ -1,0 +1,205 @@
+/* The about page: about.md rendered in the site font. Headings stay regular weight; **bold** text is bold. */
+
+.About {
+  background-color: var(--col-surface);
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 120px calc((var(--ui-width) - var(--content-width)) / 2) 96px;
+  font-family: var(--font-sans);
+  color: var(--col-text);
+}
+
+.AboutBody {
+  max-width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 5fr 3fr;
+  column-gap: 10%;
+}
+
+.AboutMessage {
+  text-align: center;
+  color: var(--col-text-muted);
+}
+
+/* code and pre default to a monospace face; the site font is used for them too. (Not set on every element: that would
+   override the fonts KaTeX draws equations with.) */
+.AboutBody code,
+.AboutBody pre {
+  font-family: var(--font-sans);
+}
+
+.AboutBody h1,
+.AboutBody h2,
+.AboutBody h3,
+.AboutBody h4,
+.AboutBody h5,
+.AboutBody h6 {
+  font-weight: normal;
+}
+
+.AboutBody strong,
+.AboutBody b {
+  font-weight: 700;
+}
+
+/* ── Table of contents ── */
+
+.AboutContents {
+  margin: 0 0 48px;
+  padding: 20px 24px;
+  background: var(--col-surface-2);
+  border-radius: 14px;
+  max-height: fit-content;
+  height: fit-content;
+
+  position: sticky;
+  top: 20px;
+}
+
+.AboutContentsTitle {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--col-text-muted);
+}
+
+.AboutContents ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.AboutContents li {
+  margin: 6px 0;
+  font-size: 16px;
+}
+
+.AboutContents-nested {
+  font-size: 14px;
+}
+
+.AboutContents a {
+  color: var(--col-text);
+  text-decoration: none;
+}
+
+.AboutContents a:hover,
+.AboutContents a:focus-visible {
+  color: var(--col-accent);
+}
+
+/* ── The text ── */
+
+.AboutText {
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.AboutText h1 {
+  font-size: clamp(32px, 5vmin, 48px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 32px;
+}
+
+.AboutText h2 {
+  font-size: 26px;
+  margin: 56px 0 14px;
+  scroll-margin-top: 80px;
+}
+
+.AboutText h3 {
+  font-size: 20px;
+  margin: 36px 0 10px;
+  color: var(--col-accent);
+  scroll-margin-top: 80px;
+}
+
+.AboutText mark {
+  background: rgba(200, 184, 154, 0.25);
+  color: inherit;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.AboutText p,
+.AboutText ul,
+.AboutText ol,
+.AboutText blockquote,
+.AboutText pre,
+.AboutText table {
+  margin: 0 0 18px;
+}
+
+.AboutText a {
+  color: var(--col-accent);
+  text-underline-offset: 3px;
+}
+
+.AboutText a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.AboutText ul,
+.AboutText ol {
+  padding-left: 1.4em;
+}
+
+.AboutText li {
+  margin: 4px 0;
+}
+
+.AboutText blockquote {
+  padding: 4px 0 4px 18px;
+  border-left: 3px solid var(--col-edge-hover);
+  color: var(--col-text-muted);
+}
+
+.AboutText code {
+  background: var(--col-surface-2);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.92em;
+}
+
+.AboutText pre {
+  background: var(--col-surface-2);
+  border-radius: 10px;
+  padding: 14px 18px;
+  overflow-x: auto;
+}
+
+.AboutText pre code {
+  background: none;
+  padding: 0;
+}
+
+.AboutText hr {
+  border: none;
+  border-top: 1px solid var(--col-edge);
+  margin: 40px 0;
+}
+
+.AboutText img {
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+.AboutText table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.AboutText th,
+.AboutText td {
+  border-bottom: 1px solid var(--col-edge);
+  padding: 8px 14px 8px 0;
+  text-align: left;
+}
+
+.AboutTitle h1 {
+  margin-bottom: 28px;
+}

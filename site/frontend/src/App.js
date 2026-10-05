@@ -1,5 +1,6 @@
 import './App.css';
 import React, { useState, useRef, useEffect } from 'react';
+import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { shaderMaterial } from '@react-three/drei';
 import { extend, useFrame } from '@react-three/fiber';
 import { Canvas } from '@react-three/fiber';
@@ -10,12 +11,18 @@ import MapPage from './map';
 
 
 const fragmentSource = `
-#define PIXEL_SIZE 4.0f
+#define PIXEL_SIZE 6.0f
 #define CELL_SIZE 64
+
+#define OCTAVES 3
+#define LACUNARITY 2.0
+#define GAIN 0.5
+
+#define DIMMING 0.6
 
 #define MOD 32
 
-#define SPEED 0.75f
+#define SPEED 0.6f
 
 float interp(float a, float b, float t) {
     return (b - a) * t + a;
@@ -77,7 +84,20 @@ float perlin(vec3 position) {
 }
 
 float noise(vec3 position) {
-    return perlin(position);
+    float strength = 1.0;
+    float zoom = 1.0;
+    float total = 0.0;
+    float weight = 0.0;
+    
+    for (int i = 0; i < OCTAVES; i++) {
+        total += strength * perlin(position * zoom);
+        weight += strength;
+        
+        strength *= GAIN;
+        zoom *= LACUNARITY;
+    }
+    
+    return total * DIMMING;
 }
 
 uniform float iTime;
@@ -124,7 +144,7 @@ const BackgroundMaterial = shaderMaterial(
 
 extend({ BackgroundMaterial });
 
-function BackgroundShader({backgroundRef}) {
+function BackgroundShader({ backgroundRef }) {
 	const materialRef = useRef();
 
 	useFrame((_, delta) => {
@@ -138,9 +158,9 @@ function BackgroundShader({backgroundRef}) {
 	})
 
 	return (
-		<mesh scale={100}> {}
-		<planeGeometry args={[1, 1]} /> {}
-		<backgroundMaterial ref={materialRef} side={2} /> {}
+		<mesh scale={100}> { }
+			<planeGeometry args={[1, 1]} /> { }
+			<backgroundMaterial ref={materialRef} side={2} /> { }
 		</mesh>
 	)
 }
@@ -190,7 +210,7 @@ function LoginPopup({ username, onAuth }) {
 	}
 
 	const logout = async () => {
-		await fetch('/api/font/logout', { method: "post" }).catch(() => {});
+		await fetch('/api/font/logout', { method: "post" }).catch(() => { });
 		onAuth(null);
 	}
 
@@ -208,29 +228,29 @@ function LoginPopup({ username, onAuth }) {
 				<div style={{}}>
 					<label htmlFor="username">Username:</label>
 					<input
-					type="text"
-					id="username"
-					name="username"
-					value={loginForm.username}
-					onChange={loginChange}
+						type="text"
+						id="username"
+						name="username"
+						value={loginForm.username}
+						onChange={loginChange}
 					/>
 				</div>
-				<div style={{marginBottom: "2vh"}}>
+				<div style={{ marginBottom: "2vh" }}>
 					<label htmlFor="password">Password:</label>
 					<input
-					type="password"
-					id="password"
-					name="password"
-					value={loginForm.password}
-					onChange={loginChange}
+						type="password"
+						id="password"
+						name="password"
+						value={loginForm.password}
+						onChange={loginChange}
 					/>
 				</div>
 				<button type="submit">Submit</button>
 			</form>
 		</div>
 		<div>
-			<button style={{border: registerToggle ? "transparent": "#888888 2px solid"}} onClick={() => {setRegisterToggle(false)}}>Login</button>
-			<button style={{border: !registerToggle ? "transparent": "#888888 2px solid"}} onClick={() => {setRegisterToggle(true)}}>Register</button>
+			<button style={{ border: registerToggle ? "transparent" : "#888888 2px solid" }} onClick={() => { setRegisterToggle(false) }}>Login</button>
+			<button style={{ border: !registerToggle ? "transparent" : "#888888 2px solid" }} onClick={() => { setRegisterToggle(true) }}>Register</button>
 		</div>
 	</div>
 }
@@ -244,38 +264,46 @@ function App() {
 		fetch('/api/font/me')
 			.then(response => response.json())
 			.then(json => setUsername(json.username))
-			.catch(() => {});
+			.catch(() => { });
 	}, []);
 
 	const backgroundRef = useRef(null);
 
-	const [location, setLocation] = useState("search");
+	// Home while already on the search page does nothing, so the results (and their ?q=) stay as they are
+	const stayOnSearch = (event) => { if (window.location.pathname === "/") event.preventDefault(); };
 
 	return (
 		<>
 			<div className="App">
 				<div className="Shader">
 					<Canvas
-					camera={{ position: [0, 0, 1] }} // Position the camera slightly back
-					ref={backgroundRef}
+						camera={{ position: [0, 0, 1] }}
+						dpr={1 / 9}
+						gl={{ antialias: false }}
+						ref={backgroundRef}
 					>
-					<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
-					<BackgroundShader backgroundRef={backgroundRef}/>
+						<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
+						<BackgroundShader backgroundRef={backgroundRef} />
 					</Canvas>
 				</div>
 				<div className="Shadow">
 					<header className="Bar">
 						<div>
-							<button className="HomeButton" onClick={() => setLocation("search")}>Home</button>
-							<button className="HomeButton" onClick={() => setLocation("map")}>Map</button>
-							<button className="HomeButton" onClick={() => setLocation("about")}>About</button>
+							<NavLink className="HomeButton" to="/" end onClick={stayOnSearch}>Home</NavLink>
+							<NavLink className="HomeButton" to="/map">Maps</NavLink>
+							<NavLink className="HomeButton" to="/about">About</NavLink>
 						</div>
 						<div>
-							<button className="LoginButton" onClick={() => {setLoginVisible(!loginVisible)}}>{username || "Login"}</button>
-							{!loginVisible ? <></> : <LoginPopup username={username} onAuth={(name) => {setUsername(name); setLoginVisible(false);}}></LoginPopup>}
+							<button className="LoginButton" onClick={() => { setLoginVisible(!loginVisible) }}>{username || "Login"}</button>
+							{!loginVisible ? <></> : <LoginPopup username={username} onAuth={(name) => { setUsername(name); setLoginVisible(false); }}></LoginPopup>}
 						</div>
 					</header>
-					{location === "search" ? <SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage> : (location === "about" ? <AboutPage></AboutPage> : <MapPage></MapPage>)}
+					<Routes>
+						<Route path="/" element={<SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage>} />
+						<Route path="/map" element={<MapPage></MapPage>} />
+						<Route path="/about" element={<AboutPage></AboutPage>} />
+						<Route path="*" element={<Navigate to="/" replace />} />
+					</Routes>
 				</div>
 			</div>
 		</>

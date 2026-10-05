@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Cookie&family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Oswald:wght@200..700&family=Patua+One&family=Pixelify+Sans:wght@400..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Cookie&family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Oswald:wght@200..700&family=Figtree:wght@300..900&family=Pixelify+Sans:wght@400..700&display=swap');
 
 .aldrich {
   font-family: var(--font-mono);
@@ -29,7 +29,9 @@
 }
 
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -47,8 +49,8 @@
   --col-text-muted: #7a7870;
   --col-accent: #c8b89a;
   --col-accent-dim: rgba(200, 184, 154, 0.12);
-  --font-sans: 'Patua One', sans-serif;
-  --font-mono: 'Patua One', monospace;
+  --font-sans: 'Figtree', sans-serif;
+  --font-mono: 'Figtree', monospace;
   /* the dark column is 70% of the window (340px at least, so a phone still has room) ... */
   --ui-width: max(70vw, 340px);
   /* ... and what is inside it is 60% of the window less its old 48px side padding, between 244px and 1004px */
@@ -78,6 +80,8 @@ body {
   left: 0;
 }
 
+.Shader canvas { image-rendering: pixelated; }
+
 .Shadow {
   position: relative;
   z-index: 1;
@@ -106,22 +110,23 @@ body {
   border-bottom: 4px solid var(--col-edge);
 }
 
-.Bar > div:nth-child(2),
-.Bar > div:nth-child(1) {
+.Bar>div:nth-child(2),
+.Bar>div:nth-child(1) {
   display: flex;
   align-items: center;
 }
 
-.Bar > div:first-child {
+.Bar>div:first-child {
   justify-content: flex-start;
   gap: 24px;
 }
 
-.Bar > div:last-child {
+.Bar>div:last-child {
   justify-content: flex-end;
 }
 
-.Bar button {
+.Bar button,
+.Bar a {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -135,9 +140,20 @@ body {
   transition: color 0.2s, border-color 0.2s;
 }
 
-.Bar button:hover {
+/* the page links are anchors made to look like the buttons beside them */
+.Bar a {
+  text-decoration: none;
+  display: inline-block;
+}
+
+.Bar button:hover,
+.Bar a:hover {
   color: var(--col-text);
   border-color: var(--col-border-hover);
+}
+
+.Bar a.active {
+  color: var(--col-text);
 }
 
 /* ── Login popup ── */
@@ -157,7 +173,7 @@ body {
   gap: 16px;
 }
 
-.LoginPopup > div:first-child {
+.LoginPopup>div:first-child {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -169,7 +185,7 @@ body {
   text-align: center;
 }
 
-.LoginPopup div > div {
+.LoginPopup div>div {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -220,13 +236,13 @@ body {
   background: rgba(200, 184, 154, 0.2);
 }
 
-.LoginPopup > div:last-child {
+.LoginPopup>div:last-child {
   display: flex;
   gap: 8px;
   justify-content: center;
 }
 
-.LoginPopup > div:last-child button {
+.LoginPopup>div:last-child button {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -240,6 +256,6 @@ body {
   margin-left: 0;
 }
 
-.LoginPopup > div:last-child button:hover {
+.LoginPopup>div:last-child button:hover {
   color: var(--col-text);
 }
