@@ -333,6 +333,13 @@ def test_about_page_renders_the_markdown_with_contents(page):
     expect(nav).to_be_visible()
     links = nav.get_by_role("link")
     assert links.count() >= 2
+    # **bold** is bold and $$maths$$ is typeset (about.md uses both)
+    assert page.locator(".AboutText strong").count() > 0
+    assert int(page.evaluate("getComputedStyle(document.querySelector('.AboutText strong')).fontWeight")) >= 600
+    assert page.locator(".AboutText .katex").count() > 0
+    assert page.locator(".AboutText .katex-error").count() == 0
+    page.wait_for_function("document.fonts.ready.then(() => [...document.fonts].some(f => f.family.includes('KaTeX') && f.status === 'loaded'))")
+
     # a contents link scrolls a heading that starts below the fold into view
     target = links.last.get_attribute("href").removeprefix("#")
     assert page.evaluate("id => document.getElementById(id).getBoundingClientRect().top > innerHeight", target)

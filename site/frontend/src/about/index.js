@@ -1,6 +1,8 @@
 import './main.css'
 import React, { useState, useEffect, useMemo } from 'react';
 import { Marked } from 'marked';
+import markedKatex from 'marked-katex-extension';
+import 'katex/dist/katex.min.css';
 import aboutUrl from './about.md';
 
 // The page is about.md, rendered. Edit that file; nothing else needs to change. The table of contents at the top is
@@ -37,6 +39,8 @@ export function renderMarkdown(text, depths = TOC_DEPTHS) {
 			},
 		},
 	});
+	// $inline$ and $$display$$ maths; a malformed formula is shown as red source text, not an error
+	marked.use(markedKatex({ throwOnError: false }));
 	const tokens = marked.lexer(text);
 	const hasTitle = tokens.length > 0 && tokens[0].type === "heading" && tokens[0].depth === 1;
 	const seen = new Set();

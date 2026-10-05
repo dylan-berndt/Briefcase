@@ -277,7 +277,9 @@ function App() {
 			<div className="App">
 				<div className="Shader">
 					<Canvas
-						camera={{ position: [0, 0, 1] }} // Position the camera slightly back
+						camera={{ position: [0, 0, 1] }}
+						dpr={1 / 9}
+						gl={{ antialias: false }}
 						ref={backgroundRef}
 					>
 						<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}

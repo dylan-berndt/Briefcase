@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Cookie&family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Oswald:wght@200..700&family=Figtree&family=Pixelify+Sans:wght@400..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Cookie&family=Google+Sans+Code:ital,wght,MONO@0,300..800,1;1,300..800,1&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Oswald:wght@200..700&family=Figtree:wght@300..900&family=Pixelify+Sans:wght@400..700&display=swap');
 
 .aldrich {
   font-family: var(--font-mono);
@@ -79,6 +79,8 @@ body {
   top: 0;
   left: 0;
 }
+
+.Shader canvas { image-rendering: pixelated; }
 
 .Shadow {
   position: relative;

@@ -9,23 +9,29 @@ function serve(body, ok = true) {
 }
 
 describe("renderMarkdown", () => {
-	test("headings get ids, and ## and ### make the table of contents", () => {
-		const { titleHtml, html, toc } = renderMarkdown("# Title\n\nintro\n\n## One\n\n### Sub part\n\n## Two");
+	test("headings get ids, and levels 1-4 make the table of contents", () => {
+		const { html, toc } = renderMarkdown("# Title\n\nintro\n\n## One\n\n### Sub part\n\n##### Too deep\n\n## Two");
 		expect(toc).toEqual([
+			{ id: "title", text: "Title", depth: 1 },
 			{ id: "one", text: "One", depth: 2 },
 			{ id: "sub-part", text: "Sub part", depth: 3 },
 			{ id: "two", text: "Two", depth: 2 },
 		]);
-		expect(titleHtml).toContain('<h1 id="title">Title</h1>');
-		expect(html).not.toContain("<h1");
+		expect(html).toContain('<h1 id="title">Title</h1>');
 		expect(html).toContain('<h3 id="sub-part">Sub part</h3>');
 	});
 
-	test("the title is never listed, and any levels can be", () => {
-		const doc = "# Title\n\n## A\n\n#### Deep\n\n# Other top\n\n## B";
-		expect(renderMarkdown(doc).toc.map(t => t.text)).toEqual(["A", "B"]);
-		expect(renderMarkdown(doc, [1, 2, 3, 4]).toc.map(t => [t.text, t.depth]))
-			.toEqual([["A", 2], ["Deep", 4], ["Other top", 1], ["B", 2]]);
+	test("inline and display maths are typeset, and prices are left alone", () => {
+		const { html } = renderMarkdown("Inline $x^2$ and display $$a_i + b_i$$ here.\n\nIt costs $12 a month, or $5 on sale.");
+		expect(html).toContain('class="katex"');
+		expect(html).toContain("katex-display");
+		expect(html).not.toContain("<em>");                       // the underscore in a_i is maths, not emphasis
+		expect(html).toContain("It costs $12 a month, or $5 on sale.");
+	});
+
+	test("a broken formula does not break the page", () => {
+		expect(() => renderMarkdown("Bad $\\frac{1$ formula and **still bold**")).not.toThrow();
+		expect(renderMarkdown("Bad $\\frac{1$ formula and **still bold**").html).toContain("<strong>still bold</strong>");
 	});
 
 	test("repeated headings get distinct ids", () => {
@@ -61,17 +67,13 @@ describe("About page", () => {
 		expect(global.fetch.mock.calls[0][0]).toMatch(/about\.md$/);
 	});
 
-	test("a table of contents sits above the text and links to the headings", async () => {
+	test("a table of contents sits beside the text and links to the headings", async () => {
 		serve(body);
 		render(<AboutPage />);
 		const nav = await screen.findByRole("navigation", { name: "Table of contents" });
 		const links = within(nav).getAllByRole("link");
-		expect(links.map(l => l.textContent)).toEqual(["First", "Nested", "Second"]);
-		expect(links.map(l => l.getAttribute("href"))).toEqual(["#first", "#nested", "#second"]);
-		const title = screen.getByRole("heading", { level: 1 });
-		const first = screen.getByRole("heading", { level: 2, name: "First" });
-		expect(title.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();    // title, then contents,
-		expect(nav.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();    // then the text
+		expect(links.map(l => l.textContent)).toEqual(["About", "First", "Nested", "Second"]);
+		expect(links.map(l => l.getAttribute("href"))).toEqual(["#about", "#first", "#nested", "#second"]);
 
 		const scrolled = jest.fn();
 		window.HTMLElement.prototype.scrollIntoView = scrolled;
@@ -86,13 +88,13 @@ describe("About page", () => {
 		render(<AboutPage />);
 		const nav = await screen.findByRole("navigation", { name: "Table of contents" });
 		const indents = within(nav).getAllByRole("listitem").map(li => li.style.paddingLeft);
-		expect(indents).toEqual(["0px", "20px", "0px"]);                  // First, Nested (###), Second
+		expect(indents).toEqual(["0px", "20px", "40px", "20px"]);          // About (#), First (##), Nested (###), Second (##)
 	});
 
-	test("no table of contents when there is nothing to list", async () => {
-		serve("# Just a title\n\n## Only one section\n\ntext");
+	test("no table of contents when there are no headings", async () => {
+		serve("just some text");
 		render(<AboutPage />);
-		await screen.findByRole("heading", { level: 2 });
+		await screen.findByText("just some text");
 		expect(screen.queryByRole("navigation")).toBeNull();
 	});
 
@@ -107,6 +109,6 @@ describe("About page", () => {
 		serve(real);
 		render(<AboutPage />);
 		await waitFor(() => expect(screen.getByRole("navigation", { name: "Table of contents" })).toBeInTheDocument());
-		expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+		expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
 	});
 });

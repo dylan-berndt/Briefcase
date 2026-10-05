@@ -14,7 +14,7 @@ export default function MapPage() {
             <label htmlFor="options">Viewing: </label>
             <select id="options" value={selectedMap} onChange={handleChange}>
                 <option value="flower">Flower</option>
-                <option value="blob">Blob</option>
+                <option value="routes">Routes</option>
             </select>
         </div>
         <iframe title="mapLocation" src={"/maps/" + selectedMap + ".html"} width="100%" height="100% - 4vh" style={{ border: "none"}}></iframe>
