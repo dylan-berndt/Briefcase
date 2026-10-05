@@ -80,6 +80,8 @@ body {
   left: 0;
 }
 
+.Shader canvas { image-rendering: pixelated; }
+
 .Shadow {
   position: relative;
   z-index: 1;

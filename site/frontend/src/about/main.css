@@ -104,6 +104,13 @@
   scroll-margin-top: 80px;
 }
 
+.AboutText mark {
+  background: rgba(200, 184, 154, 0.25);
+  color: inherit;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
 .AboutText p,
 .AboutText ul,
 .AboutText ol,
