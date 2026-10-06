@@ -32,6 +32,7 @@ COPY site/backend ./backend
 COPY utils/tagVocabulary.py ./backend/tagVocabulary.py
 COPY configs/tagVocabulary.json ./backend/configs/tagVocabulary.json
 COPY configs/wordTags.json ./backend/configs/wordTags.json
+COPY configs/synonymTags.json ./backend/configs/synonymTags.json
 
 # Inject React build into Flask static folder
 COPY --from=frontend-build /frontend/build ./backend/static

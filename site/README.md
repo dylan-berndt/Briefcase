@@ -55,12 +55,22 @@ informative Dirichlet prior, Monroe et al. 2008; `configs/wordTagsExclude.txt` h
 held-out single-word aliases of the reviewed vocabulary, 58% are in the table and, of those, 77% get the right tag
 first and 89% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
 
-**Suggested tags.** A word that still matches nothing gets up to five suggested tags from a plain synonym check
-(`site/backend/synonyms.py`): spaCy word vectors (`en_core_web_md`) compared with the words the search knows (the
-single-word aliases and the caption-table words), keeping the tags of neighbours above 0.55 cosine ("slimy" ~ dirty ->
-distressed, grunge). `/api/font/tags` returns them under `suggested`; they are not part of the ranking until the page sends one in `tags=`. Word vectors put antonyms together ("wet" ~ dry), and the medium
-model shares one vector between many rare words, so suggestions are noisy by design. `SYNONYM_MODEL=` (empty) turns
-them off; they are also off when spaCy or the model is not installed.
+**Suggested tags.** A word that still matches nothing gets up to eight suggested tags from a WordNet table
+(`site/backend/synonyms.py`, reading `configs/synonymTags.json`). WordNet is a hand-built thesaurus, so no web text and
+none of its associations. `site/tools/buildSynonyms.py` builds the table offline: for every adjective and noun the search
+does not already understand it takes the words WordNet relates to it (same-sense synonyms, "similar to", "see also"),
+checks each against what the search does with a single word (aliases, stems, the caption table) and keeps the tags they
+reach. Only the first senses count, weighted by how often WordNet's sense-tagged text uses each (verbs are skipped:
+"fancy" the verb is "imagine"), each sense gets one vote per tag, and senses combine as a noisy-or, so several words from
+one wrong sense do not outweigh one word from the right one. "wet" gives drip (via drippy), sloppy and steam.
+`/api/font/tags` returns them under `suggested`; they are not part of the ranking until the page sends one in `tags=`.
+Rebuild when the vocabulary, the caption table or the model's tags change:
+
+    pip install nltk && python -m nltk.downloader wordnet
+    python site/tools/buildSynonyms.py --examples wet old fancy    # needs the real site/backend/data/vocab.json (git-lfs)
+
+`SYNONYMS=` (empty) turns suggestions off. Unlike the spaCy vectors this replaced, nothing is loaded into memory but a
+small JSON table, and the server image has no spaCy.
 
 **The tag line.** The server only lists tags; the page owns the ticks. On a search the page asks
 `GET /api/font/tags?query=` once, and shows the answer as one line of words under the search box, each with a box: ticked
@@ -124,13 +134,13 @@ SECRET_KEY=dev BUNDLE_DIR=data-dev SQLITE_PATH=/tmp/fontsearch.db COOKIE_SECURE=
 
 Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, descriptions), `BUNDLE_DIR`,
 `STATIC_DIR`, `TAG_VOCABULARY`, `COOKIE_SECURE=0` for plain http, `VERIFY_BUNDLE=1` to check sha256s at startup,
-`SYNONYM_MODEL` (default `en_core_web_md`, empty for no suggested tags).
+`SYNONYMS` (default `auto`: `configs/synonymTags.json`; empty for no suggested tags).
 
 ## API
 
 | | |
 |---|---|
-| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, similarity}], unmatched}`. `suggested` are synonyms of words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
+| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, score}], unmatched}`. `suggested` are WordNet-related tags for words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
 | `GET /api/font/query?query=&tags=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags}`; `pageSize` 1-100; a page past the end is empty. With `tags` (comma-separated `name`, each optionally `:weight` above 0 and up to 1; `-name` is a 400, there is no exclusion) the fonts are ranked on exactly that list and `query` is only the label votes are filed under; unknown names are skipped, a bad entry is a 400, an empty list gives no results. Without `tags` the query text is parsed (guesses included). Results carry `rating {average, count, mine}` and the caller's `vote` for this query and these tags |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, tags?, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query and tag list: the query is lower-cased and whitespace-collapsed, `tags` is the list the results were ranked on (same format as `/api/font/query`, stored sorted as `bold:1,serif:0.5`; without it, the tags the query text means). The same font and query under other ticks is a separate vote |
