@@ -168,6 +168,16 @@ any other address redirects to `/`. The header entries are real links. Flask alr
 without a file extension, so a direct visit or a reload of any of them works. The search keeps its own `?q=&page=`
 handling; Home does nothing while already on the search page, so the results stay.
 
+## Phones
+
+Below 700px wide the dark column is the window less a 12px strip of background each side (`--ui-width` in `App.css`),
+the header buttons tighten and grow to a finger's height, fields are 16px (smaller makes a phone's browser zoom in on
+tap), and the About page is one column with its contents first, in a box capped at 35% of the screen (below 900px).
+The background shader lays its pattern out per canvas pixel, and the canvas renders at 1/9 resolution, so blocks and
+noise cells are the same size in CSS pixels on every screen; it used to scale them by the element's width, which gave
+a phone a few huge blocks and almost no pattern. `e2e/test_site.py::test_pages_fit_a_phone_or_tablet_screen` checks
+for sideways scrolling, header sizes and the About layout at 390, 360 and 768px.
+
 ## Map page
 
 The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in

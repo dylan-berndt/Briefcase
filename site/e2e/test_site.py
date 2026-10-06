@@ -345,7 +345,7 @@ def test_about_page_renders_the_markdown_with_contents(page):
     assert page.evaluate("id => document.getElementById(id).getBoundingClientRect().top > innerHeight", target)
     links.last.click()
     page.wait_for_function("""id => { const r = document.getElementById(id).getBoundingClientRect();
-        return r.top >= 0 && r.bottom <= innerHeight; }""", arg=target)
+        return r.top >= -2 && r.bottom <= innerHeight; }""", arg=target)   # a heading can land a fraction of a pixel above 0
     assert "#" not in page.url
     shot(page, "about")
     assert page.errors == []
@@ -383,3 +383,40 @@ def test_pages_have_their_own_addresses(page):
     assert "q=zebra+stripe" in page.url
     expect(page.locator(".ResultWindow")).to_have_count(24)
     assert page.errors == []
+
+
+@pytest.mark.parametrize("size", [(390, 844), (360, 640), (768, 1024)])
+def test_pages_fit_a_phone_or_tablet_screen(browser, site, size):
+    width, height = size
+    context = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height},
+                                  device_scale_factor=2, is_mobile=True, has_touch=True)
+    context.set_default_timeout(8000)
+    context.add_init_script("window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 1000);")
+    page = context.new_page()
+    for path in ("/", "/?q=zebra+stripe", "/about", "/map"):
+        page.goto(path)
+        if "q=" in path:
+            expect(page.locator(".ResultWindow")).to_have_count(24)
+        elif path == "/about":
+            expect(page.locator(".AboutBody")).to_be_visible()
+        page.wait_for_timeout(300)
+        # nothing makes the page scroll sideways
+        assert page.evaluate("document.documentElement.scrollWidth") <= width, path
+        # the header's links and button stay on screen, and are finger-sized on a phone
+        for box in page.locator(".Bar a, .Bar button").all():
+            rect = box.bounding_box()
+            assert rect["x"] >= 0 and rect["x"] + rect["width"] <= width, (path, rect)
+            assert rect["height"] >= (34 if width <= 700 else 28), (path, rect)
+    page.goto("/")
+    # a field under 16px makes a phone's browser zoom in when it is tapped
+    assert page.evaluate("parseFloat(getComputedStyle(document.querySelector('input[type=text]')).fontSize)") >= 16 or width > 700
+    # the search field and the dark column use the width of the screen
+    field = page.get_by_label("Describe a font").bounding_box()
+    if width <= 700:
+        assert field["width"] >= width * 0.7
+    page.goto("/about")
+    if width <= 900:
+        nav = page.get_by_role("navigation", name="Table of contents").bounding_box()
+        text = page.locator(".AboutText").bounding_box()
+        assert nav["y"] < text["y"] and nav["height"] <= height * 0.4      # contents first, and not the whole screen
+    context.close()

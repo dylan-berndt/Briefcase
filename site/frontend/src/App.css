@@ -259,3 +259,46 @@ body {
 .LoginPopup>div:last-child button:hover {
   color: var(--col-text);
 }
+/* ── Phones and narrow windows ── */
+
+@media (max-width: 700px) {
+  :root {
+    /* the dark column is the window less a thin strip of the background either side, and what is inside it keeps a
+       20px margin. (The desktop values leave a phone a 244px column with 48px of padding.) */
+    --ui-width: calc(100vw - 24px);
+    --content-width: calc(100vw - 24px - 40px);
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* the background is fixed to the largest the window gets, so the address bar sliding away does not resize it */
+  .Shader {
+    height: 100lvh;
+  }
+
+  .Bar {
+    padding: 0 12px;
+  }
+
+  .Bar>div:first-child {
+    gap: 8px;
+  }
+
+  .Bar button,
+  .Bar a {
+    padding: 9px 11px;
+    letter-spacing: 0.04em;
+  }
+
+  .LoginPopup {
+    width: min(280px, calc(100vw - 24px));
+    box-sizing: border-box;
+  }
+
+  /* under 16px a phone's browser zooms the page when a field is tapped */
+  .LoginPopup input {
+    font-size: 16px;
+  }
+}

@@ -34,3 +34,14 @@
   border: none;
   flex: 1;
 }
+@media (max-width: 700px) {
+  .MapArea {
+    height: 100vh;
+    height: 100dvh;
+    padding-top: 64px;
+  }
+
+  .MapArea select {
+    font-size: 16px;     /* under 16px a phone's browser zooms the page when the menu is tapped */
+  }
+}

@@ -349,3 +349,38 @@
     font-size: 11px;
     color: var(--col-text-muted);
   }
+
+
+/* ── Phones and narrow windows ── */
+
+@media (max-width: 700px) {
+  .Center {
+    padding-bottom: 40px;
+  }
+
+  /* under 16px a phone's browser zooms the page when the field is tapped */
+  .Center input[type="text"] {
+    font-size: 16px;
+    padding: 13px 18px;
+  }
+
+  .Center > p:nth-child(2) {
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+
+  .Results {
+    margin-top: 32px;
+  }
+
+  .ResultInfo {
+    padding: 10px 14px;
+  }
+
+  /* the buttons are the touch targets; give them a finger's height */
+  .Votes button,
+  .Pagination button {
+    min-height: 40px;
+    min-width: 44px;
+  }
+}
