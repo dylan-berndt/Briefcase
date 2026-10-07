@@ -422,9 +422,9 @@ def test_pages_fit_a_phone_or_tablet_screen(browser, site, size):
     context.close()
 
 
-@pytest.mark.parametrize("size,band", [((390, 844), 120), ((360, 640), 91), ((414, 896), 127)])
-def test_phones_show_a_band_of_the_background_below_the_column(browser, site, size, band):
-    """120px on a 390x844 phone, in proportion to the screen's height on others; none on a desktop."""
+@pytest.mark.parametrize("size,band", [((390, 844), 90), ((360, 640), 68), ((414, 896), 96)])
+def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, site, size, band):
+    """90px on a 390x844 phone, in proportion to the screen's height on others; the column is the whole width."""
     width, height = size
     context = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height},
                                   device_scale_factor=2, is_mobile=True, has_touch=True)
@@ -432,10 +432,9 @@ def test_phones_show_a_band_of_the_background_below_the_column(browser, site, si
     context.add_init_script("window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 1000);")
     page = context.new_page()
 
-    def gap():
-        # how far the column's bottom edge is above the bottom of the page, scrolled to the very end
-        return page.evaluate("""() => { window.scrollTo(0, document.documentElement.scrollHeight);
-            return document.documentElement.scrollHeight - (window.scrollY + document.querySelector('.Shadow').getBoundingClientRect().bottom); }""")
+    def slice_():
+        return page.evaluate("""() => { const r = document.querySelector('.Shader').getBoundingClientRect();
+            return {top: r.top, bottom: r.bottom, height: r.height, width: r.width, innerHeight}; }""")
 
     for path in ("/", "/?q=zebra+stripe", "/about"):
         page.goto(path)
@@ -444,16 +443,31 @@ def test_phones_show_a_band_of_the_background_below_the_column(browser, site, si
         elif path == "/about":
             expect(page.locator(".AboutBody")).to_be_visible()
         page.wait_for_timeout(300)
-        assert abs(gap() - band) <= 3, (path, gap())
-    # on a short page the strip is on the first screen, not below the fold
+        # the whole width, no strips either side
+        column = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().width")
+        assert abs(column - width) <= 1, (path, column)
+        # the slice is on the screen's bottom edge, whatever the page's scroll position
+        for y in (0, 700, "end"):
+            page.evaluate("y => window.scrollTo(0, y === 'end' ? document.documentElement.scrollHeight : y)", y)
+            page.wait_for_timeout(150)
+            found = slice_()
+            assert abs(found["bottom"] - height) <= 1 and abs(found["height"] - band) <= 2, (path, y, found)
+            assert found["width"] >= width - 1
+        # at the end of the page nothing is hidden under it
+        content_bottom = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom")
+        assert content_bottom <= height - band + 2, (path, content_bottom)
+    # a short page fills the screen above the slice
     page.goto("/")
     page.wait_for_timeout(300)
-    assert abs(page.evaluate("innerHeight - document.querySelector('.Shadow').getBoundingClientRect().bottom") - band) <= 3
+    assert abs(page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom") - (height - band)) <= 2
     context.close()
 
     desktop = browser.new_context(base_url=site["url"], viewport={"width": 1400, "height": 900})
     page = desktop.new_page()
     page.goto("/")
     page.wait_for_timeout(300)
+    full = page.evaluate("""() => { const r = document.querySelector('.Shader').getBoundingClientRect();
+        return [r.top, r.bottom, r.width, innerWidth, innerHeight, getComputedStyle(document.querySelector('.Shader')).zIndex]; }""")
+    assert full[:2] == [0, 900] and full[2] == full[3] and full[5] == "0"      # still the whole screen, behind the page
     assert page.evaluate("document.documentElement.scrollHeight - document.querySelector('.Shadow').getBoundingClientRect().bottom") <= 1
     desktop.close()
