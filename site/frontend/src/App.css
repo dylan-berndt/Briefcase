@@ -267,6 +267,23 @@ body {
        20px margin. (The desktop values leave a phone a 244px column with 48px of padding.) */
     --ui-width: calc(100vw - 24px);
     --content-width: calc(100vw - 24px - 40px);
+
+    /* A strip of the background shows below the column: 120px on a 390x844 phone, and in proportion to the screen's
+       height on others (91px on 360x640). svh is the screen with the address bar showing, so it does not change as
+       the bar slides away. */
+    --shader-band: clamp(72px, 14.22svh, 170px);
+  }
+
+  .App {
+    min-height: 100svh;
+    box-sizing: border-box;
+    padding-bottom: var(--shader-band);
+  }
+
+  /* the column fills the screen above the strip; on a long page the strip is what is left at the very end */
+  .Shadow {
+    min-height: calc(100vh - var(--shader-band));
+    min-height: calc(100svh - var(--shader-band));
   }
 
   body {

@@ -36,8 +36,8 @@
 }
 @media (max-width: 700px) {
   .MapArea {
-    height: 100vh;
-    height: 100dvh;
+    height: calc(100vh - var(--shader-band));
+    height: calc(100svh - var(--shader-band));
     padding-top: 64px;
   }
 

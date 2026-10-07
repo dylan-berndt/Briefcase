@@ -173,7 +173,9 @@ handling; Home does nothing while already on the search page, so the results sta
 Below 700px wide the dark column is the window less a 12px strip of background each side (`--ui-width` in `App.css`),
 the header buttons tighten and grow to a finger's height, fields are 16px (smaller makes a phone's browser zoom in on
 tap), and the About page is one column with its contents first, in a box capped at 35% of the screen (below 900px).
-The background shader lays its pattern out per canvas pixel, and the canvas renders at 1/9 resolution, so blocks and
+A strip of the background shows below the column (`--shader-band`: 14.22% of the screen's small height, so 120px on a
+390x844 phone and 91px on 360x640; none on a desktop): on a short page it is on the first screen, on a long one it is what
+is left at the very end. The background shader lays its pattern out per canvas pixel, and the canvas renders at 1/9 resolution, so blocks and
 noise cells are the same size in CSS pixels on every screen; it used to scale them by the element's width, which gave
 a phone a few huge blocks and almost no pattern. `e2e/test_site.py::test_pages_fit_a_phone_or_tablet_screen` checks
 for sideways scrolling, header sizes and the About layout at 390, 360 and 768px.
