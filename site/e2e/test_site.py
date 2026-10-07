@@ -410,6 +410,15 @@ def test_pages_fit_a_phone_or_tablet_screen(browser, site, size):
     page.goto("/")
     # a field under 16px makes a phone's browser zoom in when it is tapped
     assert page.evaluate("parseFloat(getComputedStyle(document.querySelector('input[type=text]')).fontSize)") >= 16 or width > 700
+    # the title and the line under it are sized by the screen's width on a phone, not by vmin (which was 23px and 8px)
+    sizes = page.evaluate("""() => { const title = document.querySelector('.Center p'), line = document.querySelector('.Center > p');
+        return [parseFloat(getComputedStyle(title).fontSize), parseFloat(getComputedStyle(line).fontSize), line.scrollWidth, line.clientWidth]; }""")
+    if width <= 700:
+        assert sizes[0] >= 38 and sizes[1] >= 15, sizes
+        assert sizes[2] <= sizes[3] + 1, sizes                                  # and the line is not cut off
+        assert abs(sizes[0] - min(max(34, 0.11 * width), 52)) <= 1.5, sizes     # 43px at 390 wide
+    else:
+        assert abs(sizes[0] - 0.06 * min(width, height)) <= 1.5, sizes          # the desktop's 6vmin, unchanged
     # the search field and the dark column use the width of the screen
     field = page.get_by_label("Describe a font").bounding_box()
     if width <= 700:

@@ -271,12 +271,12 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 	return (
 	<div className="Center">
 		<div style={{ height: "10vmin", display: "flex", alignItems: "center", justifyContent: "center" }}>
-			<p style={{ fontSize: "6vmin", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }} className={displayFont}>
+			<p style={{ fontSize: "var(--title-size, 6vmin)", lineHeight: 1.8, textShadow: "black 0 10px 10px", marginTop: "-12vmin" }} className={displayFont}>
 				Font Search <br></br>
 			</p>
 		</div>
 		<div style={{ height: "6vmin" }}></div>
-		<p style={{ fontSize: "2vmin", marginBottom: "4vh" }}>
+		<p style={{ fontSize: "var(--subtitle-size, 2vmin)", marginBottom: "4vh" }}>
 			Please enter a description to search for a font
 		</p>
 

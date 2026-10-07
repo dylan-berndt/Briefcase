@@ -366,9 +366,18 @@
     padding: 13px 18px;
   }
 
-  .Center > p:nth-child(2) {
-    font-size: 13px;
-    margin-bottom: 24px;
+  /* The title and the line under it take their sizes from these (search/index.js: the desktop's 6vmin and 2vmin are the
+     fallbacks). On a phone vmin is the screen's width, so those came to 23px and 8px; these grow with the width
+     instead: 43px and 16px on a 390px phone. */
+  .Center {
+    --title-size: clamp(34px, 11vw, 52px);
+    --subtitle-size: clamp(15px, 4.2vw, 19px);
+  }
+
+  .Center > p:first-of-type {            /* the line under the title: the first paragraph directly in the page */
+    line-height: 1.35;
+    text-align: center;
+    text-wrap: balance;     /* two even lines rather than a line and a stray word */
   }
 
   .Results {
