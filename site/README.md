@@ -189,6 +189,13 @@ almost no pattern. `e2e/test_site.py::test_pages_fit_a_phone_or_tablet_screen` a
 `test_phones_have_a_slice_of_the_background_pinned_to_the_bottom` check sideways scrolling, header sizes, the About layout
 and the slice at several phone sizes.
 
+## Sitemap
+
+`site/frontend/public/sitemap.xml` lists the three pages (`/`, `/map`, `/about`) at `https://font-search.com`, and
+`robots.txt` points to it. Search results (`/?q=...`) are not listed: there is no end to them. The files are copied into
+the build and served as static files. If a page is added, add it to the sitemap (`e2e/test_site.py` checks every listed
+address is served as the app).
+
 ## Map page
 
 The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in

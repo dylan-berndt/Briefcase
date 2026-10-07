@@ -499,3 +499,28 @@ def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, sit
     assert full[:2] == [0, 900] and full[2] == full[3] and full[5] == "0"      # still the whole screen, behind the page
     assert page.evaluate("document.documentElement.scrollHeight - document.querySelector('.Shadow').getBoundingClientRect().bottom") <= 1
     desktop.close()
+
+
+def test_sitemap_and_robots_point_crawlers_at_real_pages(site):
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    from urllib.parse import urlparse
+
+    def get(path):
+        with urllib.request.urlopen(site["url"] + path) as response:
+            return response.status, response.headers.get("Content-Type", ""), response.read().decode()
+
+    status, kind, body = get("/robots.txt")
+    assert status == 200 and "Sitemap: https://font-search.com/sitemap.xml" in body
+    assert "Disallow: /" not in body.replace("Disallow:\n", "")                  # nothing is blocked
+
+    status, kind, body = get("/sitemap.xml")
+    assert status == 200 and "xml" in kind
+    ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    locs = [e.text for e in ET.fromstring(body).findall("s:url/s:loc", ns)]
+    assert set(locs) == {"https://font-search.com/", "https://font-search.com/map", "https://font-search.com/about"}
+    for loc in locs:
+        # each listed address is served as the app, with no redirect (the same path on this server)
+        path = urlparse(loc).path
+        status, kind, page = get(path)
+        assert status == 200 and "text/html" in kind and 'id="root"' in page, (path, status, kind)
