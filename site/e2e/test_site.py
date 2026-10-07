@@ -456,6 +456,13 @@ def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, sit
         # at the end of the page nothing is hidden under it
         content_bottom = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom")
         assert content_bottom <= height - band + 2, (path, content_bottom)
+    # the column has a small border inside its bottom edge, in the page's background colour, and its shadow falls on the slice
+    edge = page.evaluate("""() => { const c = getComputedStyle(document.querySelector('.Shadow'));
+        const shadow = getComputedStyle(document.querySelector('.Shader'), '::after');
+        return [c.borderBottomWidth, c.borderBottomColor, getComputedStyle(document.body).backgroundColor,
+                shadow.backgroundImage.startsWith('linear-gradient'), parseFloat(shadow.height), innerWidth]; }""")
+    assert edge[0] == "6px" and edge[1] == edge[2], edge
+    assert edge[3] and abs(edge[4] - 0.04 * min(width, height)) <= 1, edge
     # a short page fills the screen above the slice
     page.goto("/")
     page.wait_for_timeout(300)

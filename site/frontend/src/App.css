@@ -272,6 +272,7 @@ body {
        phone, in proportion to the screen's height on others (68px on 360x640). svh is the screen with the address bar
        showing, so the slice does not change size as the bar slides away. */
     --shader-band: clamp(56px, 10.66svh, 130px);
+    --column-edge: 6px;       /* the border inside the column's bottom edge */
   }
 
   .App {
@@ -280,7 +281,11 @@ body {
     padding-bottom: var(--shader-band);       /* the end of a page stops above the slice, not under it */
   }
 
+  /* a border inside the column's bottom edge, in the page's background colour, so the last items do not sit against the
+     edge. (border-box keeps the edge where it was: above the slice.) */
   .Shadow {
+    box-sizing: border-box;
+    border-bottom: var(--column-edge) solid var(--col-bg);
     min-height: calc(100vh - var(--shader-band));
     min-height: calc(100svh - var(--shader-band));
     box-shadow: none;
@@ -298,6 +303,20 @@ body {
     bottom: 0;
     height: var(--shader-band);
     z-index: 5;
+    pointer-events: none;
+  }
+
+  /* The column's drop shadow, falling onto the slice. The desktop shadow is a box-shadow all round the column, but the
+     slice is laid over the page, so a box-shadow would be hidden under it; this is the same shadow (4vmin, black) drawn
+     on the slice's top edge, where the column ends. */
+  .Shader::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 4vmin;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.42) 40%, rgba(0, 0, 0, 0.12) 80%, rgba(0, 0, 0, 0));
     pointer-events: none;
   }
 

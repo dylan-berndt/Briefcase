@@ -176,7 +176,10 @@ column with its contents first, in a box capped at 35% of the screen (below 900p
 
 The background shader becomes a slice pinned to the bottom of the screen and laid over the page (`--shader-band`:
 10.66% of the screen's small height, so 90px on a 390x844 phone and 68px on 360x640; taps go through it). It is the same
-canvas, shrunk to the slice, so it renders only the slice. A page ends above it, not under it. On a desktop the shader is
+canvas, shrunk to the slice, so it renders only the slice. A page ends above it, not under it. The column has a 6px border inside its bottom edge in the page's background colour (`--column-edge`), so the
+last items do not sit against the edge, and its drop shadow (4vmin, black, as on a desktop) falls onto the slice; the
+slice is laid over the page, so the shadow is drawn on the slice's top edge (`.Shader::after`) rather than as a
+box-shadow, which it would hide. On a desktop the shader is
 still the whole screen behind the column.
 
 The pattern is laid out per canvas pixel and the canvas renders at 1/9 resolution, so blocks and noise cells are the same
