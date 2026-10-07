@@ -235,8 +235,8 @@
   .About {
     padding-top: 84px;
     padding-bottom: 64px;
-    min-height: calc(100vh - var(--shader-band) - var(--column-edge));
-    min-height: calc(100svh - var(--shader-band) - var(--column-edge));
+    min-height: calc(100vh - var(--shader-band));
+    min-height: calc(100svh - var(--shader-band));
   }
 
   .AboutContents {

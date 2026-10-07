@@ -456,17 +456,29 @@ def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, sit
         # at the end of the page nothing is hidden under it
         content_bottom = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom")
         assert content_bottom <= height - band + 2, (path, content_bottom)
-    # the column has a small border inside its bottom edge, in the page's background colour, and its shadow falls on the slice
-    edge = page.evaluate("""() => { const c = getComputedStyle(document.querySelector('.Shadow'));
-        const shadow = getComputedStyle(document.querySelector('.Shader'), '::after');
-        return [c.borderBottomWidth, c.borderBottomColor, getComputedStyle(document.body).backgroundColor,
-                shadow.backgroundImage.startsWith('linear-gradient'), parseFloat(shadow.height), innerWidth]; }""")
-    assert edge[0] == "6px" and edge[1] == edge[2], edge
-    assert edge[3] and abs(edge[4] - 0.04 * min(width, height)) <= 1, edge
+    # its shadow falls on the slice, and a strip in the column's colour sits just above it
+    edge = page.evaluate("""() => { const shadow = getComputedStyle(document.querySelector('.Shader'), '::after');
+        const strip = getComputedStyle(document.querySelector('.Shader'), '::before');
+        return [shadow.backgroundImage.startsWith('linear-gradient'), parseFloat(shadow.height),
+                strip.height, strip.backgroundColor, getComputedStyle(document.querySelector('.Center, .About')).backgroundColor]; }""")
+    assert edge[0] and abs(edge[1] - 0.04 * min(width, height)) <= 1, edge
+    assert edge[2] == "8px" and edge[3] == "rgb(24, 25, 29)", edge
     # a short page fills the screen above the slice
     page.goto("/")
     page.wait_for_timeout(300)
     assert abs(page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom") - (height - band)) <= 2
+    # with the first result cards scrolled under the slice, the row of pixels just above it is the column's colour all
+    # the way across: nothing touches the slice's edge
+    from io import BytesIO
+    from PIL import Image
+    page.goto("/?q=zebra+stripe")
+    expect(page.locator(".ResultWindow")).to_have_count(24)
+    for y in (900, 1500, 2300):
+        page.evaluate("y => window.scrollTo(0, y)", y)
+        page.wait_for_timeout(200)
+        row = Image.open(BytesIO(page.screenshot(clip={"x": 0, "y": height - band - 4, "width": width, "height": 1}))).convert("RGB")
+        off = [p for p in row.getdata() if max(abs(p[0] - 24), abs(p[1] - 25), abs(p[2] - 29)) > 2]
+        assert not off, (y, off[:3])
     context.close()
 
     desktop = browser.new_context(base_url=site["url"], viewport={"width": 1400, "height": 900})
