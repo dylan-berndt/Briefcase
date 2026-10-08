@@ -432,8 +432,10 @@ def test_pages_fit_a_phone_or_tablet_screen(browser, site, size):
 
 
 @pytest.mark.parametrize("size,band", [((390, 844), 90), ((360, 640), 68), ((414, 896), 96)])
-def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, site, size, band):
-    """90px on a 390x844 phone, in proportion to the screen's height on others; the column is the whole width."""
+def test_phones_have_a_slice_of_the_background_below_a_scrolling_column(browser, site, size, band):
+    """90px on a 390x844 phone, in proportion to the screen's height on others; the column is the whole width. The
+    document does not scroll, the column does, and the background is a plain box that runs on under iOS's toolbar
+    (a fixed layer would be clipped at the toolbar's top edge)."""
     width, height = size
     context = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height},
                                   device_scale_factor=2, is_mobile=True, has_touch=True)
@@ -441,9 +443,12 @@ def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, sit
     context.add_init_script("window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 1000);")
     page = context.new_page()
 
-    def slice_():
-        return page.evaluate("""() => { const r = document.querySelector('.Shader').getBoundingClientRect();
-            return {top: r.top, bottom: r.bottom, height: r.height, width: r.width, innerHeight}; }""")
+    def boxes():
+        return page.evaluate("""() => { const s = document.querySelector('.Shader'), c = document.querySelector('.Shadow');
+            const sr = s.getBoundingClientRect(), cr = c.getBoundingClientRect();
+            return {shaderTop: sr.top, shaderHeight: sr.height, shaderWidth: sr.width, position: getComputedStyle(s).position,
+                    columnTop: cr.top, columnBottom: cr.bottom, columnWidth: cr.width, docHeight: document.documentElement.scrollHeight,
+                    scrollable: c.scrollHeight - c.clientHeight, innerHeight}; }""")
 
     for path in ("/", "/?q=zebra+stripe", "/about"):
         page.goto(path)
@@ -452,30 +457,33 @@ def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, sit
         elif path == "/about":
             expect(page.locator(".AboutBody")).to_be_visible()
         page.wait_for_timeout(300)
+        found = boxes()
         # the whole width, no strips either side
-        column = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().width")
-        assert abs(column - width) <= 1, (path, column)
-        # the slice is on the screen's bottom edge, whatever the page's scroll position
-        for y in (0, 700, "end"):
-            page.evaluate("y => window.scrollTo(0, y === 'end' ? document.documentElement.scrollHeight : y)", y)
-            page.wait_for_timeout(150)
-            found = slice_()
-            assert abs(found["bottom"] - height) <= 1 and abs(found["height"] - band) <= 2, (path, y, found)
-            assert found["width"] >= width - 1
-        # at the end of the page nothing is hidden under it
-        content_bottom = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom")
-        assert content_bottom <= height - band + 2, (path, content_bottom)
-    # its shadow falls on the slice, and a strip in the column's colour sits just above it
+        assert abs(found["columnWidth"] - width) <= 1 and found["shaderWidth"] >= width - 1, (path, found)
+        # the column ends where the slice starts, and the slice's box runs on below the screen's edge (under the toolbar)
+        assert abs(found["columnBottom"] - (height - band)) <= 1, (path, found)
+        assert abs(found["shaderTop"] - (height - band)) <= 1 and found["shaderHeight"] >= band + 100, (path, found)
+        assert found["position"] == "absolute", found
+        # the document itself never scrolls
+        page.evaluate("window.scrollTo(0, 5000)")
+        page.wait_for_timeout(100)
+        assert page.evaluate("scrollY") == 0, (path, found)
+        # and the column does, with the slice staying where it is
+        if path != "/":
+            assert found["scrollable"] > 500, (path, found)
+            for y in (700, 100000):
+                page.evaluate("y => document.querySelector('.Shadow').scrollTo(0, y)", y)
+                page.wait_for_timeout(150)
+                again = boxes()
+                assert again["shaderTop"] == found["shaderTop"] and again["columnBottom"] == found["columnBottom"], (path, y, again)
+                assert page.evaluate("scrollY") == 0, (path, y, again)
+    # its shadow falls on the slice, and a border in the column's colour runs along the bottom of the column
     edge = page.evaluate("""() => { const shadow = getComputedStyle(document.querySelector('.Shader'), '::after');
-        const strip = getComputedStyle(document.querySelector('.Shader'), '::before');
+        const column = getComputedStyle(document.querySelector('.Shadow'));
         return [shadow.backgroundImage.startsWith('linear-gradient'), parseFloat(shadow.height),
-                strip.height, strip.backgroundColor, getComputedStyle(document.querySelector('.Center, .About')).backgroundColor]; }""")
+                column.borderBottomWidth, column.borderBottomColor]; }""")
     assert edge[0] and abs(edge[1] - 0.04 * min(width, height)) <= 1, edge
     assert edge[2] == "8px" and edge[3] == "rgb(24, 25, 29)", edge
-    # a short page fills the screen above the slice
-    page.goto("/")
-    page.wait_for_timeout(300)
-    assert abs(page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom") - (height - band)) <= 2
     # with the first result cards scrolled under the slice, the row of pixels just above it is the column's colour all
     # the way across: nothing touches the slice's edge
     from io import BytesIO
@@ -483,7 +491,7 @@ def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, sit
     page.goto("/?q=zebra+stripe")
     expect(page.locator(".ResultWindow")).to_have_count(24)
     for y in (900, 1500, 2300):
-        page.evaluate("y => window.scrollTo(0, y)", y)
+        page.evaluate("y => document.querySelector('.Shadow').scrollTo(0, y)", y)
         page.wait_for_timeout(200)
         row = Image.open(BytesIO(page.screenshot(clip={"x": 0, "y": height - band - 4, "width": width, "height": 1}))).convert("RGB")
         off = [p for p in row.getdata() if max(abs(p[0] - 24), abs(p[1] - 25), abs(p[2] - 29)) > 2]
@@ -524,3 +532,23 @@ def test_sitemap_and_robots_point_crawlers_at_real_pages(site):
         path = urlparse(loc).path
         status, kind, page = get(path)
         assert status == 200 and "text/html" in kind and 'id="root"' in page, (path, status, kind)
+
+
+@pytest.mark.parametrize("width,height", [(390, 844), (1280, 800)])
+def test_map_has_no_plotly_margin_and_fits_the_scene(browser, site, width, height):
+    ctx = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height})
+    page = ctx.new_page()
+    page.goto("/map")
+    page.select_option("#options", "routes")
+    frame = page.frame_locator("iframe[title=mapLocation]")
+    frame.locator(".plotly-graph-div canvas").first.wait_for(timeout=60000)
+    page.wait_for_function("""() => { const f = document.querySelector('iframe[title=mapLocation]');
+        const gd = f.contentDocument && f.contentDocument.querySelector('.plotly-graph-div');
+        return gd && gd._fullLayout && gd._fullLayout.margin.l === 0 && gd._briefcaseZoom; }""", timeout=30000)
+    info = page.evaluate("""() => { const f = document.querySelector('iframe[title=mapLocation]');
+        const gd = f.contentDocument.querySelector('.plotly-graph-div'); const L = gd._fullLayout;
+        return {margin: L.margin, w: L.width, frameW: f.clientWidth, zoom: gd._briefcaseZoom}; }""")
+    assert all(info["margin"][k] == 0 for k in "lrtb")
+    assert info["w"] >= info["frameW"] - 20
+    assert info["zoom"] == (1.5 if width < height else 1)
+    ctx.close()

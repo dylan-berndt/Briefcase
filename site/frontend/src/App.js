@@ -255,7 +255,21 @@ function LoginPopup({ username, onAuth }) {
 }
 
 
+// On a phone the column scrolls, not the document (see the phone block of App.css). The background's box runs on below
+// the screen, so the browser would still let the document be scrolled by script, a focused field or a link target;
+// that would carry the whole page off the screen's bottom, so it is put back.
+function useStillDocument() {
+	useEffect(() => {
+		const phone = window.matchMedia && window.matchMedia("(max-width: 700px)");
+		if (!phone) return;
+		const settle = () => { if (phone.matches && (window.scrollY || window.scrollX)) window.scrollTo(0, 0); };
+		window.addEventListener("scroll", settle);
+		return () => window.removeEventListener("scroll", settle);
+	}, []);
+}
+
 function App() {
+	useStillDocument();
 	const [loginVisible, setLoginVisible] = useState(false);
 	const [username, setUsername] = useState(null);
 

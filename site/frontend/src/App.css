@@ -82,6 +82,7 @@ body {
 
 .Shader canvas { image-rendering: pixelated; }
 
+
 .Shadow {
   position: relative;
   z-index: 1;
@@ -273,17 +274,42 @@ body {
        showing, so the slice does not change size as the bar slides away. */
     --shader-band: clamp(56px, 10.66svh, 130px);
     --column-edge: 8px;       /* the border above the slice: where content stops short of the shader */
+    --shader-under: 200px;    /* how far the background runs on under the browser's bottom toolbar */
+  }
+
+  /* On a phone the document does not scroll, the column does. iOS Safari's floating toolbar is drawn over the page and
+     clips fixed layers at its top edge, but it shows ordinary page content under it, so the background cannot be a
+     fixed layer: it is a plain box below the column, which runs on under the toolbar. (Its parts are positioned from
+     the initial containing block, so .App is not positioned and the root's overflow does not clip them.) */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
   }
 
   .App {
-    min-height: 100svh;
-    box-sizing: border-box;
-    padding-bottom: var(--shader-band);       /* the end of a page stops above the slice, not under it */
+    position: static;
+    min-height: 0;
+    height: 100svh;
   }
 
+  /* The column is a scroller that ends where the slice starts. Its bottom border is the strip of the column's own
+     colour that content scrolls up to and stops short of, instead of being cut off against the shader. */
   .Shadow {
-    min-height: calc(100vh - var(--shader-band));
-    min-height: calc(100svh - var(--shader-band));
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    margin: 0;
+    min-height: 0;
+    height: calc(100vh - var(--shader-band));
+    height: calc(100svh - var(--shader-band));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--col-surface);
+    border-bottom: var(--column-edge) solid var(--col-surface);
     box-shadow: none;
   }
 
@@ -291,35 +317,24 @@ body {
     -webkit-text-size-adjust: 100%;
   }
 
-  /* The slice is the background's own canvas, shrunk to the bottom of the screen and laid over the page, so it is
-     always there, whatever is scrolled. Taps go through it. (The canvas follows its box, so it also renders only the
-     slice, which is a lot less than the whole screen.) */
+  /* The background is a box starting where the column ends. The part above the screen's bottom is the slice; the rest
+     (--shader-under) lies under the toolbar, which is translucent glass over it. Taps go through. (The canvas follows
+     its box, so it renders only this much.) */
   .Shader {
-    top: auto;
-    bottom: 0;
-    height: var(--shader-band);
+    position: absolute;
+    top: calc(100vh - var(--shader-band));
+    top: calc(100svh - var(--shader-band));
+    bottom: auto;
+    left: 0;
+    width: 100%;
+    height: calc(var(--shader-band) + var(--shader-under));
     z-index: 5;
     pointer-events: none;
   }
 
-  /* The column's border along its bottom edge, which is the top of the slice: a strip in the column's own colour laid
-     over the page just above the slice, so a result scrolling under it stops short of the shader instead of being cut
-     off against it. It is on the slice, not on the column, because the slice is fixed and the content is not: the strip
-     is wanted at every scroll position, not only at the end of the page. */
-  .Shader::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 100%;
-    height: var(--column-edge);
-    background: var(--col-surface);
-    pointer-events: none;
-  }
-
   /* The column's drop shadow, falling onto the slice. The desktop shadow is a box-shadow all round the column, but the
-     slice is laid over the page, so a box-shadow would be hidden under it; this is the same shadow (4vmin, black) drawn
-     on the slice's top edge, where the column ends. */
+     slice is a box of its own, so this is the same shadow (4vmin, black) drawn on the slice's top edge, where the
+     column ends. */
   .Shader::after {
     content: "";
     position: absolute;

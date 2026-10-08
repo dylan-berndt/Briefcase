@@ -356,8 +356,8 @@
 @media (max-width: 700px) {
   .Center {
     padding-bottom: 40px;
-    min-height: calc(100vh - var(--shader-band));
-    min-height: calc(100svh - var(--shader-band));
+    min-height: calc(100vh - var(--shader-band) - var(--column-edge));
+    min-height: calc(100svh - var(--shader-band) - var(--column-edge));
   }
 
   /* under 16px a phone's browser zooms the page when the field is tapped */

@@ -174,19 +174,27 @@ Below 700px wide the dark column is the whole width of the screen (`--ui-width` 
 and grow to a finger's height, fields are 16px (smaller makes a phone's browser zoom in on tap), and the About page is one
 column with its contents first, in a box capped at 35% of the screen (below 900px).
 
-The background shader becomes a slice pinned to the bottom of the screen and laid over the page (`--shader-band`:
-10.66% of the screen's small height, so 90px on a 390x844 phone and 68px on 360x640; taps go through it). It is the same
-canvas, shrunk to the slice, so it renders only the slice. A page ends above it, not under it. The column's bottom edge is the top of the slice, with an 8px border there in the column's own colour
-(`--column-edge`, `.Shader::before`): a result scrolling under the slice stops short of the shader at every scroll
-position, instead of being cut off against it. Its drop shadow (4vmin, black, as on a desktop) falls onto the slice;
-both are drawn on the slice (`.Shader::before` and `::after`) because it is fixed and laid over the page, which would hide
-a box-shadow on the column. On a desktop the shader is
-still the whole screen behind the column.
+The background shader becomes a slice along the bottom of the screen (`--shader-band`: 10.66% of the screen's small
+height, so 90px on a 390x844 phone and 68px on 360x640; taps go through it). It is the same canvas, shrunk, so it renders
+only the slice. The column (`.Shadow`) is the scroller, not the document: it ends where the slice starts, and an 8px
+border of its own colour along its bottom edge (`--column-edge`) is where scrolling content stops short of the shader.
+The slice's drop shadow (4vmin, black, as on a desktop) is `.Shader::after`. On a desktop the shader is still the whole
+screen behind the column.
+
+Why the page is built this way: iOS 26 Safari draws its toolbar as translucent glass over the page, shows ordinary page
+content under it, but clips `position: fixed` layers at its top edge (also their overflowing children, and opaque or
+transparent ones alike; measured on a real phone). A fixed background therefore ended
+above the toolbar with the page showing through below it. The shader box is instead a plain `position: absolute` box
+starting where the column ends and `--shader-under` (200px) taller than the slice, so it runs on under the toolbar. That
+needs the document not to scroll (`html, body { overflow: hidden }`; `.App` is not positioned, so the box is not clipped
+by the body), hence the scrolling column. A scroll handler in `App.js` puts the document back at 0 if script or a focused
+field scrolls it anyway. (A scroll-synced box lags during flicks; a scroll-driven animation
+also worked, but the inner scroller looked better.)
 
 The pattern is laid out per canvas pixel and the canvas renders at 1/9 resolution, so blocks and noise cells are the same
 size in CSS pixels on every screen; it used to scale them by the element's width, which gave a phone a few huge blocks and
 almost no pattern. `e2e/test_site.py::test_pages_fit_a_phone_or_tablet_screen` and
-`test_phones_have_a_slice_of_the_background_pinned_to_the_bottom` check sideways scrolling, header sizes, the About layout
+`test_phones_have_a_slice_of_the_background_below_a_scrolling_column` check sideways scrolling, header sizes, the About layout
 and the slice at several phone sizes.
 
 ## Sitemap
@@ -200,6 +208,10 @@ address is served as the app).
 
 The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in
 `site/frontend/public/` (un-ignored in `.gitignore`, tracked with git-lfs). A missing file is a 404, not the app.
+
+The page reaches into the (same-origin) frame once the plot exists: it zeroes Plotly's 80-100px margins and, when the frame
+is taller than wide, pulls the 3D camera back 1.5x so the whole cloud fits a phone (`fitMap` in `src/map/index.js`; it works
+from the current camera, so a user's rotation survives a resize). Maps must keep Plotly's `.plotly-graph-div` and a `scatter3d` scene.
 
 ## Tests
 
