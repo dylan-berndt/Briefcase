@@ -8,7 +8,7 @@ yields no tag for x.
 
 Words the vocabulary does not know can be mapped to tags learned from caption co-occurrence (configs/wordTags.json,
 built by site/tools/buildWordTags.py); describe() turns each such guess into ordinary tags at INFERRED_WEIGHT. A word
-that still matches nothing gets suggested tags from a WordNet table (synonyms.py). describe() answers "which
+that still matches nothing gets suggested tags from a WordNet + Datamuse table (synonyms.py). describe() answers "which
 tags does this query mean"; rank() orders the fonts for exactly the tags it is given, so the page can keep the user's
 ticks itself and send the final list.
 """
@@ -123,7 +123,7 @@ class TagIndex:
 
         terms: [(group, weight)], the tags the query matched (a negated one, "not x", is dropped), plus the tags
         guessed for words the vocabulary does not know, each at INFERRED_WEIGHT. suggested: [(group, via word,
-        score)], WordNet-related tags for words that matched nothing; they are not part of terms, the caller decides whether
+        score)], WordNet/Datamuse-related tags for words that matched nothing; they are not part of terms, the caller decides whether
         to use them. unmatched: words that matched nothing and got no suggestion."""
         terms, unmatched, inferred = self.parseDetailed(query)
         terms = [(name, weight) for name, weight in terms if weight > 0]
