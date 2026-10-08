@@ -5,116 +5,108 @@
 <title>viewport test</title>
 <meta name="robots" content="noindex">
 <script>
-  // viewport-fit has to be in the meta tag when the page loads, so ?fit=cover writes a different tag
-  var fit = new URLSearchParams(location.search).get("fit") === "cover" ? "cover" : "auto";
+  var params = new URLSearchParams(location.search);
+  var mode = ["fixed", "sync", "anim", "inner"].indexOf(params.get("mode")) >= 0 ? params.get("mode") : "fixed";
+  var fit = params.get("fit") === "cover" ? "cover" : "auto";
   document.write('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=' + fit + '">');
 </script>
 <style>
-  :root { --band: 90px; }
+  :root { --band: 90px; --ext: 220px; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: #18191d; color: #eee; font: 15px/1.4 system-ui, sans-serif; }
-  body { padding: 190px 14px 160px; }
-
-  /* the page: ruled lines so it is obvious when page content shows through or under something */
-  .line { padding: 10px 0; border-bottom: 1px solid #444; }
+  .line { padding: 10px 14px; border-bottom: 1px solid #444; }
   .line:nth-child(5n) { background: #2c3a2c; }
 
-  /* readout, fixed to the top */
   #out { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(0,0,0,.88); padding: 6px 10px;
          font: 11px/1.25 ui-monospace, Menlo, monospace; white-space: pre; }
-  #bar { position: fixed; z-index: 101; left: 0; right: 0; top: 150px; padding: 4px 8px; background: #000; display: flex; flex-wrap: wrap; gap: 4px; }
-  #bar button, #bar a { font: 600 12px system-ui; padding: 6px 8px; border-radius: 6px; border: 1px solid #888; background: #222; color: #fff; text-decoration: none; }
-  #bar button.on { background: #c0c; border-color: #fff; }
+  #bar { position: fixed; z-index: 101; left: 0; right: 0; top: 118px; padding: 4px 8px; background: #000; display: flex; flex-wrap: wrap; gap: 4px; }
+  #bar a { font: 600 12px system-ui; padding: 6px 8px; border-radius: 6px; border: 1px solid #888; background: #222; color: #fff; text-decoration: none; }
+  #bar a.on { background: #c0c; border-color: #fff; }
 
-  /* Every variant is a fixed box with a magenta part (where the slice's visible part sits: the top --band px) and a
-     cyan part (the extension, which is meant to lie behind Safari's toolbar). */
-  .slice { position: fixed; left: 0; right: 0; z-index: 50; pointer-events: none; display: none;
-           background: linear-gradient(to bottom, #e0e 0, #e0e var(--band), #0dd var(--band), #0dd 100%);
-           color: #000; font: 700 12px system-ui; padding: 4px 8px; }
-  body[data-v="A"] #A, body[data-v="B"] #B, body[data-v="C"] #C, body[data-v="D"] #D, body[data-v="E"] #E { display: block; }
+  /* The shader stand-in: the first --band px (magenta checker) is where the slice sits above the toolbar, the rest
+     (cyan checker, --ext tall) is the part that should show under the toolbar. */
+  .under { left: 0; right: 0; height: calc(var(--band) + var(--ext)); z-index: 50; pointer-events: none; color: #000;
+           font: 700 12px system-ui; padding: 4px 8px;
+           background:
+             repeating-conic-gradient(#0dd 0 25%, #045 0 50%) 0 0 / 50px 50px; }
+  .under::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--band);
+                   background: repeating-conic-gradient(#e0e 0 25%, #fff 0 50%) 0 0 / 50px 50px; z-index: -1; }
 
-  /* A: what is deployed now: bottom offset and height from svh/lvh */
-  #A { bottom: calc(100svh - 100lvh); height: calc(var(--band) + 100lvh - 100svh); }
-  /* B: the earlier version, a plain band at bottom: 0 */
-  #B { bottom: 0; height: var(--band); }
-  /* C: anchored by its top at the small viewport's bottom minus the band, and overshooting 300px past the bottom */
-  #C { top: calc(100svh - var(--band)); height: calc(var(--band) + 300px); }
-  /* D: anchored by its top, sized from the large viewport */
-  #D { top: calc(100lvh - var(--band) - 80px); height: calc(var(--band) + 300px); }
-  /* E: bottom: 0 plus a safe-area extension (what viewport-fit=cover is for) */
-  #E { bottom: 0; height: calc(var(--band) + env(safe-area-inset-bottom, 0px)); }
+  /* fixed: the control, a fixed box with the extension past the bottom edge */
+  body[data-mode="fixed"] .under { position: fixed; bottom: calc(-1 * var(--ext)); }
+  /* sync: an absolute box in the scrolling document, moved to the viewport's bottom by script */
+  body[data-mode="sync"] .under { position: absolute; top: 0; left: 0; will-change: transform; }
+  /* anim: the same, moved by a scroll-driven animation (--range is set by script) */
+  body[data-mode="anim"] .under { position: absolute; top: calc(var(--svh) - var(--band)); animation: follow linear both; animation-timeline: scroll(root); }
+  @keyframes follow { from { transform: translateY(0); } to { transform: translateY(var(--range)); } }
+  /* inner: the document does not scroll; the page is a scroller above the band, and the box is plain absolute */
+  body[data-mode="inner"] { height: 100%; overflow: hidden; }
+  html:has(body[data-mode="inner"]) { height: 100%; overflow: hidden; }
+  body[data-mode="inner"] #scroller { position: absolute; top: 0; left: 0; right: 0; height: calc(var(--svh) - var(--band)); overflow-y: auto; }
+  body[data-mode="inner"] .under { position: absolute; top: calc(var(--svh) - var(--band)); }
 
-  /* hidden probes for measuring the viewport units */
   .probe { position: fixed; left: 0; top: 0; width: 1px; visibility: hidden; pointer-events: none; }
-  #pSvh { height: 100svh; } #pLvh { height: 100lvh; } #pDvh { height: 100dvh; } #pVh { height: 100vh; }
-  #pFixedAll { top: 0; bottom: 0; height: auto; }
-  #pSafe { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+  #pSvh { height: 100svh; } #pLvh { height: 100lvh; } #pDvh { height: 100dvh; }
 </style>
 </head>
-<body data-v="A">
+<body>
 <div id="out">measuring…</div>
 <div id="bar"></div>
-
-<div id="A" class="slice">A deployed now (svh/lvh)</div>
-<div id="B" class="slice">B plain bottom:0</div>
-<div id="C" class="slice">C top-anchored, overshoot</div>
-<div id="D" class="slice">D top from lvh, overshoot</div>
-<div id="E" class="slice">E bottom:0 + safe-area</div>
-
 <div class="probe" id="pSvh"></div><div class="probe" id="pLvh"></div><div class="probe" id="pDvh"></div>
-<div class="probe" id="pVh"></div><div class="probe" id="pFixedAll"></div><div class="probe" id="pSafe"></div>
 
-<div id="lines"></div>
+<div id="scroller"><div id="lines" style="padding-top:190px"></div></div>
+<div class="under" id="under">mode: slice (magenta) then extension (cyan)</div>
 
 <script>
+  document.body.dataset.mode = mode;
   var lines = document.getElementById("lines"), i;
-  for (i = 1; i <= 80; i++) {
+  for (i = 1; i <= 120; i++) {
     var d = document.createElement("div");
     d.className = "line";
-    d.textContent = "page text, line " + i + (i === 80 ? "  (end of page)" : "");
+    d.textContent = "page text, line " + i + (i === 120 ? "  (end of page)" : "");
     lines.appendChild(d);
   }
 
   var bar = document.getElementById("bar");
-  ["A", "B", "C", "D", "E"].forEach(function (v) {
-    var b = document.createElement("button");
-    b.textContent = v;
-    b.onclick = function () { document.body.dataset.v = v; mark(); measure(); };
-    b.dataset.v = v;
-    bar.appendChild(b);
-  });
-  [["auto", "fit=auto"], ["cover", "fit=cover"]].forEach(function (x) {
-    var a = document.createElement("a");
-    a.textContent = "viewport-fit " + x[0];
-    a.href = "?" + x[1];
-    bar.appendChild(a);
-  });
-  function mark() {
-    Array.prototype.forEach.call(bar.querySelectorAll("button"), function (b) {
-      b.className = b.dataset.v === document.body.dataset.v ? "on" : "";
+  [["fixed", "mode=fixed"], ["sync", "mode=sync"], ["anim", "mode=anim"], ["inner", "mode=inner"]].forEach(function (m) {
+    ["auto", "cover"].forEach(function (f) {
+      var a = document.createElement("a");
+      a.textContent = m[0] + " " + f;
+      a.href = "?" + m[1] + "&fit=" + f;
+      if (m[0] === mode && f === fit) a.className = "on";
+      bar.appendChild(a);
     });
-  }
-  mark();
+  });
 
   function h(id) { return document.getElementById(id).getBoundingClientRect().height; }
   function r(n) { return Math.round(n * 10) / 10; }
+  var under = document.getElementById("under"), scroller = document.getElementById("scroller");
+  function scrollTop() { return mode === "inner" ? scroller.scrollTop : window.scrollY; }
+  function place() {
+    var svh = h("pSvh");
+    document.documentElement.style.setProperty("--svh", svh + "px");
+    if (mode === "sync") {
+      under.style.transform = "translateY(" + (window.scrollY + svh - 90) + "px)";
+    }
+    if (mode === "anim") {
+      document.documentElement.style.setProperty("--range", (document.documentElement.scrollHeight - svh) + "px");
+    }
+  }
   function measure() {
-    var vv = window.visualViewport, v = document.body.dataset.v;
-    var s = document.getElementById(v).getBoundingClientRect();
-    var all = document.getElementById("pFixedAll").getBoundingClientRect();
-    var safe = getComputedStyle(document.getElementById("pSafe"));
+    place();
+    var vv = window.visualViewport, s = under.getBoundingClientRect();
     document.getElementById("out").textContent =
-      "variant " + v + "   viewport-fit=" + fit + "   scrollY " + r(scrollY) + "\n" +
+      "mode " + mode + "   viewport-fit=" + fit + "   scroll " + r(scrollTop()) + "\n" +
       "screen " + screen.width + "x" + screen.height + "   inner " + innerWidth + "x" + innerHeight + "\n" +
-      "visualViewport h " + (vv ? r(vv.height) + " top " + r(vv.offsetTop) : "n/a") + "   clientH " + document.documentElement.clientHeight + "\n" +
-      "svh " + r(h("pSvh")) + "  lvh " + r(h("pLvh")) + "  dvh " + r(h("pDvh")) + "  vh " + r(h("pVh")) + "\n" +
-      "fixed top0/bottom0 box h " + r(all.height) + "\n" +
-      "safe t/r/b/l " + safe.paddingTop + " " + safe.paddingRight + " " + safe.paddingBottom + " " + safe.paddingLeft + "\n" +
-      "slice " + v + " top " + r(s.top) + " bottom " + r(s.bottom) + " h " + r(s.height);
+      "visualViewport h " + (vv ? r(vv.height) + " top " + r(vv.offsetTop) : "n/a") + "\n" +
+      "svh " + r(h("pSvh")) + "  lvh " + r(h("pLvh")) + "  dvh " + r(h("pDvh")) + "\n" +
+      "box top " + r(s.top) + " bottom " + r(s.bottom) + " h " + r(s.height);
   }
   ["scroll", "resize"].forEach(function (e) { addEventListener(e, measure); });
+  scroller.addEventListener("scroll", measure);
   if (window.visualViewport) { visualViewport.addEventListener("resize", measure); visualViewport.addEventListener("scroll", measure); }
   measure();
+  setInterval(measure, 500);
 </script>
 </body>
 </html>
