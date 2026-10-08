@@ -1,5 +1,5 @@
 import './main.css'
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 
 // Plotly leaves 80-100px of margin round a 3D plot, which on a phone is most of the width, and its default camera
 // crops a portrait scene at the sides. The maps are same-origin, so the page can reach into the frame: zero the

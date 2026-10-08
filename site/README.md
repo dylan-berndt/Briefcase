@@ -183,14 +183,13 @@ screen behind the column.
 
 Why the page is built this way: iOS 26 Safari draws its toolbar as translucent glass over the page, shows ordinary page
 content under it, but clips `position: fixed` layers at its top edge (also their overflowing children, and opaque or
-transparent ones alike; measured on a phone, see `public/debug/viewport-test.html`). A fixed background therefore ended
+transparent ones alike; measured on a real phone). A fixed background therefore ended
 above the toolbar with the page showing through below it. The shader box is instead a plain `position: absolute` box
 starting where the column ends and `--shader-under` (200px) taller than the slice, so it runs on under the toolbar. That
 needs the document not to scroll (`html, body { overflow: hidden }`; `.App` is not positioned, so the box is not clipped
 by the body), hence the scrolling column. A scroll handler in `App.js` puts the document back at 0 if script or a focused
-field scrolls it anyway. A scroll-synced box was tried and lags; a scroll-driven animation also worked but the inner
-scroller looked better. Open any page with `?debug` for a readout of the viewport units and the boxes, and
-`/debug/viewport-test.html?mode=fixed|sync|anim|inner` for the placement probe.
+field scrolls it anyway. (A scroll-synced box lags during flicks; a scroll-driven animation
+also worked, but the inner scroller looked better.)
 
 The pattern is laid out per canvas pixel and the canvas renders at 1/9 resolution, so blocks and noise cells are the same
 size in CSS pixels on every screen; it used to scale them by the element's width, which gave a phone a few huge blocks and
