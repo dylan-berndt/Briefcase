@@ -152,6 +152,20 @@ def test_stems_do_not_chop_adjectives():
     assert vocabulary.stemMatch("classically", vocabulary.aliasStems) == "classical"
 
 
+@pytest.mark.parametrize("query", ["1940", "1940's", "1940s", "40", "40s", "'40s", "40's"])
+def test_decades_are_found_however_they_are_written(query):
+    from tagsearch import findVocabularyConfig, loadVocabularyClass
+    vocabulary = loadVocabularyClass()(findVocabularyConfig())
+    weights, unmatched = vocabulary.parse(query)
+    assert list(weights) == ["1940s"] and unmatched == []
+
+
+def test_years_outside_a_decade_tag_stay_unmatched():
+    from tagsearch import findVocabularyConfig, loadVocabularyClass
+    vocabulary = loadVocabularyClass()(findVocabularyConfig())
+    assert vocabulary.parse("2008") == ({}, ["2008"])
+
+
 def inferableWord(index):
     """A word the caption table maps to tags this bundle has, which nothing else in the parser matches."""
     for word, groups in sorted(index.vocabulary.wordTags.items()):

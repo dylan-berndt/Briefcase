@@ -31,6 +31,7 @@ The result is a small table, configs/synonymTags.json, that the server reads; no
 
 Datamuse is asked about the words in WordNet that people actually use (wordfreq zipf >= --minZipf, default 3.0) and that
 the search does not already understand, a few requests each; the answers are cached, so a build that stops carries on.
+Rarer words get WordNet's suggestions alone (no requests), so the table covers every word the WordNet-only build did.
 The tagger's tag list (site/backend/data/vocab.json, a git-lfs file, so it has to be pulled) decides which tags can be
 suggested; a tag the model cannot score is left out. Rebuild when the vocabulary, the caption table or the model's tags
 change.
@@ -86,8 +87,8 @@ def parseArgs():
     p.add_argument("--offline", action="store_true", help="answer from the Datamuse cache only; words it lacks are skipped")
     p.add_argument("--workers", type=int, default=6, help="parallel Datamuse requests")
     p.add_argument("--minZipf", type=float, default=3.0,
-                   help="with Datamuse, only words at least this common (wordfreq zipf scale; 3 is one per million words, "
-                        "0 turns the filter off)")
+                   help="with Datamuse, only words at least this common are looked up there (wordfreq zipf scale; 3 is one per "
+                        "million words; 0 turns the filter off); rarer words get WordNet's suggestions alone")
     p.add_argument("--examples", nargs="*", default=[], help="print these words' suggestions")
     p.add_argument("--noWrite", action="store_true")
     return p.parse_args()
@@ -157,7 +158,9 @@ class Builder:
     def related(self, sense):
         """[(relation, synset)] for a sense: itself, "similar to" and "see also" (a few pointers in the data dangle)"""
         group = [("syn", sense)] + [("similar", x) for x in sense.similar_tos()] + [("also", x) for x in sense.also_sees()]
-        return [(relation, other) for relation, other in group if other is not None]
+        # nltk hands the pointers back in an order that depends on the hash seed; sort so that equal scores tie the same way
+        return sorted(((relation, other) for relation, other in group if other is not None),
+                      key=lambda pair: (pair[0] != "syn", pair[0], pair[1].name()))
 
     def suggestWordNet(self, word):
         """[(tag, score, best related word)], best first. Each sense gets one vote per tag, from its best related word, and
@@ -266,11 +269,12 @@ class Builder:
 
     def score(self, related):
         miss, via = {}, {}
-        for candidate, (weight, _) in related.items():
+        for candidate in sorted(related):                    # a fixed order: float products and ties come out the same every build
+            weight = related[candidate][0]
             for tag, tagWeight in self.tagsOf(candidate).items():
                 value = weight * tagWeight
                 miss[tag] = miss.get(tag, 1.0) * (1 - value)
-                if value >= via.get(tag, (0, ""))[0]:
+                if value > via.get(tag, (0, ""))[0]:         # on a tie the alphabetically first word keeps the label
                     via[tag] = (value, candidate)
         ranked = sorted(((tag, 1 - m) for tag, m in miss.items()), key=lambda kv: (-kv[1], kv[0]))
         return [(tag, score, via[tag][1]) for tag, score in ranked if score >= self.args.minScore][:self.args.topK]
@@ -346,9 +350,15 @@ def main():
         names = [w for w in builder.words() if not builder.understood(w)]
         if args.examples and args.noWrite:
             names = []                       # just trying a few words: do not build the table around them
+        rare = []                            # too uncommon to look up in Datamuse: WordNet alone, as before
+        if args.examples and args.noWrite:
+            names = []                       # just trying a few words: do not build the table around them
         elif datamuse is not None:
-            names = commonEnough(names, args.minZipf)
-            print(f"{len(names)} words to look up", file=sys.stderr)
+            common = commonEnough(names, args.minZipf)
+            keep = set(common)
+            rare = [w for w in names if w not in keep]
+            names = common
+            print(f"{len(names)} words to look up in Datamuse, {len(rare)} rarer ones from WordNet alone", file=sys.stderr)
         if datamuse is not None:
             builder.prefetch(names + [w for w in args.examples if w not in names])
         table, skipped = {}, 0
@@ -359,6 +369,10 @@ def main():
             if found is None:
                 skipped += 1
             elif found:
+                table[word] = [[tag, round(score, 3), via] for tag, score, via in found]
+        for word in rare:
+            found = builder.suggestWordNet(word)
+            if found:
                 table[word] = [[tag, round(score, 3), via] for tag, score, via in found]
         print(f"{len(table)} words with suggestions" + (f", {skipped} skipped for lack of Datamuse data" if skipped else ""),
               file=sys.stderr)

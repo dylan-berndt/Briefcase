@@ -140,3 +140,21 @@ def test_prefetch_asks_for_everything_suggest_needs(combined):
     builder.prefetch(["squelchy"])
     assert ("pos", "squelchy", 1) in asked and ("ml", "squelchy", 30) in asked and ("rel_ant", "squelchy", 12) in asked
     assert ("ml", "spotless", 30) in asked and ("rel_syn", "spotless", 10) in asked and ("ml", "drippy", 30) in asked
+
+
+def test_related_synsets_come_in_a_fixed_order(builder):
+    # nltk returns pointers in hash-seed order; the build sorts them so a rebuild gives the same table
+    for sense in wordnet.synsets("wet") + wordnet.synsets("rough"):
+        pairs = builder.related(sense)
+        assert [r for r, _ in pairs][:1] == ["syn"]
+        for relation in ("similar", "also"):
+            names = [o.name() for r, o in pairs if r == relation]
+            assert names == sorted(names)
+
+
+def test_a_tie_between_related_words_goes_to_the_alphabetically_first(combined):
+    builder = combined({("pos", "squelchy"): ["adj"], ("rel_ant", "squelchy"): [], ("ml", "squelchy"): ["dripping", "drippy"]})
+    # "dripping" is the tag as typed (x1.0), "drippy" a caption-table guess (x0.5): these two contribute exactly 0.25 each
+    related = {"drippy": (0.5, "ml"), "dripping": (0.25, "ml")}
+    assert builder.tagsOf("dripping")["drip"] == 1.0 and builder.tagsOf("drippy")["drip"] == 0.5
+    assert {t: v for t, s, v in builder.score(related)}["drip"] == "dripping"
