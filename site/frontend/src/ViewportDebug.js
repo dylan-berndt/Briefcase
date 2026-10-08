@@ -33,7 +33,7 @@ export default function ViewportDebug() {
 				"svh " + unit("100svh") + "  lvh " + unit("100lvh") + "  dvh " + unit("100dvh"),
 				"scrollY " + Math.round(window.scrollY) + "  doc h " + document.documentElement.scrollHeight,
 				"shader " + box(shader),
-				"  css bottom " + (style && style.bottom) + " h " + (style && style.height),
+				"  css bottom " + (style && style.bottom) + " h " + (style && style.height) + " bg " + (style && style.backgroundColor),
 				"canvas " + box(canvas) + "  buffer " + (canvas ? canvas.width + "x" + canvas.height : "-"),
 			].join("\n"));
 		};

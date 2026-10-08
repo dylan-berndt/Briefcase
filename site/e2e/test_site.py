@@ -544,3 +544,13 @@ def test_map_has_no_plotly_margin_and_fits_the_scene(browser, site, width, heigh
     assert info["w"] >= info["frameW"] - 20
     assert info["zoom"] == (1.5 if width < height else 1)
     ctx.close()
+
+
+def test_phone_shader_box_takes_the_shaders_edge_colour(browser, site):
+    """iOS tints its floating toolbar with the colour of the fixed element at the bottom edge, and a canvas has none."""
+    ctx = browser.new_context(base_url=site["url"], viewport={"width": 390, "height": 844})
+    page = ctx.new_page()
+    page.goto("/about")
+    page.wait_for_function("""() => { const c = getComputedStyle(document.querySelector('.Shader')).backgroundColor;
+        return c !== 'rgb(24, 25, 29)' && c !== 'rgba(0, 0, 0, 0)'; }""", timeout=15000)
+    ctx.close()

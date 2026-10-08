@@ -300,6 +300,9 @@ body {
     height: var(--shader-band);
     z-index: 5;
     pointer-events: none;
+    /* what iOS tints its toolbar with (see useShaderEdgeColour in App.js), until the first sample */
+    background-color: var(--col-surface);
+    transition: background-color 0.4s linear;
   }
 
   /* iOS Safari's toolbar floats over the page, and a fixed box ends above it (at the small viewport) while the page
