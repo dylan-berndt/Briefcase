@@ -1,7 +1,8 @@
-"""Suggested tags for query words that match nothing, from a WordNet table.
+"""Suggested tags for query words that match nothing, from a WordNet + Datamuse table.
 
 configs/synonymTags.json (built offline by site/tools/buildSynonyms.py) maps a word to the tags that the words WordNet
-relates to it (synonyms, "similar to", "see also") lead to, each with a score and the related word it came through.
+and Datamuse relate to it (synonyms, means-like words, adjectives that modify a noun; antonyms are dropped) lead to,
+each with a score and the related word it came through.
 Nothing is computed here: an unknown query word is looked up, as typed or by its Porter2 stem ("drenched" finds
 "drench"), and the tags the model can score are offered. Nothing here affects the ranking: the user decides whether to
 add a suggested tag.

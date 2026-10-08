@@ -27,6 +27,23 @@ def normalize(text):
     return text.split()
 
 
+DECADE = re.compile(r"(1[0-9])([0-9])0s")
+
+
+def decadePhrases(name):
+    """Ways to write a decade tag ("1940s") that the tag's own name does not cover: the bare year ("1940", which is also
+    what "1940's" normalizes to) and, for the twentieth century, the two-digit forms ("40", "40s", "'40s"). [(phrase,
+    weight)]; nothing for a tag that is not a decade."""
+    match = DECADE.fullmatch(name)
+    if not match:
+        return []
+    century, tens = match.groups()
+    out = [((century + tens + "0",), 1.0)]
+    if century == "19" and tens != "0":
+        out += [((tens + "0s",), 0.8), ((tens + "0",), 0.8)]
+    return out
+
+
 def loadStemmer():
     """The Porter2 (Snowball English) stemmer, or None when snowballstemmer is not installed (then words only match
     as typed)."""
@@ -93,6 +110,11 @@ class TagVocabulary:
                     k = existing[0]
                     targets[k] = (canon, max(weight, targets[k][1]))
                 else:
+                    targets.append((canon, weight))
+        for canon in self.canonical:
+            for phrase, weight in decadePhrases(canon):
+                targets = self.aliases.setdefault(phrase, [])
+                if all(c != canon for c, _ in targets):
                     targets.append((canon, weight))
         self.maxPhrase = max(len(k) for k in self.aliases)
         self.aliasStems = stemIndex({k[0] for k in self.aliases if len(k) == 1}, self.stem)

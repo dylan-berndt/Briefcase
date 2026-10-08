@@ -33,8 +33,12 @@ git-lfs (`.gitattributes`); `manifest.json` is plain text.
 ### How a query is scored
 
 `utils/tagVocabulary.py` turns the text into weighted tag groups using the reviewed alias table in
-`configs/tagVocabulary.json` (186 canonical tags merging 606 MyFonts tags). Every other tag the model
-predicts is searchable by its own name, so the tagger's whole vocabulary is reachable, not only the reviewed one.
+`configs/tagVocabulary.json`. A group there is only ever spelling variants of one tag (art-deco / artdeco, sci-fi / scifi);
+nothing merges by meaning, so dark, spooky and skull are separate tags. The reviewed phrases ("zombie", "condensed") point at
+the tag they used to belong to. Every other tag the model predicts is searchable by its own name, so the tagger's whole
+vocabulary is reachable. Decade tags also answer to the bare year and the two-digit forms (1940, 1940's, 40s). The file was
+made once from the older merged vocabulary by `site/tools/regroupVocabulary.py`, which also maps `wordTags.json` onto the new
+groups; edit the committed file rather than rebuilding it with `build_tag_vocabulary.py`.
 
 Each font's tag probabilities are normalised to sum to 1 over the whole vocabulary (a semantic multinomial,
 Turnbull et al. 2008; it removes the bias towards fonts that score high on everything). A group scores
@@ -55,22 +59,38 @@ informative Dirichlet prior, Monroe et al. 2008; `configs/wordTagsExclude.txt` h
 held-out single-word aliases of the reviewed vocabulary, 58% are in the table and, of those, 77% get the right tag
 first and 89% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
 
-**Suggested tags.** A word that still matches nothing gets up to eight suggested tags from a WordNet table
-(`site/backend/synonyms.py`, reading `configs/synonymTags.json`). WordNet is a hand-built thesaurus, so no web text and
-none of its associations. `site/tools/buildSynonyms.py` builds the table offline: for every adjective and noun the search
-does not already understand it takes the words WordNet relates to it (same-sense synonyms, "similar to", "see also"),
-checks each against what the search does with a single word (aliases, stems, the caption table) and keeps the tags they
-reach. Only the first senses count, weighted by how often WordNet's sense-tagged text uses each (verbs are skipped:
-"fancy" the verb is "imagine"), each sense gets one vote per tag, and senses combine as a noisy-or, so several words from
-one wrong sense do not outweigh one word from the right one. "wet" gives drip (via drippy), sloppy and steam.
-`/api/font/tags` returns them under `suggested`; they are not part of the ranking until the page sends one in `tags=`.
-Rebuild when the vocabulary, the caption table or the model's tags change:
+**Suggested tags.** A word that still matches nothing gets up to eight suggested tags from a table built offline from
+WordNet and [Datamuse](https://www.datamuse.com/api/) (`site/backend/synonyms.py`, reading `configs/synonymTags.json`;
+the server never calls either). `site/tools/buildSynonyms.py` takes every adjective and noun the search does not already
+understand (and that people use: wordfreq zipf >= 3, `--minZipf`), collects related words, checks each against what the
+search does with a single word (aliases, stems, the caption table) and keeps the tags they reach:
 
-    pip install nltk && python -m nltk.downloader wordnet
-    python site/tools/buildSynonyms.py --examples wet old fancy    # needs the real site/backend/data/vocab.json (git-lfs)
+- *WordNet*: same-sense synonyms, "similar to" and "see also". Senses are weighted by how often WordNet's sense-tagged text
+  uses each, so a rare sense ("wet" as in drunk) counts for almost nothing; verbs are skipped ("fancy" the verb is "imagine").
+- *Datamuse*: words that mean like the query word, and for a noun the adjectives often used to modify it (Google Books
+  n-grams: "cheese" -> soft, sharp, old). Datamuse knows nothing about senses, so a means-like word that WordNet ties only
+  to a rare sense of the query word keeps 30% of its weight rather than all of it; near the top of the list the rank
+  barely matters (the first thirty are all close).
+- Tags combine as a noisy-or over the related words that reach them. Antonyms are the usual way a thesaurus goes wrong
+  ("clean" -> "sloppy"), so related words on the opposite side of the query word are dropped: Datamuse's antonyms of it,
+  what means like those antonyms, words whose own means-like list contains one, and WordNet's antonym cluster.
 
-`SYNONYMS=` (empty) turns suggestions off. Unlike the spaCy vectors this replaced, nothing is loaded into memory but a
-small JSON table, and the server image has no spaCy.
+"wet" gives drip (via drippy), sloppy and steam; "cheese" gives ultra-bold (via fat), rounded (soft) and hard. The suggester
+is deliberately generous with unusual words: the user ticks what they want. `/api/font/tags` returns them under
+`suggested`; they are not part of the ranking until the page sends one in `tags=`. Rebuild when the vocabulary, the
+caption table or the model's tags change:
+
+    pip install nltk wordfreq && python -m nltk.downloader wordnet
+    python site/tools/buildSynonyms.py --examples wet old fancy --noWrite   # try a few words (needs the real site/backend/data/vocab.json, git-lfs)
+    python site/tools/buildSynonyms.py                                      # the whole table: tens of thousands of Datamuse requests, once
+    python site/tools/buildSynonyms.py --offline                            # rebuild from the cache, no network
+    python site/tools/buildSynonyms.py --noDatamuse                         # WordNet only
+
+Datamuse has no bulk export and its terms are silent on caching, so every answer goes into `build/datamuse.sqlite`
+(git-ignored): a stopped build carries on where it left off, and the free tier is 100,000 requests a day (the client
+limits itself to 20 a second). Datamuse asks public apps to acknowledge it in their documentation: the related-word
+table is built with the Datamuse API. `SYNONYMS=` (empty) turns suggestions off. Unlike the spaCy vectors this replaced,
+nothing is loaded into memory but a small JSON table, and the server image has no spaCy.
 
 **The tag line.** The server only lists tags; the page owns the ticks. On a search the page asks
 `GET /api/font/tags?query=` once, and shows the answer as one line of words under the search box, each with a box: ticked
@@ -140,7 +160,7 @@ Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, desc
 
 | | |
 |---|---|
-| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, score}], unmatched}`. `suggested` are WordNet-related tags for words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
+| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, score}], unmatched}`. `suggested` are WordNet- and Datamuse-related tags for words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
 | `GET /api/font/query?query=&tags=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags}`; `pageSize` 1-100; a page past the end is empty. With `tags` (comma-separated `name`, each optionally `:weight` above 0 and up to 1; `-name` is a 400, there is no exclusion) the fonts are ranked on exactly that list and `query` is only the label votes are filed under; unknown names are skipped, a bad entry is a 400, an empty list gives no results. Without `tags` the query text is parsed (guesses included). Results carry `rating {average, count, mine}` and the caller's `vote` for this query and these tags |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, tags?, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query and tag list: the query is lower-cased and whitespace-collapsed, `tags` is the list the results were ranked on (same format as `/api/font/query`, stored sorted as `bold:1,serif:0.5`; without it, the tags the query text means). The same font and query under other ticks is a separate vote |
