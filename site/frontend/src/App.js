@@ -11,6 +11,10 @@ import MapPage from './map';
 
 
 const fragmentSource = `
+// The canvas is rendered at 1/9 resolution (see <Canvas dpr> below), so one canvas pixel is one block of 9 CSS px, and
+// the pattern is laid out per canvas pixel: blocks and noise cells are the same size in CSS px on a phone and on a
+// monitor. (It used to be scaled by the element's width, so a phone got a handful of enormous blocks and almost no
+// pattern, and the page re-read the element's size every frame.)
 #define PIXEL_SIZE 6.0f
 #define CELL_SIZE 64
 
@@ -102,11 +106,10 @@ float noise(vec3 position) {
 
 uniform float iTime;
 varying vec2 vUv;
-uniform vec2 resolution;
 
 void main()
 {
-	vec2 v = vUv * resolution.x * 25.0f;
+	vec2 v = gl_FragCoord.xy * PIXEL_SIZE + vec2(800.0f, 500.0f);
     vec2 uv = floor(v / PIXEL_SIZE) * PIXEL_SIZE;
     
     float time = (iTime + 16.0f) * SPEED * float(CELL_SIZE);
@@ -135,7 +138,7 @@ void main() {
 
 const BackgroundMaterial = shaderMaterial(
 	// Uniforms
-	{ iTime: 0.0, resolution: new THREE.Vector2(1.0, 1.0) },
+	{ iTime: 0.0 },
 	// Vertex Shader
 	vertexSource,
 	// Fragment Shader
@@ -144,16 +147,12 @@ const BackgroundMaterial = shaderMaterial(
 
 extend({ BackgroundMaterial });
 
-function BackgroundShader({ backgroundRef }) {
+function BackgroundShader() {
 	const materialRef = useRef();
 
 	useFrame((_, delta) => {
 		if (materialRef.current) {
 			materialRef.current.iTime += delta * 0.5;
-		}
-		if (backgroundRef.current) {
-			materialRef.current.resolution.x = backgroundRef.current.offsetWidth;
-			materialRef.current.resolution.y = backgroundRef.current.offsetHeight;
 		}
 	})
 
@@ -267,8 +266,6 @@ function App() {
 			.catch(() => { });
 	}, []);
 
-	const backgroundRef = useRef(null);
-
 	// Home while already on the search page does nothing, so the results (and their ?q=) stay as they are
 	const stayOnSearch = (event) => { if (window.location.pathname === "/") event.preventDefault(); };
 
@@ -280,10 +277,9 @@ function App() {
 						camera={{ position: [0, 0, 1] }}
 						dpr={1 / 9}
 						gl={{ antialias: false }}
-						ref={backgroundRef}
 					>
 						<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
-						<BackgroundShader backgroundRef={backgroundRef} />
+						<BackgroundShader />
 					</Canvas>
 				</div>
 				<div className="Shadow">

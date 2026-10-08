@@ -34,8 +34,8 @@ def createApp(overrides=None):
         VERIFY_BUNDLE=os.getenv("VERIFY_BUNDLE") == "1",
         STATIC_DIR=os.getenv("STATIC_DIR", os.path.join(HERE, "static")),
         VOCABULARY=os.getenv("TAG_VOCABULARY"),
-        # spaCy vectors model for suggested tags on unknown words; "" turns suggestions off
-        SYNONYM_MODEL=os.getenv("SYNONYM_MODEL", "en_core_web_md"),
+        # WordNet table for suggested tags on unknown words: "auto" finds configs/synonymTags.json, "" turns them off
+        SYNONYMS=os.getenv("SYNONYMS", "auto"),
         COOKIE_SECURE=os.getenv("COOKIE_SECURE", "1") == "1",
         RATELIMIT_ENABLED=True,
     )
@@ -52,7 +52,7 @@ def createApp(overrides=None):
     app.limiter = limiter  # Flask-Limiter only keeps a weak reference to itself
 
     bundle = Bundle(app.config["BUNDLE_DIR"], verify=app.config["VERIFY_BUNDLE"])
-    index = TagIndex(bundle, app.config["VOCABULARY"], app.config["SYNONYM_MODEL"])
+    index = TagIndex(bundle, app.config["VOCABULARY"], app.config["SYNONYMS"])
     specimenType = bundle.manifest["specimen"]["mimetype"]
     initializeDB(app.config["DATABASE"])
 
@@ -186,7 +186,7 @@ def createApp(overrides=None):
         terms, suggested, unmatched = index.describe(query)
         return jsonify({
             "tags": [{"tag": name, "weight": round(float(weight), 3)} for name, weight in terms],
-            "suggested": [{"tag": name, "via": via, "similarity": similarity} for name, via, similarity in suggested],
+            "suggested": [{"tag": name, "via": via, "score": score} for name, via, score in suggested],
             "unmatched": unmatched,
         }), 200
 

@@ -41,3 +41,14 @@
   border: none;
   flex: 1;
 }
+@media (max-width: 700px) {
+  .MapArea {
+    height: calc(100vh - var(--shader-band));
+    height: calc(100svh - var(--shader-band));
+    padding-top: 64px;
+  }
+
+  .MapArea select {
+    font-size: 16px;     /* under 16px a phone's browser zooms the page when the menu is tapped */
+  }
+}

@@ -3,7 +3,10 @@ import plotly.graph_objects as go
 import plotly
 
 
-location = "all"
+location = "levjepa_levjepa-d256-e200_step38500"
+method = "TSNE"
+outputName = "fontMap_levjepa_tsne.html"
+keepSources = ("google", "dafont")    # None keeps every source in the .npz
 
 
 if __name__ == "__main__":
@@ -22,7 +25,18 @@ if __name__ == "__main__":
         with open(os.path.join("embeddings", f"{location}.json"), "r") as file:
             embeddings = json.load(file)
     print("Compressing... ")
-    compressed = compressEmbeddings(embeddings, components=6, method="UMAP")
+    allKeys = list(embeddings)
+
+    # fonts with no glyphs in the cache were left as zero vectors
+    embeddings = {key: value for key, value in embeddings.items() if any(value)}
+
+    # only the sources the web search uses; the .npz rows are in the same order as the .json keys
+    if keepSources is not None:
+        with np.load(os.path.join("embeddings", f"{location}.npz")) as npz:
+            sourceOf = dict(zip(allKeys, npz["sources"]))
+        embeddings = {key: value for key, value in embeddings.items() if sourceOf[key] in keepSources}
+        print(f"{len(embeddings)} fonts from {keepSources}")
+    compressed = compressEmbeddings(embeddings, components=6, method=method, gpu=True)
 
     with open(os.path.join("results", "fontPaths.txt"), "r") as pathFile:
         paths = pathFile.read().split("\n")
@@ -81,7 +95,7 @@ if __name__ == "__main__":
         lineY.extend([ay, by, None])
         lineZ.extend([az, bz, None])
 
-    fig.write_html(os.path.join("results", "fontMap.html"))
+    fig.write_html(os.path.join("results", outputName))
 
     # fig.add_trace(
     #     go.Scatter3d(x=lineX, y=lineY, z=lineZ, mode="lines", line=dict(width=4, color="red"), hoverinfo="none")

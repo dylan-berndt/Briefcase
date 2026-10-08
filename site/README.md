@@ -55,12 +55,22 @@ informative Dirichlet prior, Monroe et al. 2008; `configs/wordTagsExclude.txt` h
 held-out single-word aliases of the reviewed vocabulary, 58% are in the table and, of those, 77% get the right tag
 first and 89% in the top 3. Words that the MyFonts captions never use (greasy, slimy, melting) have no entry.
 
-**Suggested tags.** A word that still matches nothing gets up to five suggested tags from a plain synonym check
-(`site/backend/synonyms.py`): spaCy word vectors (`en_core_web_md`) compared with the words the search knows (the
-single-word aliases and the caption-table words), keeping the tags of neighbours above 0.55 cosine ("slimy" ~ dirty ->
-distressed, grunge). `/api/font/tags` returns them under `suggested`; they are not part of the ranking until the page sends one in `tags=`. Word vectors put antonyms together ("wet" ~ dry), and the medium
-model shares one vector between many rare words, so suggestions are noisy by design. `SYNONYM_MODEL=` (empty) turns
-them off; they are also off when spaCy or the model is not installed.
+**Suggested tags.** A word that still matches nothing gets up to eight suggested tags from a WordNet table
+(`site/backend/synonyms.py`, reading `configs/synonymTags.json`). WordNet is a hand-built thesaurus, so no web text and
+none of its associations. `site/tools/buildSynonyms.py` builds the table offline: for every adjective and noun the search
+does not already understand it takes the words WordNet relates to it (same-sense synonyms, "similar to", "see also"),
+checks each against what the search does with a single word (aliases, stems, the caption table) and keeps the tags they
+reach. Only the first senses count, weighted by how often WordNet's sense-tagged text uses each (verbs are skipped:
+"fancy" the verb is "imagine"), each sense gets one vote per tag, and senses combine as a noisy-or, so several words from
+one wrong sense do not outweigh one word from the right one. "wet" gives drip (via drippy), sloppy and steam.
+`/api/font/tags` returns them under `suggested`; they are not part of the ranking until the page sends one in `tags=`.
+Rebuild when the vocabulary, the caption table or the model's tags change:
+
+    pip install nltk && python -m nltk.downloader wordnet
+    python site/tools/buildSynonyms.py --examples wet old fancy    # needs the real site/backend/data/vocab.json (git-lfs)
+
+`SYNONYMS=` (empty) turns suggestions off. Unlike the spaCy vectors this replaced, nothing is loaded into memory but a
+small JSON table, and the server image has no spaCy.
 
 **The tag line.** The server only lists tags; the page owns the ticks. On a search the page asks
 `GET /api/font/tags?query=` once, and shows the answer as one line of words under the search box, each with a box: ticked
@@ -124,13 +134,13 @@ SECRET_KEY=dev BUNDLE_DIR=data-dev SQLITE_PATH=/tmp/fontsearch.db COOKIE_SECURE=
 
 Environment: `SECRET_KEY` (required), `SQLITE_PATH` (users, votes, ratings, descriptions), `BUNDLE_DIR`,
 `STATIC_DIR`, `TAG_VOCABULARY`, `COOKIE_SECURE=0` for plain http, `VERIFY_BUNDLE=1` to check sha256s at startup,
-`SYNONYM_MODEL` (default `en_core_web_md`, empty for no suggested tags).
+`SYNONYMS` (default `auto`: `configs/synonymTags.json`; empty for no suggested tags).
 
 ## API
 
 | | |
 |---|---|
-| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, similarity}], unmatched}`. `suggested` are synonyms of words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
+| `GET /api/font/tags?query=` | the tags a query means: `{tags: [{tag, weight}], suggested: [{tag, via, score}], unmatched}`. `suggested` are WordNet-related tags for words that matched nothing (not part of the search until sent back); `unmatched` are words with neither |
 | `GET /api/font/query?query=&tags=&page=1&pageSize=24` | `{results, page, pageSize, total, totalPages, tags}`; `pageSize` 1-100; a page past the end is empty. With `tags` (comma-separated `name`, each optionally `:weight` above 0 and up to 1; `-name` is a 400, there is no exclusion) the fonts are ranked on exactly that list and `query` is only the label votes are filed under; unknown names are skipped, a bad entry is a 400, an empty list gives no results. Without `tags` the query text is parsed (guesses included). Results carry `rating {average, count, mine}` and the caller's `vote` for this query and these tags |
 | `GET /api/font/specimen/<i>?v=<bundle version>` | the specimen WebP, cached for a year |
 | `POST /api/font/approve` `{fontKey, query, tags?, vote}` | does this font answer this query: 1, -1, or 0 to clear. Per user, per query and tag list: the query is lower-cased and whitespace-collapsed, `tags` is the list the results were ranked on (same format as `/api/font/query`, stored sorted as `bold:1,serif:0.5`; without it, the tags the query text means). The same font and query under other ticks is a separate vote |
@@ -157,6 +167,34 @@ The pages are routes (React Router, `BrowserRouter` in `src/index.js`, routes in
 any other address redirects to `/`. The header entries are real links. Flask already serves `index.html` for every path
 without a file extension, so a direct visit or a reload of any of them works. The search keeps its own `?q=&page=`
 handling; Home does nothing while already on the search page, so the results stay.
+
+## Phones
+
+Below 700px wide the dark column is the whole width of the screen (`--ui-width` in `App.css`), the header buttons tighten
+and grow to a finger's height, fields are 16px (smaller makes a phone's browser zoom in on tap), and the About page is one
+column with its contents first, in a box capped at 35% of the screen (below 900px).
+
+The background shader becomes a slice pinned to the bottom of the screen and laid over the page (`--shader-band`:
+10.66% of the screen's small height, so 90px on a 390x844 phone and 68px on 360x640; taps go through it). It is the same
+canvas, shrunk to the slice, so it renders only the slice. A page ends above it, not under it. The column's bottom edge is the top of the slice, with an 8px border there in the column's own colour
+(`--column-edge`, `.Shader::before`): a result scrolling under the slice stops short of the shader at every scroll
+position, instead of being cut off against it. Its drop shadow (4vmin, black, as on a desktop) falls onto the slice;
+both are drawn on the slice (`.Shader::before` and `::after`) because it is fixed and laid over the page, which would hide
+a box-shadow on the column. On a desktop the shader is
+still the whole screen behind the column.
+
+The pattern is laid out per canvas pixel and the canvas renders at 1/9 resolution, so blocks and noise cells are the same
+size in CSS pixels on every screen; it used to scale them by the element's width, which gave a phone a few huge blocks and
+almost no pattern. `e2e/test_site.py::test_pages_fit_a_phone_or_tablet_screen` and
+`test_phones_have_a_slice_of_the_background_pinned_to_the_bottom` check sideways scrolling, header sizes, the About layout
+and the slice at several phone sizes.
+
+## Sitemap
+
+`site/frontend/public/sitemap.xml` lists the three pages (`/`, `/map`, `/about`) at `https://font-search.com`, and
+`robots.txt` points to it. Search results (`/?q=...`) are not listed: there is no end to them. The files are copied into
+the build and served as static files. If a page is added, add it to the sitemap (`e2e/test_site.py` checks every listed
+address is served as the app).
 
 ## Map page
 

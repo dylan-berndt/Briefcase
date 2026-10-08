@@ -345,7 +345,7 @@ def test_about_page_renders_the_markdown_with_contents(page):
     assert page.evaluate("id => document.getElementById(id).getBoundingClientRect().top > innerHeight", target)
     links.last.click()
     page.wait_for_function("""id => { const r = document.getElementById(id).getBoundingClientRect();
-        return r.top >= 0 && r.bottom <= innerHeight; }""", arg=target)
+        return r.top >= -2 && r.bottom <= innerHeight; }""", arg=target)   # a heading can land a fraction of a pixel above 0
     assert "#" not in page.url
     shot(page, "about")
     assert page.errors == []
@@ -383,3 +383,144 @@ def test_pages_have_their_own_addresses(page):
     assert "q=zebra+stripe" in page.url
     expect(page.locator(".ResultWindow")).to_have_count(24)
     assert page.errors == []
+
+
+@pytest.mark.parametrize("size", [(390, 844), (360, 640), (768, 1024)])
+def test_pages_fit_a_phone_or_tablet_screen(browser, site, size):
+    width, height = size
+    context = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height},
+                                  device_scale_factor=2, is_mobile=True, has_touch=True)
+    context.set_default_timeout(8000)
+    context.add_init_script("window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 1000);")
+    page = context.new_page()
+    for path in ("/", "/?q=zebra+stripe", "/about", "/map"):
+        page.goto(path)
+        if "q=" in path:
+            expect(page.locator(".ResultWindow")).to_have_count(24)
+        elif path == "/about":
+            expect(page.locator(".AboutBody")).to_be_visible()
+        page.wait_for_timeout(300)
+        # nothing makes the page scroll sideways
+        assert page.evaluate("document.documentElement.scrollWidth") <= width, path
+        # the header's links and button stay on screen, and are finger-sized on a phone
+        for box in page.locator(".Bar a, .Bar button").all():
+            rect = box.bounding_box()
+            assert rect["x"] >= 0 and rect["x"] + rect["width"] <= width, (path, rect)
+            assert rect["height"] >= (34 if width <= 700 else 28), (path, rect)
+    page.goto("/")
+    # a field under 16px makes a phone's browser zoom in when it is tapped
+    assert page.evaluate("parseFloat(getComputedStyle(document.querySelector('input[type=text]')).fontSize)") >= 16 or width > 700
+    # the title and the line under it are sized by the screen's width on a phone, not by vmin (which was 23px and 8px)
+    sizes = page.evaluate("""() => { const title = document.querySelector('.Center p'), line = document.querySelector('.Center > p');
+        return [parseFloat(getComputedStyle(title).fontSize), parseFloat(getComputedStyle(line).fontSize), line.scrollWidth, line.clientWidth]; }""")
+    if width <= 700:
+        assert sizes[0] >= 28 and sizes[1] >= 13, sizes
+        assert sizes[2] <= sizes[3] + 1, sizes                                  # and the line is not cut off
+        assert abs(sizes[0] - min(max(28, 0.086 * width), 44)) <= 1.5, sizes    # 34px at 390 wide
+    else:
+        assert abs(sizes[0] - 0.06 * min(width, height)) <= 1.5, sizes          # the desktop's 6vmin, unchanged
+    # the search field and the dark column use the width of the screen
+    field = page.get_by_label("Describe a font").bounding_box()
+    if width <= 700:
+        assert field["width"] >= width * 0.7
+    page.goto("/about")
+    if width <= 900:
+        nav = page.get_by_role("navigation", name="Table of contents").bounding_box()
+        text = page.locator(".AboutText").bounding_box()
+        assert nav["y"] < text["y"] and nav["height"] <= height * 0.4      # contents first, and not the whole screen
+    context.close()
+
+
+@pytest.mark.parametrize("size,band", [((390, 844), 90), ((360, 640), 68), ((414, 896), 96)])
+def test_phones_have_a_slice_of_the_background_pinned_to_the_bottom(browser, site, size, band):
+    """90px on a 390x844 phone, in proportion to the screen's height on others; the column is the whole width."""
+    width, height = size
+    context = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height},
+                                  device_scale_factor=2, is_mobile=True, has_touch=True)
+    context.set_default_timeout(8000)
+    context.add_init_script("window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 1000);")
+    page = context.new_page()
+
+    def slice_():
+        return page.evaluate("""() => { const r = document.querySelector('.Shader').getBoundingClientRect();
+            return {top: r.top, bottom: r.bottom, height: r.height, width: r.width, innerHeight}; }""")
+
+    for path in ("/", "/?q=zebra+stripe", "/about"):
+        page.goto(path)
+        if "q=" in path:
+            expect(page.locator(".ResultWindow")).to_have_count(24)
+        elif path == "/about":
+            expect(page.locator(".AboutBody")).to_be_visible()
+        page.wait_for_timeout(300)
+        # the whole width, no strips either side
+        column = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().width")
+        assert abs(column - width) <= 1, (path, column)
+        # the slice is on the screen's bottom edge, whatever the page's scroll position
+        for y in (0, 700, "end"):
+            page.evaluate("y => window.scrollTo(0, y === 'end' ? document.documentElement.scrollHeight : y)", y)
+            page.wait_for_timeout(150)
+            found = slice_()
+            assert abs(found["bottom"] - height) <= 1 and abs(found["height"] - band) <= 2, (path, y, found)
+            assert found["width"] >= width - 1
+        # at the end of the page nothing is hidden under it
+        content_bottom = page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom")
+        assert content_bottom <= height - band + 2, (path, content_bottom)
+    # its shadow falls on the slice, and a strip in the column's colour sits just above it
+    edge = page.evaluate("""() => { const shadow = getComputedStyle(document.querySelector('.Shader'), '::after');
+        const strip = getComputedStyle(document.querySelector('.Shader'), '::before');
+        return [shadow.backgroundImage.startsWith('linear-gradient'), parseFloat(shadow.height),
+                strip.height, strip.backgroundColor, getComputedStyle(document.querySelector('.Center, .About')).backgroundColor]; }""")
+    assert edge[0] and abs(edge[1] - 0.04 * min(width, height)) <= 1, edge
+    assert edge[2] == "8px" and edge[3] == "rgb(24, 25, 29)", edge
+    # a short page fills the screen above the slice
+    page.goto("/")
+    page.wait_for_timeout(300)
+    assert abs(page.evaluate("document.querySelector('.Shadow').getBoundingClientRect().bottom") - (height - band)) <= 2
+    # with the first result cards scrolled under the slice, the row of pixels just above it is the column's colour all
+    # the way across: nothing touches the slice's edge
+    from io import BytesIO
+    from PIL import Image
+    page.goto("/?q=zebra+stripe")
+    expect(page.locator(".ResultWindow")).to_have_count(24)
+    for y in (900, 1500, 2300):
+        page.evaluate("y => window.scrollTo(0, y)", y)
+        page.wait_for_timeout(200)
+        row = Image.open(BytesIO(page.screenshot(clip={"x": 0, "y": height - band - 4, "width": width, "height": 1}))).convert("RGB")
+        off = [p for p in row.getdata() if max(abs(p[0] - 24), abs(p[1] - 25), abs(p[2] - 29)) > 2]
+        assert not off, (y, off[:3])
+    context.close()
+
+    desktop = browser.new_context(base_url=site["url"], viewport={"width": 1400, "height": 900})
+    page = desktop.new_page()
+    page.goto("/")
+    page.wait_for_timeout(300)
+    full = page.evaluate("""() => { const r = document.querySelector('.Shader').getBoundingClientRect();
+        return [r.top, r.bottom, r.width, innerWidth, innerHeight, getComputedStyle(document.querySelector('.Shader')).zIndex]; }""")
+    assert full[:2] == [0, 900] and full[2] == full[3] and full[5] == "0"      # still the whole screen, behind the page
+    assert page.evaluate("document.documentElement.scrollHeight - document.querySelector('.Shadow').getBoundingClientRect().bottom") <= 1
+    desktop.close()
+
+
+def test_sitemap_and_robots_point_crawlers_at_real_pages(site):
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    from urllib.parse import urlparse
+
+    def get(path):
+        with urllib.request.urlopen(site["url"] + path) as response:
+            return response.status, response.headers.get("Content-Type", ""), response.read().decode()
+
+    status, kind, body = get("/robots.txt")
+    assert status == 200 and "Sitemap: https://font-search.com/sitemap.xml" in body
+    assert "Disallow: /" not in body.replace("Disallow:\n", "")                  # nothing is blocked
+
+    status, kind, body = get("/sitemap.xml")
+    assert status == 200 and "xml" in kind
+    ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    locs = [e.text for e in ET.fromstring(body).findall("s:url/s:loc", ns)]
+    assert set(locs) == {"https://font-search.com/", "https://font-search.com/map", "https://font-search.com/about"}
+    for loc in locs:
+        # each listed address is served as the app, with no redirect (the same path on this server)
+        path = urlparse(loc).path
+        status, kind, page = get(path)
+        assert status == 200 and "text/html" in kind and 'id="root"' in page, (path, status, kind)

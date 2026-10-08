@@ -8,7 +8,7 @@ yields no tag for x.
 
 Words the vocabulary does not know can be mapped to tags learned from caption co-occurrence (configs/wordTags.json,
 built by site/tools/buildWordTags.py); describe() turns each such guess into ordinary tags at INFERRED_WEIGHT. A word
-that still matches nothing gets suggested tags from a word-vector synonym check (synonyms.py). describe() answers "which
+that still matches nothing gets suggested tags from a WordNet table (synonyms.py). describe() answers "which
 tags does this query mean"; rank() orders the fonts for exactly the tags it is given, so the page can keep the user's
 ticks itself and send the final list.
 """
@@ -47,7 +47,7 @@ def findVocabularyConfig():
 
 
 class TagIndex:
-    def __init__(self, bundle, vocabularyPath=None, synonymModel=None):
+    def __init__(self, bundle, vocabularyPath=None, synonymTable=""):
         self.bundle = bundle
         self.logits = bundle.logits  # [numTags, numFonts] float16, memory mapped
         self.numFonts = self.logits.shape[1]
@@ -62,7 +62,7 @@ class TagIndex:
                 self.groups[name] = np.array(sorted(set(rows)))
 
         from synonyms import loadSuggester
-        self.suggester = loadSuggester(self.vocabulary, self.groups, synonymModel)
+        self.suggester = loadSuggester(self.groups, synonymTable, self.vocabulary.stem)
 
     def logTotalMass(self, chunk=128):
         mass = np.zeros(self.numFonts, dtype=np.float64)
@@ -123,7 +123,7 @@ class TagIndex:
 
         terms: [(group, weight)], the tags the query matched (a negated one, "not x", is dropped), plus the tags
         guessed for words the vocabulary does not know, each at INFERRED_WEIGHT. suggested: [(group, via word,
-        similarity)], synonyms of words that matched nothing; they are not part of terms, the caller decides whether
+        score)], WordNet-related tags for words that matched nothing; they are not part of terms, the caller decides whether
         to use them. unmatched: words that matched nothing and got no suggestion."""
         terms, unmatched, inferred = self.parseDetailed(query)
         terms = [(name, weight) for name, weight in terms if weight > 0]
@@ -140,9 +140,9 @@ class TagIndex:
             options = []
             if suggest and self.suggester is not None and word.isalpha() and word not in self.groups:
                 options = [o for o in self.suggester.suggest(word, exclude=seen) if o[0] not in seen]
-            for group, via, similarity in options:
+            for group, via, score in options:
                 seen.add(group)
-                suggested.append((group, via, similarity))
+                suggested.append((group, via, score))
             if not options:
                 left.append(word)
         return terms, suggested, left

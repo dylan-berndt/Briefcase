@@ -13,7 +13,7 @@
   max-width: 100%;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 5fr 3fr;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 3fr);
   column-gap: 10%;
 }
 
@@ -202,4 +202,80 @@
 
 .AboutTitle h1 {
   margin-bottom: 28px;
+}
+
+/* ── Narrow windows: one column, contents first ── */
+
+@media (max-width: 900px) {
+  /* the contents are after the text in the page, and not sticky: there is nothing beside them */
+  .AboutBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* a long contents list would fill the whole first screen, so it scrolls inside a box of at most 35% of it */
+  .AboutContents {
+    order: -1;
+    position: static;
+    margin-bottom: 32px;
+    max-height: 35vh;
+    max-height: 35dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .AboutText {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ── Phones and narrow windows ── */
+
+@media (max-width: 700px) {
+  .About {
+    padding-top: 84px;
+    padding-bottom: 64px;
+    min-height: calc(100vh - var(--shader-band));
+    min-height: calc(100svh - var(--shader-band));
+  }
+
+  .AboutContents {
+    padding: 16px 18px;
+  }
+
+  .AboutContents li {
+    font-size: 15px;
+    margin: 4px 0;
+  }
+
+  .AboutContents-nested {
+    font-size: 14px;
+  }
+
+  .AboutText {
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .AboutText h1 {
+    font-size: 32px;
+  }
+
+  .AboutText h2 {
+    font-size: 24px;
+    margin-top: 40px;
+  }
+
+  .AboutText img,
+  .AboutText iframe,
+  .AboutText video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .AboutText .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
 }

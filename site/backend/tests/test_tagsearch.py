@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -213,30 +215,64 @@ def test_too_many_choices_are_rejected(index):
         index.parseChoices(",".join(["serif"] * 65))
 
 
+TABLE = {"source": "test", "settings": {}, "words": {
+    "ghastly": [["horror", 0.52, "grisly"], ["no-such-tag", 0.5, "x"], ["grunge", 0.31, "gruesome"], ["bold", 0.04, "y"]],
+    "drench": [["elegant", 0.4, "soak"], ["script", 0.3, "wet"]],
+    "many": [[t, 0.9 - i / 100, "w"] for i, t in enumerate(["bold", "thin", "serif", "script", "horror", "grunge",
+                                                         "elegant", "vintage", "no-such-tag"])],
+}}
+
+
 @pytest.fixture(scope="module")
-def withSynonyms(fake):
-    pytest.importorskip("en_core_web_md")
-    index = TagIndex(Bundle(fake[0]), synonymModel="en_core_web_md")
+def withSynonyms(fake, tmp_path_factory):
+    path = tmp_path_factory.mktemp("syn") / "synonymTags.json"
+    path.write_text(json.dumps(TABLE))
+    index = TagIndex(Bundle(fake[0]), synonymTable=str(path))
     assert index.suggester is not None
     return index
 
 
 def test_unknown_words_get_suggestions_not_scores(withSynonyms):
-    # "ghastly" is not a phrase or a caption word; its neighbours (horror words) are suggested, not searched
     terms, suggested, left = withSynonyms.describe("ghastly")
-    assert terms == [] and left == [] and suggested
-    for group, via, similarity in suggested:
-        assert group in withSynonyms.groups and similarity >= withSynonyms.suggester.minSimilarity
-    assert len(withSynonyms.search("ghastly")[0]) == 0
-    assert len({g for g, _, _ in suggested}) == len(suggested)
+    assert terms == [] and left == []
+    # best first, only tags the model can score, and nothing under the table's own score floor
+    assert suggested == [("horror", "grisly", 0.52), ("grunge", "gruesome", 0.31)]
+    assert len(withSynonyms.search("ghastly")[0]) == 0           # suggestions are not part of the search
+
+
+def test_suggestions_are_capped_and_ordered(withSynonyms):
+    _, suggested, _ = withSynonyms.describe("many")
+    assert [g for g, _, _ in suggested] == ["bold", "thin", "serif", "script", "horror", "grunge", "elegant", "vintage"]
 
 
 def test_suggestions_skip_tags_already_in_the_query(withSynonyms):
     terms, suggested, _ = withSynonyms.describe("horror ghastly")
     assert ("horror", 1.0) in terms
-    assert all(group != "horror" for group, _, _ in suggested)
+    assert [g for g, _, _ in suggested] == ["grunge"]
 
 
-def test_suggestions_off_without_a_model(fake):
-    index = TagIndex(Bundle(fake[0]), synonymModel="")
+def test_inflected_unknown_words_find_their_table_word_by_stem(withSynonyms):
+    assert [g for g, _, _ in withSynonyms.describe("drenched")[1]] == ["elegant", "script"]
+
+
+def test_a_word_with_no_entry_is_unmatched(withSynonyms):
+    assert withSynonyms.describe("glorping") == ([], [], ["glorping"])
+
+
+def test_suggestions_off_without_a_table(fake):
+    index = TagIndex(Bundle(fake[0]), synonymTable="")
     assert index.suggester is None and index.describe("ghastly") == ([], [], ["ghastly"])
+
+
+def test_the_shipped_table_is_well_formed():
+    from synonyms import findSynonymTable
+    path = findSynonymTable()
+    assert path, "configs/synonymTags.json is missing"
+    with open(path, encoding="utf-8") as f:
+        words = json.load(f)["words"]
+    assert len(words) > 1000
+    for word, entries in list(words.items())[:500]:
+        assert word.isalpha() and entries
+        for tag, score, via in entries:
+            assert isinstance(tag, str) and 0 < score <= 1 and isinstance(via, str)
+        assert [e[1] for e in entries] == sorted((e[1] for e in entries), reverse=True)

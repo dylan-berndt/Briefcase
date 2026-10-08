@@ -349,3 +349,49 @@
     font-size: 11px;
     color: var(--col-text-muted);
   }
+
+
+/* ── Phones and narrow windows ── */
+
+@media (max-width: 700px) {
+  .Center {
+    padding-bottom: 40px;
+    min-height: calc(100vh - var(--shader-band));
+    min-height: calc(100svh - var(--shader-band));
+  }
+
+  /* under 16px a phone's browser zooms the page when the field is tapped */
+  .Center input[type="text"] {
+    font-size: 16px;
+    padding: 13px 18px;
+  }
+
+  /* The title and the line under it take their sizes from these (search/index.js: the desktop's 6vmin and 2vmin are the
+     fallbacks). On a phone vmin is the screen's width, so those came to 23px and 8px; these grow with the width
+     instead: 34px and 14px on a 390px phone. */
+  .Center {
+    --title-size: clamp(28px, 8.6vw, 44px);
+    --subtitle-size: clamp(13px, 3.6vw, 17px);
+  }
+
+  .Center > p:first-of-type {            /* the line under the title: the first paragraph directly in the page */
+    line-height: 1.35;
+    text-align: center;
+    text-wrap: balance;     /* two even lines rather than a line and a stray word */
+  }
+
+  .Results {
+    margin-top: 32px;
+  }
+
+  .ResultInfo {
+    padding: 10px 14px;
+  }
+
+  /* the buttons are the touch targets; give them a finger's height */
+  .Votes button,
+  .Pagination button {
+    min-height: 40px;
+    min-width: 44px;
+  }
+}

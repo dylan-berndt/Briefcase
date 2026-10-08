@@ -64,7 +64,7 @@ def generateEmbeddings(fontData, model, fileName="google"):
     return embeddings
 
 
-def compressEmbeddings(embeddings, components=12, method="PCA"):
+def compressEmbeddings(embeddings, components=12, method="PCA", gpu=False):
     if method == "PCA":
         pca = PCA(n_components=components)
 
@@ -77,8 +77,38 @@ def compressEmbeddings(embeddings, components=12, method="PCA"):
         values = np.stack(list(embeddings.values()), axis=0)
         transformed = pca.fit_transform(values)
 
-        tsne = TSNE(n_components=components, perplexity=30.0, learning_rate='auto', init='pca', random_state=42, method="exact", metric="cosine", n_jobs=6)
-        transformed = tsne.fit_transform(transformed)
+        if gpu:
+            import torch
+            import torchdr
+
+            # torchdr only has squared-euclidean; on unit-norm rows that is 2x cosine distance, which is
+            # equivalent here (perplexity calibration is scale-free). Sparse kNN affinities stand in for
+            # sklearn's dense "exact" mode, which would need a 40k x 40k matrix on the GPU.
+            transformed = transformed / np.maximum(np.linalg.norm(transformed, axis=1, keepdims=True), 1e-12)
+            from torch.utils.checkpoint import checkpoint
+
+            class ChunkedTSNE(torchdr.TSNE):
+                # torchdr's repulsive term builds the full N x N distance matrix (and autograd keeps it);
+                # at 40k points that is >6 GB. Same loss (log sum_ij 1/(1+d_ij), diagonal included), computed in
+                # row chunks and recomputed in backward, so memory is O(chunk * N).
+                def _compute_repulsive_loss(self, chunk=1024):
+                    Z = self.embedding_
+                    zNorm = (Z * Z).sum(1)
+
+                    def part(rows, rowNorm):
+                        d = (rowNorm[:, None] + zNorm[None, :] - 2 * rows @ Z.T).clamp_min(0)
+                        return torch.logsumexp(-torch.log1p(d), dim=(0, 1))
+
+                    parts = [checkpoint(part, Z[i:i + chunk], zNorm[i:i + chunk], use_reentrant=False)
+                             for i in range(0, Z.shape[0], chunk)]
+                    return torch.logsumexp(torch.stack(parts), dim=0)
+
+            tsne = ChunkedTSNE(n_components=components, perplexity=30.0, lr="auto", init="pca", random_state=42, metric="sqeuclidean", device="cuda", sparsity=True, verbose=True)
+            transformed = tsne.fit_transform(torch.from_numpy(transformed.astype(np.float32)))
+            transformed = transformed.detach().cpu().numpy()
+        else:
+            tsne = TSNE(n_components=components, perplexity=30.0, learning_rate='auto', init='pca', random_state=42, method="exact", metric="cosine", n_jobs=6)
+            transformed = tsne.fit_transform(transformed)
 
     if method == "UMAP":
         pca = PCA(n_components=80)

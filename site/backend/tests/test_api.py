@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -413,9 +414,8 @@ def test_server_does_not_import_torch():
             "from fakeBundle import makeFakeBundle; import tempfile\n"
             "d = tempfile.mkdtemp(); makeFakeBundle(d, 20)\n"
             "from app import createApp\n"
-            # suggestions off: spaCy imports requests at load time, and torch too wherever torch happens to be
-            # installed (the server image has none); this checks the server's own imports
-            "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db', 'SYNONYM_MODEL': ''})\n"
+            # torch may be installed wherever this runs (the server image has none); this checks the server's own imports
+            "createApp({'BUNDLE_DIR': d, 'DATABASE': d + '/t.db'})\n"
             "bad = [m for m in ('torch', 'transformers', 'sqlite_vec', 'requests', 'cv2') if m in sys.modules]\n"
             "assert not bad, bad")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
@@ -442,7 +442,7 @@ def tagsOf(body):
 def test_tags_endpoint_lists_what_a_query_means(client):
     body = client.get("/api/font/tags", query_string={"query": "elegant script not thin"}).json
     assert tagsOf(body) == {"elegant": 1.0, "script": 1.0}          # there is no negation: "not thin" is dropped
-    assert body["suggested"] == [] or all(set(s) == {"tag", "via", "similarity"} for s in body["suggested"])
+    assert body["suggested"] == []                                # SYNONYMS is off in the test apps
     assert body["unmatched"] == []
     nothing = client.get("/api/font/tags", query_string={"query": "zzqx"}).json
     assert nothing["tags"] == [] and nothing["unmatched"] == ["zzqx"]
@@ -489,10 +489,10 @@ def test_pages_of_a_tag_list_tile_like_any_other(client):
     assert len(seen) == 300 == len(set(seen))
 
 
-def test_tags_endpoint_suggests_tags_for_unknown_words(makeApp):
-    pytest.importorskip("en_core_web_md")
-    body = makeApp(SYNONYM_MODEL="en_core_web_md").test_client().get(
-        "/api/font/tags", query_string={"query": "ghastly"}).json
-    assert body["tags"] == [] and body["unmatched"] == [] and body["suggested"]
-    assert set(body["suggested"][0]) == {"tag", "via", "similarity"}
-    assert len({s["tag"] for s in body["suggested"]}) == len(body["suggested"])
+def test_tags_endpoint_suggests_tags_for_unknown_words(makeApp, tmp_path):
+    table = tmp_path / "synonymTags.json"
+    table.write_text(json.dumps({"words": {"ghastly": [["horror", 0.5, "grisly"], ["grunge", 0.3, "gruesome"]]}}))
+    body = makeApp(SYNONYMS=str(table)).test_client().get("/api/font/tags", query_string={"query": "ghastly"}).json
+    assert body["tags"] == [] and body["unmatched"] == []
+    assert body["suggested"] == [{"tag": "horror", "via": "grisly", "score": 0.5},
+                                 {"tag": "grunge", "via": "gruesome", "score": 0.3}]

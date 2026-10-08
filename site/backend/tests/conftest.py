@@ -24,7 +24,7 @@ def makeApp(tmp_path, fake):
         (static / "hello.txt").write_text("hi")
         config = {"DATABASE": str(tmp_path / "test.db"), "BUNDLE_DIR": fake[0], "STATIC_DIR": str(static),
                   "COOKIE_SECURE": False, "RATELIMIT_ENABLED": False, "TESTING": True,
-                  "SYNONYM_MODEL": ""}  # spaCy loads in ~2 s per app; the suggestion tests turn it on themselves
+                  "SYNONYMS": ""}  # the suggestion tests point this at a table of their own
         config.update(overrides)
         return createApp(config)
     return make

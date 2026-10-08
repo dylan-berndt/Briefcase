@@ -259,3 +259,99 @@ body {
 .LoginPopup>div:last-child button:hover {
   color: var(--col-text);
 }
+/* ── Phones and narrow windows ── */
+
+@media (max-width: 700px) {
+  :root {
+    /* the column is the whole width of the screen, and what is inside it keeps a 20px margin. (The desktop values
+       leave a phone a 244px column with 48px of padding.) */
+    --ui-width: 100vw;
+    --content-width: calc(100vw - 40px);
+
+    /* The background is a slice along the bottom of the screen instead of strips down the sides: 90px on a 390x844
+       phone, in proportion to the screen's height on others (68px on 360x640). svh is the screen with the address bar
+       showing, so the slice does not change size as the bar slides away. */
+    --shader-band: clamp(56px, 10.66svh, 130px);
+    --column-edge: 8px;       /* the border above the slice: where content stops short of the shader */
+  }
+
+  .App {
+    min-height: 100svh;
+    box-sizing: border-box;
+    padding-bottom: var(--shader-band);       /* the end of a page stops above the slice, not under it */
+  }
+
+  .Shadow {
+    min-height: calc(100vh - var(--shader-band));
+    min-height: calc(100svh - var(--shader-band));
+    box-shadow: none;
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* The slice is the background's own canvas, shrunk to the bottom of the screen and laid over the page, so it is
+     always there, whatever is scrolled. Taps go through it. (The canvas follows its box, so it also renders only the
+     slice, which is a lot less than the whole screen.) */
+  .Shader {
+    top: auto;
+    bottom: 0;
+    height: var(--shader-band);
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  /* The column's border along its bottom edge, which is the top of the slice: a strip in the column's own colour laid
+     over the page just above the slice, so a result scrolling under it stops short of the shader instead of being cut
+     off against it. It is on the slice, not on the column, because the slice is fixed and the content is not: the strip
+     is wanted at every scroll position, not only at the end of the page. */
+  .Shader::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: var(--column-edge);
+    background: var(--col-surface);
+    pointer-events: none;
+  }
+
+  /* The column's drop shadow, falling onto the slice. The desktop shadow is a box-shadow all round the column, but the
+     slice is laid over the page, so a box-shadow would be hidden under it; this is the same shadow (4vmin, black) drawn
+     on the slice's top edge, where the column ends. */
+  .Shader::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 4vmin;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.42) 40%, rgba(0, 0, 0, 0.12) 80%, rgba(0, 0, 0, 0));
+    pointer-events: none;
+  }
+
+  .Bar {
+    padding: 0 12px;
+  }
+
+  .Bar>div:first-child {
+    gap: 8px;
+  }
+
+  .Bar button,
+  .Bar a {
+    padding: 9px 11px;
+    letter-spacing: 0.04em;
+  }
+
+  .LoginPopup {
+    width: min(280px, calc(100vw - 24px));
+    box-sizing: border-box;
+  }
+
+  /* under 16px a phone's browser zooms the page when a field is tapped */
+  .LoginPopup input {
+    font-size: 16px;
+  }
+}

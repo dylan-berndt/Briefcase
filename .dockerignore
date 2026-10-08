@@ -7,6 +7,7 @@
 !utils/tagVocabulary.py
 !configs/tagVocabulary.json
 !configs/wordTags.json
+!configs/synonymTags.json
 
 **/node_modules
 site/frontend/build
