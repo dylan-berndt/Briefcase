@@ -1,9 +1,62 @@
 import './main.css'
 import React, { useState, useRef, useEffect } from 'react';
 
+// Plotly leaves 80-100px of margin round a 3D plot, which on a phone is most of the width, and its default camera
+// crops a portrait scene at the sides. The maps are same-origin, so the page can reach into the frame: zero the
+// margins, and pull the camera back when the frame is narrower than it is tall. The camera is scaled relative to
+// wherever the user has rotated it to, so resizing does not undo their view.
+const PORTRAIT_ZOOM = 1.5;
+
+export function fitMap(frame) {
+    let win, doc;
+    try {
+        win = frame.contentWindow;
+        doc = frame.contentDocument;
+    } catch (e) {
+        return false;
+    }
+    const gd = doc && doc.querySelector(".plotly-graph-div");
+    if (!win || !win.Plotly || !gd || !gd._fullLayout || !gd._fullLayout.scene) {
+        return false;
+    }
+    const want = frame.clientWidth < frame.clientHeight ? PORTRAIT_ZOOM : 1;
+    const have = gd._briefcaseZoom || 1;
+    const update = {};
+    const m = gd._fullLayout.margin;
+    if (m.l || m.r || m.t || m.b || m.pad) {
+        update.margin = { l: 0, r: 0, t: 0, b: 0, pad: 0 };
+    }
+    if (want !== have) {
+        const eye = gd._fullLayout.scene.camera.eye;
+        const k = want / have;
+        update["scene.camera.eye"] = { x: eye.x * k, y: eye.y * k, z: eye.z * k };
+    }
+    gd._briefcaseZoom = want;
+    if (Object.keys(update).length) {
+        win.Plotly.relayout(gd, update);
+    }
+    return true;
+}
+
 export default function MapPage() {
 
     const [selectedMap, setSelectedMap] = useState("flower");
+    const frameRef = useRef(null);
+
+    // the plot is drawn by a script in the frame, which may not have finished when the frame reports it has loaded
+    const handleLoad = () => {
+        const frame = frameRef.current;
+        if (!frame) return;
+        let tries = 0;
+        const attempt = () => {
+            if (!frameRef.current || fitMap(frame) || ++tries > 50) return;
+            setTimeout(attempt, 100);
+        };
+        attempt();
+        try {
+            frame.contentWindow.addEventListener("resize", () => fitMap(frame));
+        } catch (e) { /* cross-origin: leave the map as it is */ }
+    };
 
     const handleChange = (event) => {
         setSelectedMap(event.target.value);
@@ -35,6 +88,6 @@ export default function MapPage() {
             </div>
         </div>
         
-        <iframe title="mapLocation" src={"/maps/" + selectedMap + ".html"} width="100%" height="90vh" style={{ border: "none"}}></iframe>
+        <iframe ref={frameRef} onLoad={handleLoad} title="mapLocation" src={"/maps/" + selectedMap + ".html"} style={{ border: "none" }}></iframe>
     </div>
 }

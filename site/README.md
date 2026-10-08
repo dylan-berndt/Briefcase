@@ -201,6 +201,10 @@ address is served as the app).
 The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in
 `site/frontend/public/` (un-ignored in `.gitignore`, tracked with git-lfs). A missing file is a 404, not the app.
 
+The page reaches into the (same-origin) frame once the plot exists: it zeroes Plotly's 80-100px margins and, when the frame
+is taller than wide, pulls the 3D camera back 1.5x so the whole cloud fits a phone (`fitMap` in `src/map/index.js`; it works
+from the current camera, so a user's rotation survives a resize). Maps must keep Plotly's `.plotly-graph-div` and a `scatter3d` scene.
+
 ## Tests
 
 ```bash

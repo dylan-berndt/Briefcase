@@ -524,3 +524,23 @@ def test_sitemap_and_robots_point_crawlers_at_real_pages(site):
         path = urlparse(loc).path
         status, kind, page = get(path)
         assert status == 200 and "text/html" in kind and 'id="root"' in page, (path, status, kind)
+
+
+@pytest.mark.parametrize("width,height", [(390, 844), (1280, 800)])
+def test_map_has_no_plotly_margin_and_fits_the_scene(browser, site, width, height):
+    ctx = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height})
+    page = ctx.new_page()
+    page.goto("/map")
+    page.select_option("#options", "routes")
+    frame = page.frame_locator("iframe[title=mapLocation]")
+    frame.locator(".plotly-graph-div canvas").first.wait_for(timeout=60000)
+    page.wait_for_function("""() => { const f = document.querySelector('iframe[title=mapLocation]');
+        const gd = f.contentDocument && f.contentDocument.querySelector('.plotly-graph-div');
+        return gd && gd._fullLayout && gd._fullLayout.margin.l === 0 && gd._briefcaseZoom; }""", timeout=30000)
+    info = page.evaluate("""() => { const f = document.querySelector('iframe[title=mapLocation]');
+        const gd = f.contentDocument.querySelector('.plotly-graph-div'); const L = gd._fullLayout;
+        return {margin: L.margin, w: L.width, frameW: f.clientWidth, zoom: gd._briefcaseZoom}; }""")
+    assert all(info["margin"][k] == 0 for k in "lrtb")
+    assert info["w"] >= info["frameW"] - 20
+    assert info["zoom"] == (1.5 if width < height else 1)
+    ctx.close()

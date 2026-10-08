@@ -302,6 +302,17 @@ body {
     pointer-events: none;
   }
 
+  /* iOS Safari's toolbar floats over the page, and a fixed box ends above it (at the small viewport) while the page
+     keeps painting underneath. Where the large viewport (toolbars away) is taller than the small one, run the slice on
+     down to the large viewport's bottom, so the shader also fills what shows through the toolbar. Its top edge does
+     not move: bottom + height is still the band. Where the two are equal (everywhere but iOS) this changes nothing. */
+  @supports (height: 100lvh) and (height: 100svh) {
+    .Shader {
+      bottom: calc(100svh - 100lvh);
+      height: calc(var(--shader-band) + 100lvh - 100svh);
+    }
+  }
+
   /* The column's border along its bottom edge, which is the top of the slice: a strip in the column's own colour laid
      over the page just above the slice, so a result scrolling under it stops short of the shader instead of being cut
      off against it. It is on the slice, not on the column, because the slice is fixed and the content is not: the strip
