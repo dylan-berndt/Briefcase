@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>viewport test</title>
+<meta name="robots" content="noindex">
+<script>
+  // viewport-fit has to be in the meta tag when the page loads, so ?fit=cover writes a different tag
+  var fit = new URLSearchParams(location.search).get("fit") === "cover" ? "cover" : "auto";
+  document.write('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=' + fit + '">');
+</script>
+<style>
+  :root { --band: 90px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #18191d; color: #eee; font: 15px/1.4 system-ui, sans-serif; }
+  body { padding: 190px 14px 160px; }
+
+  /* the page: ruled lines so it is obvious when page content shows through or under something */
+  .line { padding: 10px 0; border-bottom: 1px solid #444; }
+  .line:nth-child(5n) { background: #2c3a2c; }
+
+  /* readout, fixed to the top */
+  #out { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(0,0,0,.88); padding: 6px 10px;
+         font: 11px/1.25 ui-monospace, Menlo, monospace; white-space: pre; }
+  #bar { position: fixed; z-index: 101; left: 0; right: 0; top: 150px; padding: 4px 8px; background: #000; display: flex; flex-wrap: wrap; gap: 4px; }
+  #bar button, #bar a { font: 600 12px system-ui; padding: 6px 8px; border-radius: 6px; border: 1px solid #888; background: #222; color: #fff; text-decoration: none; }
+  #bar button.on { background: #c0c; border-color: #fff; }
+
+  /* Every variant is a fixed box with a magenta part (where the slice's visible part sits: the top --band px) and a
+     cyan part (the extension, which is meant to lie behind Safari's toolbar). */
+  .slice { position: fixed; left: 0; right: 0; z-index: 50; pointer-events: none; display: none;
+           background: linear-gradient(to bottom, #e0e 0, #e0e var(--band), #0dd var(--band), #0dd 100%);
+           color: #000; font: 700 12px system-ui; padding: 4px 8px; }
+  body[data-v="A"] #A, body[data-v="B"] #B, body[data-v="C"] #C, body[data-v="D"] #D, body[data-v="E"] #E { display: block; }
+
+  /* A: what is deployed now: bottom offset and height from svh/lvh */
+  #A { bottom: calc(100svh - 100lvh); height: calc(var(--band) + 100lvh - 100svh); }
+  /* B: the earlier version, a plain band at bottom: 0 */
+  #B { bottom: 0; height: var(--band); }
+  /* C: anchored by its top at the small viewport's bottom minus the band, and overshooting 300px past the bottom */
+  #C { top: calc(100svh - var(--band)); height: calc(var(--band) + 300px); }
+  /* D: anchored by its top, sized from the large viewport */
+  #D { top: calc(100lvh - var(--band) - 80px); height: calc(var(--band) + 300px); }
+  /* E: bottom: 0 plus a safe-area extension (what viewport-fit=cover is for) */
+  #E { bottom: 0; height: calc(var(--band) + env(safe-area-inset-bottom, 0px)); }
+
+  /* hidden probes for measuring the viewport units */
+  .probe { position: fixed; left: 0; top: 0; width: 1px; visibility: hidden; pointer-events: none; }
+  #pSvh { height: 100svh; } #pLvh { height: 100lvh; } #pDvh { height: 100dvh; } #pVh { height: 100vh; }
+  #pFixedAll { top: 0; bottom: 0; height: auto; }
+  #pSafe { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+</style>
+</head>
+<body data-v="A">
+<div id="out">measuring…</div>
+<div id="bar"></div>
+
+<div id="A" class="slice">A deployed now (svh/lvh)</div>
+<div id="B" class="slice">B plain bottom:0</div>
+<div id="C" class="slice">C top-anchored, overshoot</div>
+<div id="D" class="slice">D top from lvh, overshoot</div>
+<div id="E" class="slice">E bottom:0 + safe-area</div>
+
+<div class="probe" id="pSvh"></div><div class="probe" id="pLvh"></div><div class="probe" id="pDvh"></div>
+<div class="probe" id="pVh"></div><div class="probe" id="pFixedAll"></div><div class="probe" id="pSafe"></div>
+
+<div id="lines"></div>
+
+<script>
+  var lines = document.getElementById("lines"), i;
+  for (i = 1; i <= 80; i++) {
+    var d = document.createElement("div");
+    d.className = "line";
+    d.textContent = "page text, line " + i + (i === 80 ? "  (end of page)" : "");
+    lines.appendChild(d);
+  }
+
+  var bar = document.getElementById("bar");
+  ["A", "B", "C", "D", "E"].forEach(function (v) {
+    var b = document.createElement("button");
+    b.textContent = v;
+    b.onclick = function () { document.body.dataset.v = v; mark(); measure(); };
+    b.dataset.v = v;
+    bar.appendChild(b);
+  });
+  [["auto", "fit=auto"], ["cover", "fit=cover"]].forEach(function (x) {
+    var a = document.createElement("a");
+    a.textContent = "viewport-fit " + x[0];
+    a.href = "?" + x[1];
+    bar.appendChild(a);
+  });
+  function mark() {
+    Array.prototype.forEach.call(bar.querySelectorAll("button"), function (b) {
+      b.className = b.dataset.v === document.body.dataset.v ? "on" : "";
+    });
+  }
+  mark();
+
+  function h(id) { return document.getElementById(id).getBoundingClientRect().height; }
+  function r(n) { return Math.round(n * 10) / 10; }
+  function measure() {
+    var vv = window.visualViewport, v = document.body.dataset.v;
+    var s = document.getElementById(v).getBoundingClientRect();
+    var all = document.getElementById("pFixedAll").getBoundingClientRect();
+    var safe = getComputedStyle(document.getElementById("pSafe"));
+    document.getElementById("out").textContent =
+      "variant " + v + "   viewport-fit=" + fit + "   scrollY " + r(scrollY) + "\n" +
+      "screen " + screen.width + "x" + screen.height + "   inner " + innerWidth + "x" + innerHeight + "\n" +
+      "visualViewport h " + (vv ? r(vv.height) + " top " + r(vv.offsetTop) : "n/a") + "   clientH " + document.documentElement.clientHeight + "\n" +
+      "svh " + r(h("pSvh")) + "  lvh " + r(h("pLvh")) + "  dvh " + r(h("pDvh")) + "  vh " + r(h("pVh")) + "\n" +
+      "fixed top0/bottom0 box h " + r(all.height) + "\n" +
+      "safe t/r/b/l " + safe.paddingTop + " " + safe.paddingRight + " " + safe.paddingBottom + " " + safe.paddingLeft + "\n" +
+      "slice " + v + " top " + r(s.top) + " bottom " + r(s.bottom) + " h " + r(s.height);
+  }
+  ["scroll", "resize"].forEach(function (e) { addEventListener(e, measure); });
+  if (window.visualViewport) { visualViewport.addEventListener("resize", measure); visualViewport.addEventListener("scroll", measure); }
+  measure();
+</script>
+</body>
+</html>
