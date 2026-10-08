@@ -27,7 +27,7 @@ The result is a small table, configs/synonymTags.json, that the server reads; no
     python site/tools/buildSynonyms.py                          # WordNet + Datamuse (needs network the first time)
     python site/tools/buildSynonyms.py --offline                # same, from build/datamuse.sqlite only
     python site/tools/buildSynonyms.py --noDatamuse             # WordNet only, as before
-    python site/tools/buildSynonyms.py --examples wet old fancy --noWrite   # print those words' suggestions only
+    python site/tools/buildSynonyms.py --examples wet old fancy --noWrite   # just those words (a few dozen requests)
 
 Datamuse is asked about the words in WordNet that people actually use (wordfreq zipf >= --minZipf, default 3.0) and that
 the search does not already understand, a few requests each; the answers are cached, so a build that stops carries on.
@@ -344,9 +344,12 @@ def main():
     try:
         # the search already understands these; suggestions are only for words that match nothing
         names = [w for w in builder.words() if not builder.understood(w)]
-        if datamuse is not None:
+        if args.examples and args.noWrite:
+            names = []                       # just trying a few words: do not build the table around them
+        elif datamuse is not None:
             names = commonEnough(names, args.minZipf)
             print(f"{len(names)} words to look up", file=sys.stderr)
+        if datamuse is not None:
             builder.prefetch(names + [w for w in args.examples if w not in names])
         table, skipped = {}, 0
         for i, word in enumerate(names):
