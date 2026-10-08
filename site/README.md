@@ -33,8 +33,12 @@ git-lfs (`.gitattributes`); `manifest.json` is plain text.
 ### How a query is scored
 
 `utils/tagVocabulary.py` turns the text into weighted tag groups using the reviewed alias table in
-`configs/tagVocabulary.json` (186 canonical tags merging 606 MyFonts tags). Every other tag the model
-predicts is searchable by its own name, so the tagger's whole vocabulary is reachable, not only the reviewed one.
+`configs/tagVocabulary.json`. A group there is only ever spelling variants of one tag (art-deco / artdeco, sci-fi / scifi);
+nothing merges by meaning, so dark, spooky and skull are separate tags. The reviewed phrases ("zombie", "condensed") point at
+the tag they used to belong to. Every other tag the model predicts is searchable by its own name, so the tagger's whole
+vocabulary is reachable. Decade tags also answer to the bare year and the two-digit forms (1940, 1940's, 40s). The file was
+made once from the older merged vocabulary by `site/tools/regroupVocabulary.py`, which also maps `wordTags.json` onto the new
+groups; edit the committed file rather than rebuilding it with `build_tag_vocabulary.py`.
 
 Each font's tag probabilities are normalised to sum to 1 over the whole vocabulary (a semantic multinomial,
 Turnbull et al. 2008; it removes the bias towards fonts that score high on everything). A group scores

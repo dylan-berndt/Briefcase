@@ -11,7 +11,8 @@
 #   python experiments/critical-review/build_tag_vocabulary.py --candidates candidates.tsv
 #
 # candidates.tsv: tag \t trainFonts \t tagger ROC-AUC \t descriptorGrounding score (from e22_vocab.py).
-# Writes configs/tagVocabulary.json.
+# Writes configs/tagVocabulary.json -- the MERGED vocabulary (186 canonicals). The committed configs/tagVocabulary.json has since
+# been regrouped to spelling variants only by site/tools/regroupVocabulary.py, so running this overwrites it; point --out elsewhere.
 
 import argparse
 import json

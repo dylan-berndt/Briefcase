@@ -119,7 +119,7 @@ def test_the_opposite_side_of_a_word_is_dropped(combined):
 
 def test_a_noun_takes_the_adjectives_that_modify_it(combined):
     # no ml entry: if the builder asked for one it would find the data missing and give up (None)
-    builder = combined({("pos", "zorb"): ["n"], ("rel_ant", "zorb"): [], ("rel_jjb", "zorb"): ["old", "xyzzy"]})
+    builder = combined({("pos", "zorb"): ["n"], ("rel_ant", "zorb"): [], ("rel_jjb", "zorb"): ["vintage", "xyzzy"]})
     assert "vintage" in {tag for tag, _, _ in builder.suggest("zorb")}
 
 
