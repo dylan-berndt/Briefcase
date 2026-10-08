@@ -82,6 +82,11 @@ body {
 
 .Shader canvas { image-rendering: pixelated; }
 
+.ShaderLayer {
+  width: 100%;
+  height: 100%;
+}
+
 .Shadow {
   position: relative;
   z-index: 1;
@@ -300,21 +305,23 @@ body {
     height: var(--shader-band);
     z-index: 5;
     pointer-events: none;
-    /* what iOS tints its toolbar with (see useShaderEdgeColour in App.js), until the first sample */
-    background-color: var(--col-surface);
-    transition: background-color 0.4s linear;
   }
 
-  /* iOS Safari's toolbar floats over the page, and a fixed box ends above it (at the small viewport) while the page
-     keeps painting underneath. Where the large viewport (toolbars away) is taller than the small one, run the slice on
-     down to the large viewport's bottom, so the shader also fills what shows through the toolbar. Its top edge does
-     not move: bottom + height is still the band. Where the two are equal (everywhere but iOS) this changes nothing. */
-  @supports (height: 100lvh) and (height: 100svh) {
-    .Shader {
-      bottom: calc(100svh - 100lvh);
-      height: calc(var(--shader-band) + 100lvh - 100svh);
-    }
+  /* Experiments for getting the shader under iOS 26 Safari's floating bottom toolbar, switched on from the ?debug panel
+     (html[data-fix]) while they are tried on a phone. Findings so far: Safari clips an opaque fixed layer at the top of
+     the toolbar and tints the toolbar with the colour of the fixed element at the bottom edge; semi-transparent fixed
+     layers are reported to reach under it, as do absolute children of an unpainted fixed parent. */
+  html[data-fix~="bleed"] .ShaderLayer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: auto;
+    bottom: -160px;
   }
+
+  html[data-fix~="op"] .Shader { opacity: 0.99; }
+  html[data-fix~="cop"] .Shader canvas { opacity: 0.99; }
 
   /* The column's border along its bottom edge, which is the top of the slice: a strip in the column's own colour laid
      over the page just above the slice, so a result scrolling under it stops short of the shader instead of being cut

@@ -256,29 +256,31 @@ function LoginPopup({ username, onAuth }) {
 }
 
 
-// iOS 26 Safari paints its floating bottom toolbar over the page and tints what is behind it with the colour of the
-// fixed element at the bottom edge; a canvas has no colour to give, so the page scrolling underneath showed through. The
-// shader's box gets the shader's own bottom-edge colour as its background (under the canvas, so nothing changes where it
-// is drawn), refreshed as the shader moves. Phones only: that is where the slice is at the bottom edge.
+// Experiment (html[data-fix~="edge"], switched on from the ?debug panel): iOS 26 Safari tints its floating bottom toolbar
+// with the colour of the fixed element at the bottom edge, and a canvas has none. This gives the shader's box the
+// shader's own bottom-edge colour as its background, refreshed as the shader moves.
 function useShaderEdgeColour() {
 	useEffect(() => {
-		if (!window.matchMedia || !window.matchMedia("(max-width: 700px)").matches) return;
 		const sample = document.createElement("canvas");
 		sample.width = sample.height = 1;
 		const context = sample.getContext && sample.getContext("2d", { willReadFrequently: true });
 		if (!context) return;
 		const update = () => {
 			const box = document.querySelector(".Shader");
-			const canvas = box && box.querySelector("canvas");
+			if (!box) return;
+			if (!(document.documentElement.dataset.fix || "").split(" ").includes("edge")) {
+				box.style.backgroundColor = "";
+				return;
+			}
+			const canvas = box.querySelector("canvas");
 			if (!canvas || canvas.width < 1 || canvas.height < 2) return;
 			try {
 				// the bottom two rows, averaged by scaling them down to one pixel
 				context.drawImage(canvas, 0, canvas.height - 2, canvas.width, 2, 0, 0, 1, 1);
 				const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
 				if (a > 0) box.style.backgroundColor = "rgb(" + r + "," + g + "," + b + ")";
-			} catch (e) { /* no pixels to read: the background stays as the stylesheet has it */ }
+			} catch (e) { /* no pixels to read */ }
 		};
-		update();
 		const id = setInterval(update, 400);
 		return () => clearInterval(id);
 	}, []);
@@ -304,14 +306,16 @@ function App() {
 			{new URLSearchParams(window.location.search).has("debug") && <ViewportDebug />}
 			<div className="App">
 				<div className="Shader">
-					<Canvas
-						camera={{ position: [0, 0, 1] }}
-						dpr={1 / 9}
-						gl={{ antialias: false, preserveDrawingBuffer: true }}
-					>
-						<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
-						<BackgroundShader />
-					</Canvas>
+					<div className="ShaderLayer">
+						<Canvas
+							camera={{ position: [0, 0, 1] }}
+							dpr={1 / 9}
+							gl={{ antialias: false, preserveDrawingBuffer: true }}
+						>
+							<color attach="background" args={[0, 0, 0]} /> {/* Optional: Clear the scene color */}
+							<BackgroundShader />
+						</Canvas>
+					</div>
 				</div>
 				<div className="Shadow">
 					<header className="Bar">

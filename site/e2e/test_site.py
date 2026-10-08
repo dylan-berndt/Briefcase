@@ -546,11 +546,20 @@ def test_map_has_no_plotly_margin_and_fits_the_scene(browser, site, width, heigh
     ctx.close()
 
 
-def test_phone_shader_box_takes_the_shaders_edge_colour(browser, site):
-    """iOS tints its floating toolbar with the colour of the fixed element at the bottom edge, and a canvas has none."""
+def test_shader_fix_flags_can_be_switched_on_from_the_page(browser, site):
+    """Experiments for iOS's toolbar are html[data-fix] flags: off by default, and each changes the shader's layer."""
     ctx = browser.new_context(base_url=site["url"], viewport={"width": 390, "height": 844})
     page = ctx.new_page()
     page.goto("/about")
-    page.wait_for_function("""() => { const c = getComputedStyle(document.querySelector('.Shader')).backgroundColor;
-        return c !== 'rgb(24, 25, 29)' && c !== 'rgba(0, 0, 0, 0)'; }""", timeout=15000)
+    page.wait_for_selector(".Shader canvas")
+    info = """() => { const s = document.querySelector('.Shader'), l = document.querySelector('.ShaderLayer');
+        return {flag: document.documentElement.dataset.fix || '', op: getComputedStyle(s).opacity,
+                bg: getComputedStyle(s).backgroundColor, layerH: Math.round(l.getBoundingClientRect().height),
+                shaderH: Math.round(s.getBoundingClientRect().height)}; }"""
+    base = page.evaluate(info)
+    assert base["flag"] == "" and base["op"] == "1" and base["bg"] == "rgba(0, 0, 0, 0)"
+    assert base["layerH"] == base["shaderH"]
+    page.evaluate("document.documentElement.dataset.fix = 'bleed op'")
+    on = page.evaluate(info)
+    assert on["op"] == "0.99" and on["layerH"] == on["shaderH"] + 160
     ctx.close()

@@ -20,6 +20,17 @@ const box = (element) => {
 export default function ViewportDebug() {
 	const [text, setText] = useState("");
 	const [tint, setTint] = useState(false);
+	const [flags, setFlags] = useState([]);
+
+	useEffect(() => {
+		document.documentElement.dataset.fix = flags.join(" ");
+		const meta = document.querySelector('meta[name="viewport"]');
+		if (meta) {
+			const base = meta.content.replace(/,?\s*viewport-fit=\w+/, "");
+			meta.content = flags.includes("cover") ? base + ", viewport-fit=cover" : base;
+		}
+	}, [flags]);
+	const toggle = (name) => setFlags(flags.includes(name) ? flags.filter(f => f !== name) : [...flags, name]);
 
 	useEffect(() => {
 		const update = () => {
@@ -33,24 +44,32 @@ export default function ViewportDebug() {
 				"svh " + unit("100svh") + "  lvh " + unit("100lvh") + "  dvh " + unit("100dvh"),
 				"scrollY " + Math.round(window.scrollY) + "  doc h " + document.documentElement.scrollHeight,
 				"shader " + box(shader),
-				"  css bottom " + (style && style.bottom) + " h " + (style && style.height) + " bg " + (style && style.backgroundColor),
+				"fix [" + flags.join(" ") + "]  opacity " + (style && style.opacity) + "\n  css bottom " + (style && style.bottom) + " h " + (style && style.height) + " bg " + (style && style.backgroundColor),
 				"canvas " + box(canvas) + "  buffer " + (canvas ? canvas.width + "x" + canvas.height : "-"),
 			].join("\n"));
 		};
 		update();
 		const id = setInterval(update, 300);
 		return () => clearInterval(id);
-	}, []);
+	}, [flags]);
 
 	return (
 		<>
-			{tint && <style>{".Shader { background: #0dd !important; } .Shader canvas { opacity: 0.5; }"}</style>}
+			{tint && <style>{".ShaderLayer { outline: 4px solid #0dd; outline-offset: -4px; } .Shader { background: rgba(0, 220, 220, 0.35) !important; }"}</style>}
 			<div style={{ position: "fixed", top: 60, left: 0, right: 0, zIndex: 9999, background: "rgba(0,0,0,.85)", color: "#fff",
 				font: "11px/1.25 ui-monospace, Menlo, monospace", whiteSpace: "pre", padding: "4px 8px" }}>
 				{text}
 				<div>
+					{["bleed", "op", "cop", "edge", "cover"].map(name => (
+						<button key={name} type="button" onClick={() => toggle(name)}
+							style={{ font: "inherit", padding: "3px 6px", marginRight: 4, background: flags.includes(name) ? "#c0c" : "#222", color: "#fff", border: "1px solid #888" }}>
+							{name}
+						</button>
+					))}
+				</div>
+				<div>
 					<button type="button" onClick={() => setTint(!tint)} style={{ font: "inherit", padding: "3px 6px" }}>
-						tint shader box: {tint ? "on" : "off"}
+						outline shader layer: {tint ? "on" : "off"}
 					</button>
 				</div>
 			</div>
