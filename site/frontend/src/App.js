@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import SearchPage from './search';
 import AboutPage from './about';
 import MapPage from './map';
+import ViewportDebug from './ViewportDebug';
 
 
 const fragmentSource = `
@@ -271,6 +272,7 @@ function App() {
 
 	return (
 		<>
+			{new URLSearchParams(window.location.search).has("debug") && <ViewportDebug />}
 			<div className="App">
 				<div className="Shader">
 					<Canvas
