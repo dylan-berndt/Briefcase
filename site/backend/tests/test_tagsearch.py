@@ -305,3 +305,42 @@ def test_the_shipped_table_is_well_formed():
         for tag, score, via in entries:
             assert isinstance(tag, str) and 0 < score <= 1 and isinstance(via, str)
         assert [e[1] for e in entries] == sorted((e[1] for e in entries), reverse=True)
+
+
+def splitBundle(tmp_path):
+    """40 fonts that all have technical. wide splits them in half, rounded nearly duplicates wide, serif splits them
+    independently (odd/even), and script is on none of them."""
+    vocab = ["technical", "wide", "rounded", "serif", "script"]
+    logits = np.full((40, len(vocab)), -6.0)
+    logits[:, 0] = 6.0
+    logits[:20, 1] = 6.0
+    logits[:19, 2] = 6.0
+    logits[::2, 3] = 6.0
+    fonts = [{"key": f"t:{i}", "name": f"F{i}", "source": "google", "url": "https://x", "creator": None}
+             for i in range(40)]
+    writeBundle(str(tmp_path), fonts, vocab, logits, [b"x"] * 40)
+    return TagIndex(Bundle(str(tmp_path)))
+
+
+def test_refinements_split_the_top_fonts_without_duplicates(tmp_path):
+    index = splitBundle(tmp_path)
+    offered = dict(index.refinements([("technical", 1.0)], top=40))
+    # rounded splits the fonts like wide, so only wide is offered; technical is already in the query and script
+    # splits nothing
+    assert set(offered) == {"wide", "serif"}
+    assert all(abs(share - 0.5) < 0.01 for share in offered.values())
+
+
+def test_refinements_respect_count_and_need_a_query(tmp_path):
+    index = splitBundle(tmp_path)
+    assert len(index.refinements([("technical", 1.0)], top=40, count=1)) == 1
+    assert index.refinements([]) == []
+
+
+def test_refinements_on_the_fake_bundle(index, planted):
+    name = plantedWords(index, planted, count=1)[0]
+    refinements = index.refinements([(name, 1.0)])
+    assert refinements and len(refinements) <= 8
+    offered = [n for n, _ in refinements]
+    assert name not in offered
+    assert len(set(offered)) == len(offered)

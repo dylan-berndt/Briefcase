@@ -34,6 +34,8 @@ export function installFetch(handlers) {
 	// unless a test says otherwise, a query means one tag named after it
 	const routes = {
 		"/api/font/tags": ({ params }) => jsonResponse({ tags: params.query ? [{ tag: params.query, weight: 1 }] : [], suggested: [], unmatched: [] }),
+		// and nothing to narrow it down with
+		"/api/font/refine": () => jsonResponse({ refinements: [] }),
 		...handlers,
 	};
 	const calls = [];

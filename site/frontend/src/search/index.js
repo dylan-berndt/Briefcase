@@ -128,7 +128,8 @@ function StateIcon({ state }) {
 }
 
 export function TagLine({ tags, unmatched, onToggle }) {
-	return <div className="TagLine">
+	return <section className="TagLine">
+		<p className="PanelTitle">Tags</p>
 		{tags.length === 0
 			? <span className="TagLabel" role="status">No tags recognised in that description.</span> : null}
 		<ul className="Tags" aria-label="Tags in your search">
@@ -145,7 +146,22 @@ export function TagLine({ tags, unmatched, onToggle }) {
 			})}
 		</ul>
 		{unmatched.length > 0 ? <span className="TagLabel">Not recognised: {unmatched.join(", ")}.</span> : null}
-	</div>;
+	</section>;
+}
+
+// Tags that would split the current results, from /api/font/refine. Clicking one adds it to the search, ticked.
+export function RefineLine({ refinements, stale, onAdd }) {
+	if (refinements.length === 0) return null;
+	return <section className={stale ? "TagLine RefineLine RefineStale" : "TagLine RefineLine"}>
+		<p className="PanelTitle">Narrow down</p>
+		<ul className="Tags" aria-label="Tags to narrow your search">
+			{refinements.map(r =>
+				<li key={r.tag} className="Tag">
+					<button type="button" className="RefineTag" onClick={() => onAdd(r.tag)}
+						title={`About ${Math.round(r.share * 100)}% of the top results. Click to add.`}>+ {r.tag}</button>
+				</li>)}
+		</ul>
+	</section>;
 }
 
 // allowDescriptions shows the per-font description box; hidden for now, the endpoint is still there
@@ -155,17 +171,19 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 	const [query, setQuery] = useState(initial.get("q") || "");
 	const [page, setPage] = useState(Math.max(1, parseInt(initial.get("page"), 10) || 1));
 	const [searchId, setSearchId] = useState(0);   // bumps on every submit, so searching the same text starts over
-	const [tagSet, setTagSet] = useState(null);    // {tags: [{tag, weight, state}], unmatched}; null while loading
+	// {query, tags: [{tag, weight, state}], unmatched}. Kept while the next query's tags load, so the page does not
+	// empty and refill; only the tags of the current query are searched (currentTags).
+	const [tagSet, setTagSet] = useState(null);
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
+	const [refine, setRefine] = useState({ tags: null, refinements: [] });   // kept while the next ones load
 	const topRef = useRef(null);
 	const generation = useRef(0);
 
 	// 1. The tags a query means. Nothing else about the query is asked of the server again.
 	useEffect(() => {
-		setTagSet(null);
-		if (!query.trim()) { setData(null); return undefined; }
+		if (!query.trim()) { setTagSet(null); setData(null); return undefined; }
 		const controller = new AbortController();
 		setLoading(true);
 		setError("");
@@ -176,6 +194,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 				return json;
 			})
 			.then(json => setTagSet({
+				query,
 				tags: [...json.tags.map(t => ({ tag: t.tag, weight: t.weight, state: "on" })),
 					...json.suggested.map(s => ({ tag: s.tag, weight: 1, state: "off" }))],
 				unmatched: json.unmatched,
@@ -183,13 +202,16 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			.catch(e => {
 				if (e.name === "AbortError") return;
 				setError(e.message || String(e));
+				setTagSet(null);
+				setData(null);
 				setLoading(false);
 			});
 		return () => controller.abort();
 	}, [query, searchId]);
 
 	// 2. The fonts for the tags that are ticked. query stays only as the label votes are filed under.
-	const tagParam = tagSet === null ? null : tagSet.tags.filter(t => t.state === "on")
+	const currentTags = tagSet !== null && tagSet.query === query ? tagSet : null;
+	const tagParam = currentTags === null ? null : currentTags.tags.filter(t => t.state === "on")
 		.map(t => `${t.tag}:${t.weight}`).join(",");
 	useEffect(() => {
 		if (tagParam === null) return undefined;
@@ -210,7 +232,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 					return;
 				}
 				generation.current += 1;
-				setData({ ...json, generation: generation.current });
+				setData({ ...json, generation: generation.current, forQuery: query });
 				setLoading(false);
 			})
 			.catch(e => {
@@ -220,6 +242,18 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 			});
 		return () => controller.abort();
 	}, [query, page, tagParam, username]);
+
+	// 3. Tags that would split the top results for the ticked tags
+	useEffect(() => {
+		if (tagParam === null) return undefined;   // the next query's tags are loading: keep these, dimmed
+		if (!tagParam) { setRefine({ tags: "", refinements: [] }); return undefined; }
+		const controller = new AbortController();
+		fetch('/api/font/refine?' + new URLSearchParams({ tags: tagParam }), { signal: controller.signal })
+			.then(response => response.ok ? response.json() : { refinements: [] })
+			.then(json => setRefine({ tags: tagParam, refinements: json.refinements }))
+			.catch(() => {});   // optional extra, a failure just shows none
+		return () => controller.abort();
+	}, [tagParam]);
 
 	const navigate = useCallback((nextQuery, nextPage) => {
 		const params = new URLSearchParams();
@@ -243,9 +277,19 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		return () => window.removeEventListener("popstate", onPop);
 	}, []);
 
+	const ticked = new Set(tagSet === null ? [] : tagSet.tags.filter(t => t.state === "on").map(t => t.tag));
+	const offered = refine.refinements.filter(r => !ticked.has(r.tag));   // a just-added one goes at once
+
 	const toggleTag = (tag, next) => {
 		setTagSet(set => ({ ...set, tags: set.tags.map(t => t.tag === tag.tag ? { ...t, state: next } : t) }));
 		if (page !== 1) navigate(query, 1);   // different tags, different results: back to the first page
+	};
+
+	const addTag = (name) => {
+		setTagSet(set => set.tags.some(t => t.tag === name)
+			? { ...set, tags: set.tags.map(t => t.tag === name ? { ...t, state: "on" } : t) }
+			: { ...set, tags: [...set.tags, { tag: name, weight: 1, state: "on" }] });
+		if (page !== 1) navigate(query, 1);
 	};
 
 	// votes are filed under the tags the shown results were ranked on, not whatever the boxes say right now
@@ -294,18 +338,25 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		{error ? <p className="SearchMessage" role="alert">{error}</p> : null}
 
 		{tagSet === null && data === null && loading ? <p className="SearchMessage" role="status">Searching…</p> : null}
-		{tagSet === null ? null
-			: <TagLine tags={tagSet.tags} unmatched={tagSet.unmatched} onToggle={toggleTag} />}
-		{data === null || tagSet === null ? null : <>
-			{data.total === 0 && tagSet.tags.length > 0
-				? <p className="SearchMessage">Tick a tag to see fonts.</p> : null}
-			<div className={loading ? "Results ResultsLoading" : "Results"} aria-busy={loading}>
-				{data.results.map(result =>
-					<Result key={data.generation + "|" + result.key} result={result} query={query} tags={votedTags}
-						username={username} onNeedLogin={onNeedLogin} allowDescriptions={allowDescriptions} />)}
+		{tagSet === null ? null : <div className="SearchBody">
+			{/* beside the results on a wide screen, above them on a narrow one */}
+			<aside className="SearchPanel" aria-label="Search tags">
+				<TagLine tags={tagSet.tags} unmatched={tagSet.unmatched} onToggle={toggleTag} />
+				<RefineLine refinements={offered} stale={refine.tags !== tagParam} onAdd={addTag} />
+			</aside>
+			<div className="SearchMain">
+				{data === null ? null : <>
+					{data.total === 0 && tagSet.tags.length > 0
+						? <p className="SearchMessage">Tick a tag to see fonts.</p> : null}
+					<div className={loading ? "Results ResultsLoading" : "Results"} aria-busy={loading}>
+						{data.results.map(result =>
+							<Result key={data.generation + "|" + result.key} result={result} query={data.forQuery} tags={votedTags}
+								username={username} onNeedLogin={onNeedLogin} allowDescriptions={allowDescriptions} />)}
+					</div>
+					<Pagination page={data.page} totalPages={data.totalPages} total={data.total} onPage={goToPage} />
+				</>}
 			</div>
-			<Pagination page={data.page} totalPages={data.totalPages} total={data.total} onPage={goToPage} />
-		</>}
+		</div>}
 	</div>
 	)
 }

@@ -190,6 +190,24 @@ def createApp(overrides=None):
             "unmatched": unmatched,
         }), 200
 
+    @app.route("/api/font/refine", methods=["GET"])
+    @limiter.limit("120 per minute")
+    def refineQuery():
+        """Tags that would split the current top results, to offer as the next one to add. Takes the same query or
+        tags as /api/font/query."""
+        query = request.args.get("query", "")
+        if len(query) > MAX_QUERY:
+            return jsonify({"message": f"Query is longer than {MAX_QUERY} characters"}), 400
+        if "tags" in request.args:
+            try:
+                terms = index.parseChoices(request.args["tags"])
+            except ValueError as error:
+                return jsonify({"message": f"Invalid tags: {error}"}), 400
+        else:
+            terms, _, _ = index.describe(query, suggest=False)
+        return jsonify({"refinements": [{"tag": name, "share": round(share, 3)}
+                                         for name, share in index.refinements(terms)]}), 200
+
     @app.route("/api/font/query", methods=["GET"])
     @limiter.limit("120 per minute")
     @dbRequired

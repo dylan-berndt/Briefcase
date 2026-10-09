@@ -65,17 +65,56 @@
     scroll-margin-top: 72px;
   }
 
-  /* ── Tags: what the engine understood, one line of words with a tick box each ── */
+  /* ── Results beside a side panel: the tags in the search and tags to narrow it, like the about page's contents ── */
 
-  /* wider than the search bar, with room underneath before the results */
-  .TagLine {
+  .SearchBody {
     width: 100%;
-    margin: 24px 0 40px;
+    margin-top: 48px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 170px);
+    column-gap: 32px;
+    align-items: start;
+  }
+
+  .SearchMain {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .SearchPanel {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    padding: 16px 18px;
+    background: var(--col-surface-2);
+    overflow-wrap: anywhere;   /* a long tag name wraps inside the narrow panel */
+    border-radius: 14px;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 8px 14px;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .PanelTitle {
+    margin: 0 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--col-text-muted);
+  }
+
+  /* ── Tags: what the engine understood, a list of words with a tick box each ── */
+
+  .TagLine {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
     font-size: 14px;
   }
 
@@ -87,11 +126,12 @@
 
   .Tags {
     min-width: 0;
+    margin: 0;
+    padding: 0;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 8px 18px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
     list-style: none;
   }
 
@@ -103,6 +143,11 @@
 
   .TagWord {
     color: var(--col-text);
+  }
+
+  /* the box before the word in a list */
+  .Tag .TagBox {
+    order: -1;
   }
 
 
@@ -131,6 +176,31 @@
     border-color: var(--col-accent);
   }
 
+  /* tags that would split the results; dimmed while the ones for the current tags load */
+  .RefineLine {
+    transition: opacity 0.15s;
+  }
+
+  .RefineStale {
+    opacity: 0.5;
+  }
+
+  .RefineTag {
+    padding: 2px 8px;
+    font: inherit;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: 1px solid var(--col-edge-hover);
+    border-radius: 0;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .RefineTag:hover {
+    color: var(--col-text);
+    border-color: var(--col-accent);
+  }
+
   .SearchMessage {
     margin-top: 24px;
     font-size: 12px;
@@ -143,7 +213,6 @@
 
   .Results {
     width: 100%;
-    margin-top: 48px;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -351,6 +420,53 @@
   }
 
 
+/* ── Narrow windows: the panel goes above the results, its lists wrap, and it is not sticky ── */
+
+@media (max-width: 900px) {
+  .SearchBody {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 24px;
+  }
+
+  .SearchPanel,
+  .SearchMain {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  /* a long tag list would fill the whole first screen, so it scrolls inside a box of at most 35% of it */
+  .SearchPanel {
+    position: static;
+    max-height: 35vh;
+    max-height: 35dvh;
+    gap: 16px;
+  }
+
+  /* one row each that scrolls sideways, so adding or removing a tag never changes the panel's height and moves the
+     results under it */
+  .SearchPanel .TagLine {
+    align-self: stretch;
+  }
+
+  .Tags {
+    align-self: stretch;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 18px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .Tag {
+    flex: none;
+  }
+
+  .RefineTag {
+    white-space: nowrap;
+  }
+}
+
 /* ── Phones and narrow windows ── */
 
 @media (max-width: 700px) {
@@ -380,7 +496,7 @@
     text-wrap: balance;     /* two even lines rather than a line and a stray word */
   }
 
-  .Results {
+  .SearchBody {
     margin-top: 32px;
   }
 
