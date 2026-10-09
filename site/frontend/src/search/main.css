@@ -71,7 +71,7 @@
     width: 100%;
     margin-top: 48px;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 170px);
     column-gap: 32px;
     align-items: start;
   }
@@ -91,8 +91,9 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     box-sizing: border-box;
-    padding: 20px 24px;
+    padding: 16px 18px;
     background: var(--col-surface-2);
+    overflow-wrap: anywhere;   /* a long tag name wraps inside the narrow panel */
     border-radius: 14px;
     display: flex;
     flex-direction: column;
@@ -497,10 +498,6 @@
 
   .SearchBody {
     margin-top: 32px;
-  }
-
-  .SearchPanel {
-    padding: 16px 18px;
   }
 
   .ResultInfo {

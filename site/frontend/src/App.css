@@ -269,10 +269,10 @@ body {
     --ui-width: 100vw;
     --content-width: calc(100vw - 40px);
 
-    /* The background is a slice along the bottom of the screen instead of strips down the sides: 90px on a 390x844
-       phone, in proportion to the screen's height on others (68px on 360x640). svh is the screen with the address bar
+    /* The background is a slice along the bottom of the screen instead of strips down the sides: 68px on a 390x844
+       phone, in proportion to the screen's height on others (51px on 360x640). svh is the screen with the address bar
        showing, so the slice does not change size as the bar slides away. */
-    --shader-band: clamp(56px, 10.66svh, 130px);
+    --shader-band: clamp(42px, 8svh, 98px);
     --column-edge: 8px;       /* the border above the slice: where content stops short of the shader */
     --shader-under: 200px;    /* how far the background runs on under the browser's bottom toolbar */
   }
