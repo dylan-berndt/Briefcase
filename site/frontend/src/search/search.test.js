@@ -539,4 +539,50 @@ describe("narrowing down", () => {
 		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "wide: included");
 		await waitFor(() => expect(screen.queryByRole("list", { name: "Tags to narrow your search" })).toBeNull());
 	});
+
+	test("a clicked suggestion leaves the list at once, and the rest stay (dimmed) until new ones arrive", async () => {
+		let release;
+		installFetch({
+			"/api/font/query": queryHandler(30),
+			"/api/font/refine": ({ params }) => params.tags.includes("wide")
+				? new Promise(resolve => { release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ refinements: [{ tag: "serif", share: 0.5 }] }) }); })
+				: jsonResponse({ refinements: [{ tag: "wide", share: 0.48 }, { tag: "rounded", share: 0.3 }] }),
+		});
+		render(<SearchPage username={null} />);
+		await search("technical");
+		const list = () => screen.getByRole("list", { name: "Tags to narrow your search" });
+		userEvent.click(within(await screen.findByRole("list", { name: "Tags to narrow your search" })).getByText("+ wide"));
+		await waitFor(() => expect(release).toBeDefined());
+		expect(within(list()).getAllByRole("button").map(b => b.textContent)).toEqual(["+ rounded"]);
+		expect(list().closest("section")).toHaveClass("RefineStale");
+		await act(async () => { release(); });
+		expect(within(list()).getAllByRole("button").map(b => b.textContent)).toEqual(["+ serif"]);
+		expect(list().closest("section")).not.toHaveClass("RefineStale");
+	});
+});
+
+describe("no jumps between searches", () => {
+	test("the tags and fonts stay on screen while the next query's tags load", async () => {
+		let release;
+		const calls = installFetch({
+			"/api/font/tags": ({ params }) => params.query === "second"
+				? new Promise(resolve => { release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ tags: [{ tag: "second", weight: 1 }], suggested: [], unmatched: [] }) }); })
+				: jsonResponse({ tags: [{ tag: "first", weight: 1 }], suggested: [], unmatched: [] }),
+			"/api/font/query": queryHandler(30),
+		});
+		render(<SearchPage username={null} />);
+		await search("first");
+		expect(await screen.findAllByRole("img")).toHaveLength(24);
+		const box = screen.getByLabelText("Describe a font");
+		userEvent.clear(box);
+		userEvent.type(box, "second{enter}");
+		await waitFor(() => expect(release).toBeDefined());
+		// the old tags and fonts are still there, and nothing was searched with the old tags under the new query
+		expect(screen.getAllByRole("img")).toHaveLength(24);
+		expect(within(screen.getByRole("list", { name: "Tags in your search" })).getByText("first")).toBeInTheDocument();
+		expect(queryCalls(calls).filter(c => c.params.query === "second" && c.params.tags.includes("first"))).toEqual([]);
+		await act(async () => { release(); });
+		expect(await within(screen.getByRole("list", { name: "Tags in your search" })).findByText("second")).toBeInTheDocument();
+		await waitFor(() => expect(queryCalls(calls).pop().params).toMatchObject({ query: "second", tags: "second:1" }));
+	});
 });
