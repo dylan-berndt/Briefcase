@@ -148,6 +148,21 @@ export function TagLine({ tags, unmatched, onToggle }) {
 	</div>;
 }
 
+// Tags that would split the current results, from /api/font/refine. Clicking one adds it to the search, ticked.
+export function RefineLine({ refinements, onAdd }) {
+	if (refinements.length === 0) return null;
+	return <div className="TagLine RefineLine">
+		<span className="TagLabel">Narrow down:</span>
+		<ul className="Tags" aria-label="Tags to narrow your search">
+			{refinements.map(r =>
+				<li key={r.tag} className="Tag">
+					<button type="button" className="RefineTag" onClick={() => onAdd(r.tag)}
+						title={`About ${Math.round(r.share * 100)}% of the top results. Click to add.`}>+ {r.tag}</button>
+				</li>)}
+		</ul>
+	</div>;
+}
+
 // allowDescriptions shows the per-font description box; hidden for now, the endpoint is still there
 export default function SearchPage({ username, onNeedLogin = () => {}, allowDescriptions = false }) {
 	const initial = new URLSearchParams(window.location.search);
@@ -159,6 +174,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
+	const [refinements, setRefinements] = useState([]);
 	const topRef = useRef(null);
 	const generation = useRef(0);
 
@@ -221,6 +237,18 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		return () => controller.abort();
 	}, [query, page, tagParam, username]);
 
+	// 3. Tags that would split the top results for the ticked tags
+	useEffect(() => {
+		setRefinements([]);
+		if (!tagParam) return undefined;
+		const controller = new AbortController();
+		fetch('/api/font/refine?' + new URLSearchParams({ tags: tagParam }), { signal: controller.signal })
+			.then(response => response.ok ? response.json() : { refinements: [] })
+			.then(json => setRefinements(json.refinements))
+			.catch(() => {});   // optional extra, a failure just shows none
+		return () => controller.abort();
+	}, [tagParam]);
+
 	const navigate = useCallback((nextQuery, nextPage) => {
 		const params = new URLSearchParams();
 		if (nextQuery) params.set("q", nextQuery);
@@ -246,6 +274,13 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 	const toggleTag = (tag, next) => {
 		setTagSet(set => ({ ...set, tags: set.tags.map(t => t.tag === tag.tag ? { ...t, state: next } : t) }));
 		if (page !== 1) navigate(query, 1);   // different tags, different results: back to the first page
+	};
+
+	const addTag = (name) => {
+		setTagSet(set => set.tags.some(t => t.tag === name)
+			? { ...set, tags: set.tags.map(t => t.tag === name ? { ...t, state: "on" } : t) }
+			: { ...set, tags: [...set.tags, { tag: name, weight: 1, state: "on" }] });
+		if (page !== 1) navigate(query, 1);
 	};
 
 	// votes are filed under the tags the shown results were ranked on, not whatever the boxes say right now
@@ -296,6 +331,7 @@ export default function SearchPage({ username, onNeedLogin = () => {}, allowDesc
 		{tagSet === null && data === null && loading ? <p className="SearchMessage" role="status">Searching…</p> : null}
 		{tagSet === null ? null
 			: <TagLine tags={tagSet.tags} unmatched={tagSet.unmatched} onToggle={toggleTag} />}
+		{tagSet === null ? null : <RefineLine refinements={refinements} onAdd={addTag} />}
 		{data === null || tagSet === null ? null : <>
 			{data.total === 0 && tagSet.tags.length > 0
 				? <p className="SearchMessage">Tick a tag to see fonts.</p> : null}

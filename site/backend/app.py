@@ -205,11 +205,8 @@ def createApp(overrides=None):
                 return jsonify({"message": f"Invalid tags: {error}"}), 400
         else:
             terms, _, _ = index.describe(query, suggest=False)
-        return jsonify({"refinements": [
-            {"tag": name, "share": round(share, 3),
-             "opposites": [{"tag": other, "share": round(otherShare, 3)} for other, otherShare in opposites]}
-            for name, share, opposites in index.refinements(terms)
-        ]}), 200
+        return jsonify({"refinements": [{"tag": name, "share": round(share, 3)}
+                                         for name, share in index.refinements(terms)]}), 200
 
     @app.route("/api/font/query", methods=["GET"])
     @limiter.limit("120 per minute")

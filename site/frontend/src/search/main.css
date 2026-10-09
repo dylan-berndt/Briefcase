@@ -131,6 +131,27 @@
     border-color: var(--col-accent);
   }
 
+  /* tags that would split the results, under the tag line it adds to */
+  .RefineLine {
+    margin-top: -24px;
+  }
+
+  .RefineTag {
+    padding: 2px 8px;
+    font: inherit;
+    color: var(--col-text-muted);
+    background: transparent;
+    border: 1px solid var(--col-edge-hover);
+    border-radius: 0;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .RefineTag:hover {
+    color: var(--col-text);
+    border-color: var(--col-accent);
+  }
+
   .SearchMessage {
     margin-top: 24px;
     font-size: 12px;

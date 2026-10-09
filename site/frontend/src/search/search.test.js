@@ -332,7 +332,7 @@ describe("pagination", () => {
 
 		userEvent.click(within(nav).getByRole("button", { name: "Next" }));
 		await screen.findByText("Page 2 of 12 · 288 fonts");
-		expect(calls[calls.length - 1].params.page).toBe("2");
+		expect(queryCalls(calls).pop().params.page).toBe("2");
 		expect(screen.getByAltText("Font 24 specimen")).toBeInTheDocument();
 		expect(screen.queryByAltText("Font 0 specimen")).toBeNull();
 		expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
@@ -363,7 +363,7 @@ describe("pagination", () => {
 		userEvent.clear(screen.getByLabelText("Describe a font"));
 		userEvent.type(screen.getByLabelText("Describe a font"), "bold{enter}");
 		await screen.findByText("Page 1 of 12 · 288 fonts");
-		expect(calls[calls.length - 1].params).toMatchObject({ query: "bold", page: "1" });
+		expect(queryCalls(calls).pop().params).toMatchObject({ query: "bold", page: "1" });
 	});
 
 	test("the query and page live in the URL, and back goes back", async () => {
@@ -377,7 +377,7 @@ describe("pagination", () => {
 		window.history.pushState({}, "", "/?q=serif+bold");
 		act(() => { window.dispatchEvent(new PopStateEvent("popstate")); });
 		await screen.findByText("Page 1 of 12 · 288 fonts");
-		expect(calls[calls.length - 1].params.page).toBe("1");
+		expect(queryCalls(calls).pop().params.page).toBe("1");
 	});
 
 	test("opens straight onto a page from a shared link", async () => {
@@ -513,5 +513,30 @@ describe("feedback", () => {
 		view.rerender(<SearchPage username="alice" />);
 		await waitFor(() => expect(screen.getByRole("button", { name: "This font matched my query" })).toHaveAttribute("aria-pressed", "true"));
 		expect(calls.filter(c => c.path === "/api/font/query")).toHaveLength(2);
+	});
+});
+
+describe("narrowing down", () => {
+	test("offers the tags the server suggests and adds one, ticked, when clicked", async () => {
+		const calls = installFetch({
+			"/api/font/query": queryHandler(30),
+			"/api/font/refine": ({ params }) => jsonResponse({ refinements: params.tags.includes("wide")
+				? [] : [{ tag: "wide", share: 0.48 }, { tag: "rounded", share: 0.3 }] }),
+		});
+		render(<SearchPage username={null} />);
+		await search("technical");
+
+		const offered = within(await screen.findByRole("list", { name: "Tags to narrow your search" })).getAllByRole("button");
+		expect(offered.map(b => b.textContent)).toEqual(["+ wide", "+ rounded"]);
+		expect(offered[0]).toHaveAttribute("title", "About 48% of the top results. Click to add.");
+		expect(calls.find(c => c.path === "/api/font/refine").params).toEqual({ tags: "technical:1" });
+
+		userEvent.click(offered[0]);
+		await waitFor(() => expect([...calls].reverse().find(c => c.path === "/api/font/query").params.tags)
+			.toBe("technical:1,wide:1"));
+		const chips = within(screen.getByRole("list", { name: "Tags in your search" })).getAllByRole("listitem");
+		expect(chips.map(c => c.textContent)).toEqual(["technical", "wide"]);
+		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "wide: included");
+		await waitFor(() => expect(screen.queryByRole("list", { name: "Tags to narrow your search" })).toBeNull());
 	});
 });

@@ -502,7 +502,7 @@ def test_refine_endpoint(client):
     body = client.get("/api/font/refine", query_string={"query": "elegant"}).json
     assert body["refinements"]
     for entry in body["refinements"]:
-        assert set(entry) == {"tag", "share", "opposites"} and entry["tag"] != "elegant"
+        assert set(entry) == {"tag", "share"} and entry["tag"] != "elegant"
     same = client.get("/api/font/refine", query_string={"tags": "elegant"}).json
     assert same == body
     assert client.get("/api/font/refine", query_string={"query": "zzqx"}).json == {"refinements": []}
