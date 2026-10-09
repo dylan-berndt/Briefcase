@@ -61,6 +61,12 @@ class TagIndex:
             if rows:
                 self.groups[name] = np.array(sorted(set(rows)))
 
+        # every group's member rows back to back, so one maximum.reduceat gives all group probabilities at once
+        self.groupNames = list(self.groups)
+        self.memberRows = np.concatenate([self.groups[name] for name in self.groupNames]) if self.groups else \
+            np.empty(0, dtype=np.int64)
+        self.memberStarts = np.cumsum([0] + [len(self.groups[name]) for name in self.groupNames[:-1]])
+
         from synonyms import loadSuggester
         self.suggester = loadSuggester(self.groups, synonymTable, self.vocabulary.stem)
 
@@ -117,6 +123,56 @@ class TagIndex:
             return np.empty(0, dtype=np.int64)
         # stable, so equal scores keep corpus order and pages never overlap or skip
         return np.argsort(-self.score(terms), kind="stable")
+
+    def groupProbabilities(self, fonts):
+        """[numGroups, len(fonts)] float32, rows in groupNames order: the probability that each font has each group,
+        taken from its most confident member tag (members are spelling variants of one tag)."""
+        block = np.asarray(self.logits[:, np.sort(fonts)], dtype=np.float32)[self.memberRows]
+        return np.maximum.reduceat(1.0 / (1.0 + np.exp(-block)), self.memberStarts, axis=0)
+
+    def refinements(self, terms, top=200, count=8, redundancy=0.7, minVariance=0.01):
+        """Tags that would best split the current top results, to offer as the next tag to add.
+
+        Each group's probability is taken over the `top` best fonts for terms; groups are ranked by its variance,
+        which is highest for a tag that about half of those fonts confidently have and half confidently lack (not a
+        rare or a common one, and not one the model is unsure about). Going down that ranking, a group whose
+        correlation with one already listed (offered or opposite) is above `redundancy` splits the fonts the same way
+        and is skipped; one below -redundancy against an offered tag splits them the opposite way (wide against
+        narrow) and is listed as that tag's opposite. Groups already in terms are never offered.
+
+        Returns [(group, share, opposites)]: share is the mean probability over the top fonts, opposites is
+        [(group, share)]."""
+        order = self.rank(terms)[:top]
+        if len(order) < 2:
+            return []
+        probs = self.groupProbabilities(order)
+        share = probs.mean(axis=1)
+        centred = probs - share[:, None]
+        variance = (centred ** 2).mean(axis=1)
+        norms = np.sqrt((centred ** 2).sum(axis=1))
+        present = {name for name, _ in terms}
+
+        def correlation(a, b):
+            return centred[a] @ centred[b] / (norms[a] * norms[b])
+
+        chosen, opposites, listed = [], {}, []
+        for g in np.argsort(-variance, kind="stable"):
+            if len(chosen) == count or variance[g] < minVariance:
+                break
+            if self.groupNames[g] in present:
+                continue
+            # anything already listed, offered or opposite, that splits the same way makes this one a repeat
+            if any(correlation(g, other) > redundancy for other in listed):
+                continue
+            listed.append(g)
+            againstChosen = [correlation(g, c) for c in chosen]
+            if againstChosen and min(againstChosen) < -redundancy:
+                opposites[chosen[int(np.argmin(againstChosen))]].append(g)
+                continue
+            chosen.append(g)
+            opposites[g] = []
+        return [(self.groupNames[g], float(share[g]), [(self.groupNames[o], float(share[o])) for o in opposites[g]])
+                for g in chosen]
 
     def describe(self, query, suggest=True):
         """What a query means as a list of tags: (terms, suggested, unmatched).

@@ -305,3 +305,50 @@ def test_the_shipped_table_is_well_formed():
         for tag, score, via in entries:
             assert isinstance(tag, str) and 0 < score <= 1 and isinstance(via, str)
         assert [e[1] for e in entries] == sorted((e[1] for e in entries), reverse=True)
+
+
+def splitBundle(tmp_path):
+    """40 fonts that all have technical. wide splits them in half, narrow is its mirror, rounded nearly duplicates
+    wide, serif splits them independently (odd/even), and script is on none of them."""
+    vocab = ["technical", "wide", "narrow", "rounded", "serif", "script"]
+    logits = np.full((40, len(vocab)), -6.0)
+    logits[:, 0] = 6.0
+    logits[:20, 1] = 6.0
+    logits[20:, 2] = 6.0
+    logits[:19, 3] = 6.0
+    logits[::2, 4] = 6.0
+    fonts = [{"key": f"t:{i}", "name": f"F{i}", "source": "google", "url": "https://x", "creator": None}
+             for i in range(40)]
+    writeBundle(str(tmp_path), fonts, vocab, logits, [b"x"] * 40)
+    return TagIndex(Bundle(str(tmp_path)))
+
+
+def test_refinements_split_the_top_fonts_without_repeating_a_split(tmp_path):
+    index = splitBundle(tmp_path)
+    refinements = index.refinements([("technical", 1.0)], top=40)
+    offered = {name: (share, opposites) for name, share, opposites in refinements}
+    # one of wide/narrow is offered with the other as its opposite; rounded splits like wide so it is dropped;
+    # serif is a different split; technical is already in the query and script splits nothing
+    assert set(offered) == {"wide", "serif"} or set(offered) == {"narrow", "serif"}
+    first = "wide" if "wide" in offered else "narrow"
+    other = "narrow" if first == "wide" else "wide"
+    assert [name for name, _ in offered[first][1]] == [other]
+    assert offered["serif"][1] == []
+    for share, opposites in offered.values():
+        assert abs(share - 0.5) < 0.01
+        assert all(abs(s - 0.5) < 0.01 for _, s in opposites)
+
+
+def test_refinements_respect_count_and_need_a_query(tmp_path):
+    index = splitBundle(tmp_path)
+    assert len(index.refinements([("technical", 1.0)], top=40, count=1)) == 1
+    assert index.refinements([]) == []
+
+
+def test_refinements_on_the_fake_bundle(index, planted):
+    name = plantedWords(index, planted, count=1)[0]
+    refinements = index.refinements([(name, 1.0)])
+    assert refinements and len(refinements) <= 8
+    assert name not in {n for n, _, _ in refinements}
+    offered = [n for n, _, _ in refinements]
+    assert len(set(offered)) == len(offered)

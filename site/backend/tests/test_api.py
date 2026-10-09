@@ -496,3 +496,15 @@ def test_tags_endpoint_suggests_tags_for_unknown_words(makeApp, tmp_path):
     assert body["tags"] == [] and body["unmatched"] == []
     assert body["suggested"] == [{"tag": "horror", "via": "grisly", "score": 0.5},
                                  {"tag": "grunge", "via": "gruesome", "score": 0.3}]
+
+
+def test_refine_endpoint(client):
+    body = client.get("/api/font/refine", query_string={"query": "elegant"}).json
+    assert body["refinements"]
+    for entry in body["refinements"]:
+        assert set(entry) == {"tag", "share", "opposites"} and entry["tag"] != "elegant"
+    same = client.get("/api/font/refine", query_string={"tags": "elegant"}).json
+    assert same == body
+    assert client.get("/api/font/refine", query_string={"query": "zzqx"}).json == {"refinements": []}
+    assert client.get("/api/font/refine", query_string={"tags": "-elegant"}).status_code == 400
+    assert client.get("/api/font/refine", query_string={"query": "a" * 201}).status_code == 400
