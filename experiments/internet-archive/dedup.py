@@ -3,8 +3,9 @@ Near-duplicate analysis over one or more build_cache.py caches: how much of the 
 would discard.
 
 Similarity between two fonts = cosine similarity of their concatenated dedup glyphs (DEDUP_LETTERS, each
-centerAndScaleNormalize'd, 8 x 48 x 48 = 18,432 pixels). Fonts missing any dedup letter can't be compared and are
-left out of the corpus counts.
+centerAndScaleNormalize'd, 8 x 48 x 48 = 18,432 pixels). Fonts missing any dedup letter can't be compared, and fonts
+that draw the same placeholder box for every letter (see interLetterSimilarity) aren't fonts; both are left out of
+the corpus counts.
 
 Discard rule, per threshold t: byte-identical copies (same sha256, similarity 1) collapse to one file first. Then
 every pair of distinct fonts with s > t is visited in random order; if both are still kept, one of the two, chosen
@@ -31,6 +32,20 @@ _repoRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 os.chdir(_repoRoot)
 
 DEFAULT_THRESHOLDS = [0.90, 0.92, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 0.995, 0.999]
+PLACEHOLDER_SIMILARITY = 0.999   # mean cosine between a font's own dedup letters; above = one box drawn for all
+
+
+def interLetterSimilarity(dedup, rows, batch=4096):
+    """Mean cosine between each font's own dedup glyphs. Fonts that map every letter to the same placeholder outline
+    (a .notdef-style box that passes the cmap check) score ~1; real fonts, including letters-in-a-frame decorative
+    ones, stay below ~0.995 (checked by eye on the Mega Pack chunk)."""
+    out = np.empty(len(rows), np.float32)
+    iu = np.triu_indices(dedup.shape[1], 1)
+    for s in range(0, len(rows), batch):
+        b = dedup[rows[s:s + batch]].reshape(len(rows[s:s + batch]), dedup.shape[1], -1).astype(np.float32)
+        b /= np.linalg.norm(b, axis=2, keepdims=True) + 1e-8
+        out[s:s + batch] = np.einsum("nid,njd->nij", b, b)[:, iu[0], iu[1]].mean(1)
+    return out
 
 
 def loadCaches(cacheDirs):
@@ -44,11 +59,17 @@ def loadCaches(cacheDirs):
             meta = json.load(f)
         dedupIndex = [meta["letters"].index(c) for c in meta["dedupLetters"]]
         comparable = present[:, dedupIndex].all(1)
+        placeholder = np.zeros(len(present), bool)
+        candidates = np.nonzero(comparable)[0]
+        placeholder[candidates] = interLetterSimilarity(np.load(os.path.join(cache, "dedup.npy"), mmap_mode="r"),
+                                                        candidates) > PLACEHOLDER_SIMILARITY
         for entry in files:
             if entry["row"] is None:
                 fileContent.append(-2)            # unreadable file
             elif not comparable[entry["row"]]:
                 fileContent.append(-1)            # no dedup glyphs (failed to open, or letters missing)
+            elif placeholder[entry["row"]]:
+                fileContent.append(-3)            # every letter drawn as the same placeholder box
             else:
                 sha = entry["sha256"]
                 if sha not in contentOf:
@@ -203,7 +224,8 @@ def main():
 
     pairSheet(sources, i, j, s, sorted(args.thresholds), os.path.join(out, "pairs_near_t.png"))
     results = {"caches": args.caches, "files": nFiles, "unreadableFiles": int((fileContent == -2).sum()),
-               "notComparable": int((fileContent == -1).sum()), "corpusBeforeDedup": comparableFiles,
+               "notComparable": int((fileContent == -1).sum()), "placeholderGlyphs": int((fileContent == -3).sum()),
+               "corpusBeforeDedup": comparableFiles,
                "distinctBySha256": nContent, "exactCopies": exactCopies, "seeds": args.seeds,
                "table": table, "seconds": time.time() - started}
     with open(os.path.join(out, "results.json"), "w") as f:
@@ -211,7 +233,8 @@ def main():
     os.remove(os.path.join(out, "vectors.npy"))
 
     print(f"\nfiles {nFiles}: unreadable {results['unreadableFiles']}, "
-          f"missing a dedup letter / failed to open {results['notComparable']}")
+          f"missing a dedup letter / failed to open {results['notComparable']}, "
+          f"placeholder box for every letter {results['placeholderGlyphs']}")
     print(f"corpus before dedup: {comparableFiles}  (byte-identical copies among them: {exactCopies})\n")
     print("| t | pairs with s > t | discarded | % discarded | corpus after |")
     print("|---|---|---|---|---|")
