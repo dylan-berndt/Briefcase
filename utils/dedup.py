@@ -7,8 +7,9 @@ Fonts missing a dedup letter can't be compared and are kept. Fonts that draw the
 letter (they map the letters in their cmap but every glyph is a .notdef-style rectangle) are always dropped.
 
 Rule for a threshold t: visit every pair with s > t in random order; if both fonts are still kept, drop one of the
-two at random. Byte-identical font files already share one key (standard.fontKey hashes the file), so they collapse
-before this step.
+two at random, except that a MyFonts font is kept over a font from any other source (MyFonts carries the tags the
+tagging models train on; the font files of other sources don't). Byte-identical font files already share one key
+(standard.fontKey hashes the file), so they collapse before this step.
 
 The pair search is exact (blockwise matmul over the upper triangle, on a CUDA GPU through torch when available):
 an SVD projection + faiss range search was tried and its cosine error (0.29 at the 99.99th percentile, 384 dims)
@@ -111,16 +112,20 @@ def exactPairs(vectors, threshold, rowBlock=4096, colBlock=16384):
     return np.concatenate(allI), np.concatenate(allJ), np.concatenate(allS)
 
 
-def greedyDiscard(n, i, j, s, t, seed):
-    """Boolean keep mask over n compared fonts: pairs with s > t in random order, drop a random one of each pair
-    whose fonts are both still kept."""
+def greedyDiscard(n, i, j, s, t, seed, preferred=None):
+    """Boolean keep mask over n compared fonts: pairs with s > t in random order, drop one of each pair whose fonts are
+    both still kept -- the non-preferred one if exactly one is preferred (bool mask over the n fonts), else at random."""
     rng = np.random.default_rng(seed)
     order = rng.permutation(np.nonzero(s > t)[0])
     coins = (rng.random(len(order)) < 0.5).tolist()
+    preferred = np.zeros(n, bool) if preferred is None else preferred
     alive = np.ones(n, bool)
     for a, b, coin in zip(i[order].tolist(), j[order].tolist(), coins):
         if alive[a] and alive[b]:
-            alive[a if coin else b] = False
+            if preferred[a] != preferred[b]:
+                alive[b if preferred[a] else a] = False
+            else:
+                alive[a if coin else b] = False
     return alive
 
 
@@ -128,19 +133,20 @@ class NearDuplicates:
     """keys: one per font in the corpus (any hashable). compared: indices of fonts with every dedup letter;
     placeholder: bool over compared; (i, j, s): pairs above MIN_THRESHOLD, indexing into compared."""
 
-    def __init__(self, keys, compared, placeholder, i, j, s):
+    def __init__(self, keys, compared, placeholder, i, j, s, fingerprint=""):
         self.keys, self.compared, self.placeholder = list(keys), np.asarray(compared), np.asarray(placeholder)
         self.i, self.j, self.s = i, j, s
+        self.fingerprint = fingerprint
 
     # ---------------------------------------------------------------- building
 
     @classmethod
-    def build(cls, keys, glyphsOf, cachePath, workers=None):
+    def build(cls, keys, glyphsOf, cachePath, fingerprint=""):
         """glyphsOf(index) -> list of the DEDUP_LETTERS glyph images for font `index`, or None if any is missing.
-        Cached at cachePath (.npz); rebuilt only if the corpus keys changed."""
+        Cached at cachePath (.npz); rebuilt unless both the corpus keys and the fingerprint match."""
         if os.path.exists(cachePath):
             cached = cls.load(cachePath)
-            if cached.keys == list(keys):
+            if cached.keys == list(keys) and cached.fingerprint == fingerprint:
                 print(f"dedup: pairs cached in {cachePath}", flush=True)
                 return cached
         started = time.time()
@@ -181,7 +187,7 @@ class NearDuplicates:
         real = np.array(real, np.int64)
         i, j, s = exactPairs(vectors[:len(real)], MIN_THRESHOLD)
         i, j = real[i].astype(np.int32), real[j].astype(np.int32)
-        result = cls(keys, compared, placeholder, i, j, s)
+        result = cls(keys, compared, placeholder, i, j, s, fingerprint)
         result.save(cachePath)
         del vectors
         os.remove(vectorPath)
@@ -212,14 +218,33 @@ class NearDuplicates:
         digest = hashlib.sha256("\n".join(keys).encode("utf-8")).hexdigest()[:16]
         return cls.build(keys, glyphsOf, os.path.join(cacheDir, f"pairs_{digest}.npz"))
 
+    @staticmethod
+    def glyphCacheFingerprint(meta):
+        return hashlib.sha256("\n".join(map(str, meta["names"])).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def glyphCacheMyFonts(meta):
+        """Row indices of a glyph cache's MyFonts fonts (the preferred side of a near-duplicate pair)."""
+        return {row for row, source in enumerate(meta["sources"]) if source == "myfonts"}
+
+    @classmethod
+    def loadGlyphCache(cls, dataDir):
+        """The dedup.npz build_glyph_cache.py wrote, checked against the cache it belongs to."""
+        with open(os.path.join(dataDir, "meta.json"), encoding="utf8") as f:
+            meta = json.load(f)
+        nearDuplicates = cls.load(os.path.join(dataDir, "dedup.npz"))
+        if nearDuplicates.fingerprint != cls.glyphCacheFingerprint(meta):
+            raise RuntimeError(f"{dataDir}/dedup.npz belongs to a different build of the cache; rebuild it")
+        return nearDuplicates, cls.glyphCacheMyFonts(meta)
+
     @classmethod
     def fromGlyphCache(cls, dataDir):
         """experiments/levjepa/build_glyph_cache.py format; keys are row indices of glyphs.npy."""
         glyphs = np.load(os.path.join(dataDir, "glyphs.npy"), mmap_mode="r")
         present = np.load(os.path.join(dataDir, "present.npy"))
         with open(os.path.join(dataDir, "meta.json"), encoding="utf8") as f:
-            allLetters = json.load(f)["letters"]
-        letterIndex = [allLetters.index(c) for c in DEDUP_LETTERS]
+            meta = json.load(f)
+        letterIndex = [meta["letters"].index(c) for c in DEDUP_LETTERS]
         comparable = present[:, letterIndex].all(1)
 
         def glyphsOf(index):
@@ -227,31 +252,42 @@ class NearDuplicates:
                 return None
             return [g.astype(np.float32) / 255.0 for g in glyphs[index, letterIndex]]
 
-        return cls.build(list(range(len(glyphs))), glyphsOf, os.path.join(dataDir, "dedup.npz"))
+        return cls.build(list(range(len(glyphs))), glyphsOf, os.path.join(dataDir, "dedup.npz"),
+                         cls.glyphCacheFingerprint(meta))
 
     def save(self, path):
         np.savez_compressed(path, keys=np.array(self.keys, dtype=object), compared=self.compared,
-                            placeholder=self.placeholder, i=self.i, j=self.j, s=self.s)
+                            placeholder=self.placeholder, i=self.i, j=self.j, s=self.s,
+                            fingerprint=np.array(self.fingerprint))
 
     @classmethod
     def load(cls, path):
         data = np.load(path, allow_pickle=True)
-        return cls(data["keys"].tolist(), data["compared"], data["placeholder"], data["i"], data["j"], data["s"])
+        return cls(data["keys"].tolist(), data["compared"], data["placeholder"], data["i"], data["j"], data["s"],
+                   str(data["fingerprint"]) if "fingerprint" in data else "")
 
     # ---------------------------------------------------------------- using
 
-    def discarded(self, t, seed=0):
-        """Keys dropped at threshold t: placeholder-box fonts plus the random-rule discards."""
+    def preferredMask(self, preferred):
+        """Bool mask over compared fonts for a collection of preferred keys (MyFonts)."""
+        preferred = set(preferred or ())
+        return np.array([self.keys[k] in preferred for k in self.compared], bool)
+
+    def discarded(self, t, seed=0, preferred=None):
+        """Keys dropped at threshold t: placeholder-box fonts plus the rule's discards (preferred keys win ties)."""
         if t < MIN_THRESHOLD:
             raise ValueError(f"pairs are only cached above {MIN_THRESHOLD}")
-        alive = greedyDiscard(len(self.compared), self.i, self.j, self.s, t, seed) & ~self.placeholder
+        alive = greedyDiscard(len(self.compared), self.i, self.j, self.s, t, seed,
+                              self.preferredMask(preferred)) & ~self.placeholder
         return {self.keys[k] for k in self.compared[~alive]}
 
-    def table(self, thresholds=THRESHOLDS, seeds=5):
+    def table(self, thresholds=THRESHOLDS, seeds=5, preferred=None):
         corpus = len(self.keys) - int(self.placeholder.sum())
+        mask = self.preferredMask(preferred)
         rows = []
         for t in thresholds:
-            kept = [int((greedyDiscard(len(self.compared), self.i, self.j, self.s, t, seed) & ~self.placeholder).sum())
+            kept = [int((greedyDiscard(len(self.compared), self.i, self.j, self.s, t, seed, mask)
+                         & ~self.placeholder).sum())
                     for seed in range(seeds)]
             discarded = len(self.compared) - int(self.placeholder.sum()) - float(np.mean(kept))
             rows.append({"t": t, "pairs": int((self.s > t).sum()), "discarded": discarded,
@@ -259,8 +295,8 @@ class NearDuplicates:
         return {"fonts": len(self.keys), "notCompared": len(self.keys) - len(self.compared),
                 "placeholder": int(self.placeholder.sum()), "corpus": corpus, "rows": rows}
 
-    def printTable(self, thresholds=THRESHOLDS, seeds=5):
-        table = self.table(thresholds, seeds)
+    def printTable(self, thresholds=THRESHOLDS, seeds=5, preferred=None):
+        table = self.table(thresholds, seeds, preferred)
         print(f"\nfonts {table['fonts']}: {table['placeholder']} placeholder-box fonts dropped, "
               f"{table['notCompared']} missing a letter of {DEDUP_LETTERS} (kept, not compared)")
         print(f"corpus before dedup: {table['corpus']}\n")
@@ -273,10 +309,11 @@ class NearDuplicates:
         return table
 
 
-def applyDedup(config, names, letters, paths):
+def applyDedup(config, names, letters, paths, preferred=()):
     """Hook for datasets that concatenate several sources' (names, letters, paths). Always drops repeated
     (font, letter) entries (the same font file in two directories has the same hashed key); with the config key
-    "dedupThreshold" also drops placeholder-box fonts and near-duplicates (NearDuplicates.discarded, seed 0)."""
+    "dedupThreshold" also drops placeholder-box fonts and near-duplicates (NearDuplicates.discarded, seed 0),
+    keeping fonts in `preferred` (the MyFonts names) over the rest."""
     seen, keep = set(), np.zeros(len(names), bool)
     for index, entry in enumerate(zip(names.tolist(), letters.tolist())):
         if entry not in seen:
@@ -289,7 +326,7 @@ def applyDedup(config, names, letters, paths):
     if "dedupThreshold" in config:
         cacheDir = config.dedupCacheDir if "dedupCacheDir" in config else DEFAULT_CACHE_DIR
         nearDuplicates = NearDuplicates.fromPaths(names, letters, paths, cacheDir)
-        dropped = nearDuplicates.discarded(config.dedupThreshold)
+        dropped = nearDuplicates.discarded(config.dedupThreshold, preferred=preferred)
         keep = ~np.isin(names, list(dropped))
         print(f"dedup: t={config.dedupThreshold} drops {len(dropped)} of {len(nearDuplicates.keys)} fonts "
               f"({(~keep).sum()} glyphs)")
@@ -306,15 +343,18 @@ def main():
     args = p.parse_args()
     if args.glyphCache:
         nearDuplicates = NearDuplicates.fromGlyphCache(args.glyphCache)
+        with open(os.path.join(args.glyphCache, "meta.json"), encoding="utf8") as f:
+            preferred = NearDuplicates.glyphCacheMyFonts(json.load(f))
     else:
         from utils.config import Config
         from utils.loaders.myfonts import loadMyFontsImagePaths
         from utils.loaders.standard import collectFontSetPaths
         dataset = Config().load(args.config).dataset
         cacheSuffix = dataset.cacheSuffix if "cacheSuffix" in dataset else ""
-        parts = []
+        parts, preferred = [], set()
         if "myFonts" in dataset.directories:
             parts.append(loadMyFontsImagePaths(dataset.directories.myFonts, dataset.fontSize, cacheSuffix=cacheSuffix))
+            preferred = set(parts[-1]["names"].tolist())
         for directory in (dataset.directories.standard if "standard" in dataset.directories else []):
             parts.append(collectFontSetPaths(directory, dataset.fontSize, dataset.maps, cacheSuffix=cacheSuffix))
         names, letters, paths = (np.concatenate([part[k] for part in parts]) for k in ("names", "letters", "paths"))
@@ -322,7 +362,7 @@ def main():
         nearDuplicates = NearDuplicates.fromPaths(names, letters, paths,
                                                   dataset.dedupCacheDir if "dedupCacheDir" in dataset
                                                   else DEFAULT_CACHE_DIR)
-    nearDuplicates.printTable(seeds=args.seeds)
+    nearDuplicates.printTable(seeds=args.seeds, preferred=preferred)
 
 
 if __name__ == "__main__":

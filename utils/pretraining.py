@@ -151,8 +151,10 @@ class PairedImageData(FontData):
             names = []
             letters = []
             paths = []
+            myFontsNames = set()
             if "myFonts" in config.directories:
                 data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize, cacheSuffix=cacheSuffix)
+                myFontsNames = set(data["names"].tolist())
                 names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
@@ -162,7 +164,7 @@ class PairedImageData(FontData):
             names = np.concatenate(names, axis=0); letters = np.concatenate(letters, axis=0); paths = np.concatenate(paths, axis=0)
             # after every source is cached and loaded: drop repeated font files and, with "dedupThreshold",
             # near-duplicate and placeholder-box fonts across all sources (utils/dedup.py)
-            names, letters, paths = applyDedup(config, names, letters, paths)
+            names, letters, paths = applyDedup(config, names, letters, paths, preferred=myFontsNames)
         else:
             data = loadMyFontsImagePaths(config.directory, config.fontSize, cacheSuffix=cacheSuffix)
             names, letters, paths = data["names"], data["letters"], data["paths"]

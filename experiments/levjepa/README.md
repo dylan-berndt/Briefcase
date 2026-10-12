@@ -13,9 +13,9 @@ All sources use the MyFonts rendering (tight crop, scale-to-fit).
 | file | does |
 |---|---|
 | `build_glyph_cache.py` | builds `dataset/levjepa/` (uint8 `[N, 52, 48, 48]` memmap + presence mask) from the sources in `configs/levjepa.json` (MyFonts, DaFont, Google, Internet Archive), all on the MyFonts render shared with `utils/loaders/standard.py`, then runs the near-duplicate step (`utils/dedup.py`: `dedup.npz`, table in `dedup.json`). The Sept 30 build had 40,112 fonts. |
-| `train.py` | pretraining. Every setting that defines a run is in `configs/levjepa.json` (copy it per run; `dataset.dedupThreshold` picks the near-duplicate cut); flags are operational only. `--supervise` restarts and resumes after crashes, and resuming refuses a run whose config changed. Logs `LeVJEPA/*` to wandb |
+| `train.py` | pretraining. Every setting that defines a run is in `configs/levjepa.json` (copy it per run; `dataset.dedupThreshold` picks the near-duplicate cut); flags are operational only. `--supervise` restarts and resumes after crashes, and resuming refuses a run whose config changed. `--rebuild` deletes the glyph cache's files and rebuilds it (all sources, then dedup) before training, once even under `--supervise`. Logs `LeVJEPA/*` to wandb |
 | `snapshot_watcher.py` | copies the encoder every N steps (train.py keeps only the latest); standard library only, no GPU use |
-| `probe.py` | the go/no-go: frozen features → the 40-epoch MLP probe on MyFonts tags → ICCV mAP / NDCG, AMT, top-50 ROC/PR-AUC. `--control` probes old ViT checkpoints; `--bitmap64` reads 64px glyphs |
+| `probe.py` | the go/no-go: frozen features → the 40-epoch MLP probe on MyFonts tags → ICCV mAP / NDCG, AMT, top-50 ROC/PR-AUC. Settings in `configs/levjepaProbe.json`; `--control` probes old ViT checkpoints; `--bitmap64` reads 64px glyphs |
 | `embed.py` | `loadEncoder` / `embedFont` / `embedFonts`, plus a CLI that embeds the whole cache to `embeddings/levjepa_<run>_<step>.npz/.json` |
 
 ## Results (`results/levjepaProbe/`)

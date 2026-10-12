@@ -9,7 +9,7 @@ standardized features) on the official MyFonts train split, and reports on the t
   LeVJEPA snapshot : --ckpt checkpoints/pretrain/levjepa-d256-e200-snapshots/step5000
       --mode full    the whole font in one pass, every patch of every present glyph, no token dropping, CLS output
                      (the embedding the design calls for; 1,872 tokens for a 52-glyph font)
-      --mode sparse  mean CLS over --sparseViews random ink-biased global views with the training keep ratio
+      --mode sparse  mean CLS over sparseViews (config) random ink-biased global views with the training keep ratio
                      (what the encoder saw while training; useful to tell "sparse->full shift" from "bad features")
   control          : --control checkpoints/pretrain/best [--glyphs lower|all]
                      mean of the L2-normalized per-glyph CLS over 26 lowercase or all 52 glyphs, same cache and probe
@@ -17,7 +17,7 @@ standardized features) on the official MyFonts train split, and reports on the t
 
 Safe to run while training: the process caps its own CUDA allocator (--vramFraction), refuses to start if the card has
 less than --minFreeGB free, uses small batches, and the probe head trains on the CPU. It will slow training while it embeds.
-Fonts are the ones in dataset/levjepa with >= --minGlyphs glyphs, so the test set is a little smaller than the official
+Fonts are the ones in the glyph cache with >= minGlyphs glyphs (configs/levjepaProbe.json), so the test set is a little smaller than the official
 1,877 fonts.
 
     python -u experiments/levjepa/probe.py --ckpt <snapshot dir>
@@ -48,38 +48,34 @@ import torch.nn.functional as F
 
 import train as levjepa          # Encoder, ViewSampler (experiments/levjepa/train.py)
 import finetuneTags as ft        # readList, loadTags, top50Metrics, iccvMetrics, amtAccuracy (repo root)
+from utils.config import loadRunConfig
 from utils.vit import ViT
 
 RESULTS = os.path.join("results", "levjepaProbe")
 
 
 def parseArgs():
+    """Probe settings (glyph cache, MyFonts dataset dir, minGlyphs, probe epochs/seed, sparse-view sampling) are in the
+    config file, configs/levjepaProbe.json. The flags pick what to probe and how this process runs."""
     p = argparse.ArgumentParser()
+    p.add_argument("--config", default=os.path.join("configs", "levjepaProbe.json"))
     p.add_argument("--ckpt", help="LeVJEPA encoder dir (checkpoint.pt + config.json)")
     p.add_argument("--control", help="old ViT checkpoint dir, e.g. checkpoints/pretrain/best")
     p.add_argument("--glyphs", choices=["lower", "all"], default="lower", help="control: which glyphs to pool")
     p.add_argument("--bitmap64", action="store_true", help="control: read 64px glyphs from dataset/smallimage_64")
     p.add_argument("--mode", choices=["full", "sparse"], default="full")
-    p.add_argument("--sparseViews", type=int, default=8)
-    p.add_argument("--keep", type=float, default=0.10)
-    p.add_argument("--inkFrac", type=float, default=0.75)
-    p.add_argument("--inkThreshold", type=float, default=0.1)
-    p.add_argument("--data", default=os.path.join("dataset", "levjepa"))
-    p.add_argument("--datasetDir", default="dataset")
-    p.add_argument("--minGlyphs", type=int, default=26)
-    p.add_argument("--maxFonts", type=int, default=None, help="subsample fonts per split (cheap probe)")
-    p.add_argument("--batch", type=int, default=8, help="fonts per forward in full mode (64 in sparse, 16 for control)")
-    p.add_argument("--epochs", type=int, default=40)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    p.add_argument("--vramFraction", type=float, default=0.30)
-    p.add_argument("--minFreeGB", type=float, default=2.5)
     p.add_argument("--tag", default=None, help="output name (default derived from the checkpoint dir)")
-    p.add_argument("--wandb", action="store_true", help="log to a separate wandb run under LeVJEPA/probe/")
     p.add_argument("--follow", help="snapshots dir: probe every new stepN folder as it appears")
     p.add_argument("--total", type=int, default=59000, help="--follow exits after this step")
     p.add_argument("--followPoll", type=float, default=300.0)
-    return p.parse_args()
+    p.add_argument("--maxFonts", type=int, default=None, help="subsample fonts per split (cheap probe)")
+    p.add_argument("--batch", type=int, default=8, help="fonts per forward in full mode (64 in sparse, 16 for control)")
+    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--vramFraction", type=float, default=0.30)
+    p.add_argument("--minFreeGB", type=float, default=2.5)
+    p.add_argument("--wandb", action="store_true", help="log to a separate wandb run under LeVJEPA/probe/")
+    args = p.parse_args()
+    return loadRunConfig(args.config, args)
 
 
 # ------------------------------------------------------------------ data
@@ -348,7 +344,7 @@ def main():
     args = parseArgs()
     assert args.follow or args.ckpt or args.control, "give --ckpt, --control or --follow"
     guardGpu(args)
-    cache = Cache(args.data)
+    cache = Cache(args.glyphCache)
     if not args.follow:
         result = runProbe(args, cache)
         if args.wandb:

@@ -66,8 +66,10 @@ class CombinedQueryData:
             names = []
             letters = []
             paths = []
+            myFontsNames = set()
             if "myFonts" in config.directories:
                 data = loadMyFontsImagePaths(config.directories.myFonts, config.fontSize)
+                myFontsNames = set(data["names"].tolist())
                 names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
             if "standard" in config.directories:
                 for directory in config.directories.standard:
@@ -75,7 +77,7 @@ class CombinedQueryData:
                     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
 
             names = np.concatenate(names, axis=0); letters = np.concatenate(letters, axis=0); paths = np.concatenate(paths, axis=0)
-            names, letters, paths = applyDedup(config, names, letters, paths)
+            names, letters, paths = applyDedup(config, names, letters, paths, preferred=myFontsNames)
         else:
             data = loadMyFontsImagePaths(config.directory, config.fontSize)
             names, letters, paths = data["names"], data["letters"], data["paths"]

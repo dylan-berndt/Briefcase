@@ -10,10 +10,10 @@
 #
 # Font representation: mean of the L2-normalized per-glyph CLS vectors, the same pooling
 # utils/embeddings.generateEmbeddings uses for embeddings/all.json. Training samples
-# --glyphsPerFont random letters per font per step; evaluation uses all 26.
+# glyphsPerFont random letters per font per step; evaluation uses all 26.
 #
 # No rotation/aspect augmentation: tags describe slant and width, so those augmentations would
-# randomize the very attributes being predicted. --shiftAug adds a small random translation only.
+# randomize the very attributes being predicted. shiftAug adds a small random translation only.
 #
 # Metrics (all on the official splits):
 #   - top-50 macro ROC-AUC / PR-AUC, the music auto-tagging protocol (Won et al. 2020). Val
@@ -23,8 +23,8 @@
 # Test metrics are reported twice from the same code: at the end of the head-only phase
 # ("frozenBaseline") and for the best finetuned epoch.
 #
-#   python finetuneTags.py                            # full run (GPU)
-#   python finetuneTags.py --maxFonts 300 --epochs 2  # smoke test
+#   python finetuneTags.py                                  # full run (GPU), settings in configs/finetuneTags.json
+#   python finetuneTags.py --maxFonts 300 --maxEpochs 2     # smoke test
 
 import argparse
 import csv
@@ -42,6 +42,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score, average_precision_score
 
+from utils.config import loadRunConfig
 from utils.vit import ViT
 from utils.loaders.myfonts import loadRochesterImage
 
@@ -50,28 +51,17 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def parseArgs():
+    """Every setting that defines a run is in the config file (configs/finetuneTags.json: data, model, training,
+    output; minTagCount 1 keeps every train tag so the ICCV query sets stay comparable, shiftAug is the max random
+    translation in pixels, 0 = off). The flags only change how this process runs."""
     p = argparse.ArgumentParser()
-    p.add_argument("--datasetDir", default="dataset")
-    p.add_argument("--backbone", default=os.path.join("checkpoints", "pretrain", "best"))
-    p.add_argument("--outDir", default=os.path.join("checkpoints", "retrieval", "finetuneTags"))
-    p.add_argument("--fontSize", type=int, default=32)
-    p.add_argument("--minTagCount", type=int, default=1, help="1 keeps every train tag, so the ICCV query sets stay comparable")
-    p.add_argument("--epochs", type=int, default=30)
-    p.add_argument("--headOnlyEpochs", type=int, default=3)
-    p.add_argument("--batchFonts", type=int, default=64)
-    p.add_argument("--glyphsPerFont", type=int, default=8)
-    p.add_argument("--headLR", type=float, default=1e-3)
-    p.add_argument("--backboneLR", type=float, default=1e-5)
-    p.add_argument("--weightDecay", type=float, default=0.05)
-    p.add_argument("--hidden", type=int, default=1024)
-    p.add_argument("--loss", choices=["bce", "asl"], default="bce")
-    p.add_argument("--shiftAug", type=int, default=0, help="max random translation in pixels (0 = off)")
-    p.add_argument("--patience", type=int, default=5)
+    p.add_argument("--config", default=os.path.join("configs", "finetuneTags.json"))
     p.add_argument("--maxFonts", type=int, default=None, help="subsample fonts per split, for smoke tests")
+    p.add_argument("--maxEpochs", type=int, default=None, help="stop after this many epochs, for smoke tests")
     p.add_argument("--workers", type=int, default=os.cpu_count())
-    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--wandb", action="store_true")
-    return p.parse_args()
+    args = p.parse_args()
+    return loadRunConfig(args.config, args)
 
 
 # ---------------------------------------------------------------- data
@@ -323,7 +313,7 @@ def main():
     frozenBaseline = None
     badEpochs = 0
 
-    for epoch in range(args.epochs):
+    for epoch in range(min(args.epochs, args.maxEpochs or args.epochs)):
         if epoch == args.headOnlyEpochs:
             # end of head-only phase == frozen-backbone baseline, measured with this exact code
             frozenBaseline = testReport(model, splits["test"], vocab, vocabIndex, top50Idx, args)
@@ -390,6 +380,8 @@ def main():
     printReport("finetuned, test", finetuned)
 
     vitConfig.save(os.path.join(outPath, "config.json"))
+    with open(os.path.join(outPath, "runConfig.json"), "w") as f:
+        json.dump(args.sections, f, indent=2)   # the configs/finetuneTags.json this run used
     with open(os.path.join(outPath, "vocab.json"), "w") as f:
         json.dump(vocab, f)
     with open(os.path.join(outPath, "metrics.json"), "w") as f:

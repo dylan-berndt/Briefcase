@@ -51,6 +51,8 @@ from utils.loaders.standard import RENDER_PX, fontFilePaths, fontKey, openFont, 
 LETTERS = "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 FONT_SIZE = 32                                  # -> 48px canvas, 32px glyph box (matches the 48px caches)
 IMAGE_SIZE = int(FONT_SIZE * 1.5)
+OUTPUT_FILES = ("glyphs.npy", "present.npy", "meta.json", "preview.png", "dedup.npz", "dedup.json",
+                "dedup.npz.vectors.npy")
 
 
 # ---------------------------------------------------------------- workers
@@ -127,6 +129,7 @@ def main():
     p.add_argument("--out", default=None, help="override the config's dataset.glyphCache (quick checks)")
     p.add_argument("--limit", type=int, default=None, help="fonts per source (quick check)")
     p.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    p.add_argument("--clean", action="store_true", help="delete this script's outputs in the cache dir first")
     args = p.parse_args()
     with open(args.config, encoding="utf8") as f:
         dataset = json.load(f)["dataset"]
@@ -135,6 +138,12 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     started = time.time()
+    # only this script's own files are removed, never the directory: a mistyped glyphCache can't wipe a dataset
+    stale = OUTPUT_FILES if args.clean else ("dedup.npz",)   # dedup pairs always follow a fresh build
+    for name in stale:
+        if os.path.exists(os.path.join(args.out, name)):
+            os.remove(os.path.join(args.out, name))
+            print(f"removed {os.path.join(args.out, name)}", flush=True)
 
     # ---- decide the row list: MyFonts names, then unique named font files per standard directory
     names, sources, jobs, fontPaths = [], [], [], []
@@ -214,7 +223,7 @@ def main():
     print(f"cross-source duplicate names: {crossDuplicates}; total {time.time() - started:.0f}s -> {args.out}")
 
     # near-duplicates over the whole compiled corpus, after every source is in the cache
-    table = NearDuplicates.fromGlyphCache(args.out).printTable()
+    table = NearDuplicates.fromGlyphCache(args.out).printTable(preferred=NearDuplicates.glyphCacheMyFonts(meta))
     with open(os.path.join(args.out, "dedup.json"), "w", encoding="utf8") as f:
         json.dump(table, f, indent=1)
 

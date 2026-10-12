@@ -1,0 +1,17 @@
+{
+    "data": {
+        "glyphCache": "dataset/levjepa",
+        "datasetDir": "dataset",
+        "minGlyphs": 26
+    },
+    "probe": {
+        "epochs": 40,
+        "seed": 0
+    },
+    "sparseViews": {
+        "sparseViews": 8,
+        "keep": 0.10,
+        "inkFrac": 0.75,
+        "inkThreshold": 0.1
+    }
+}

@@ -8,10 +8,11 @@ predictor, target encoder, stop-gradient, momentum encoder, queue or negatives.
   dataset/levjepa, built by build_glyph_cache.py). Every token carries three rotary coordinates (letter, row, col);
   (row, col) are the patch's position inside its glyph and are never shifted, so a token looks positionally the same
   in every view. There are no absolute position embeddings.
-  global view = all of the font's glyphs; keep --keep of all patch tokens, sampled jointly across glyphs (--inkFrac of
+  global view = all of the font's glyphs; keep `keep` of all patch tokens, sampled jointly across glyphs (`inkFrac` of
                 the kept tokens from patches that contain ink, the rest uniform over all present patches).
-  local views = --views spatial crops of --cropPatches x --cropPatches patches (patch-aligned, native resolution), one
-                random window per view shared by every glyph of the font, same --keep. Positions unchanged.
+  local views = `views` spatial crops of `cropPatches` x `cropPatches` patches (patch-aligned, native resolution), one
+                random window per view shared by every glyph of the font, same `keep`. Positions unchanged.
+  (Names in backticks are keys of the run config, configs/levjepa.json.)
   CLS token: attends to every token (and itself), is not attended to. Patch tokens attend to patch tokens only.
   loss = L_inv + lambda * SIGReg, L_inv = 1/(V+1) sum_v ||z_0 - z_v||^2 with gradients through both sides, SIGReg
   (utils.training.sigreg_strong_loss, Epps-Pulley, 1024 directions, 17 knots) applied to every view's projector output.
@@ -19,6 +20,7 @@ predictor, target encoder, stop-gradient, momentum encoder, queue or negatives.
 Evaluation-time embedding (no token dropping, 52-glyph global view) is deferred until after pretraining.
 
     python -u experiments/levjepa/train.py --supervise          # the real run; restarts itself and resumes
+    python -u experiments/levjepa/train.py --supervise --rebuild   # same, after rebuilding the glyph cache + dedup
     python -u experiments/levjepa/train.py --maxSteps 20 --noWandb --runName smoke --limitFonts 256   # quick check
 
 Writes ONLY to checkpoints/pretrain/<runName>; never touches pretrain/latest or pretrain/best. checkpoint.pt is the bare
@@ -48,6 +50,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
+from utils.config import loadRunConfig
 from utils.dedup import NearDuplicates
 from utils.training import sigreg_strong_loss
 
@@ -74,17 +77,15 @@ def parseArgs():
     p.add_argument("--vramFraction", type=float, default=0.93)
     p.add_argument("--noWandb", action="store_true")
     p.add_argument("--supervise", action="store_true", help="re-launch this script until it exits cleanly")
+    p.add_argument("--rebuild", action="store_true",
+                   help="delete the glyph cache (dataset.glyphCache) and rebuild it from the config's sources, "
+                        "dedup included, before training")
     args = p.parse_args()
-    with open(args.config, encoding="utf8") as f:
-        config = json.load(f)
-    flat = {"runName": args.runName or config["runName"]}
-    for section in CONFIG_SECTIONS:
-        for key, value in config[section].items():
-            assert key not in flat, f"config key {key!r} appears in two sections"
-            flat[key] = value
-    flat.update({k: v for k, v in vars(args).items() if k != "runName"})
-    cfg = argparse.Namespace(**flat)
-    cfg.sections = {section: config[section] for section in CONFIG_SECTIONS}
+    runName = args.runName
+    del args.runName
+    cfg = loadRunConfig(args.config, args)
+    if runName:
+        cfg.runName = runName
     return cfg
 
 
@@ -102,7 +103,8 @@ class GlyphStore:
         names = self.meta["names"]
         usable = np.where(self.present.sum(1) >= minGlyphs)[0]
         if dedupThreshold is not None:
-            dropped = NearDuplicates.load(os.path.join(dataDir, "dedup.npz")).discarded(dedupThreshold)
+            nearDuplicates, myFontsRows = NearDuplicates.loadGlyphCache(dataDir)
+            dropped = nearDuplicates.discarded(dedupThreshold, preferred=myFontsRows)
             before = len(usable)
             usable = usable[~np.isin(usable, list(dropped))]
             print(f"dedup t={dedupThreshold}: {before - len(usable)} near-duplicate / placeholder fonts dropped",
@@ -352,7 +354,7 @@ def atomicSave(obj, path):
 def runConfig(cfg):
     """What checkpoints/pretrain/<run>/config.json holds: the config file's sections (enough to recreate the run),
     with the fixed architecture constants added to "model" (embed.py / probe.py build the encoder from it)."""
-    config = {"runName": cfg.runName, **json.loads(json.dumps(cfg.sections))}
+    config = {"runName": cfg.runName, **{k: json.loads(json.dumps(cfg.sections[k])) for k in CONFIG_SECTIONS}}
     config["model"].update({"type": "levjepa", "patchSize": PATCH, "imageSize": GRID * PATCH,
                             "ropeBases": ROPE_BASES, "glyphs": NUM_GLYPHS})
     return json.loads(json.dumps(config))   # tuples -> lists, so it compares equal to a saved config.json
@@ -374,8 +376,20 @@ def saveState(dirPath, cfg, encoder, projector, optimizer, step, runId):
         signal.signal(signal.SIGINT, original)
 
 
+def rebuildData(cfg):
+    """Fresh glyph cache: build_glyph_cache.py --clean with this run's config (all sources, then dedup)."""
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_glyph_cache.py")
+    print(f"[rebuild] rebuilding {cfg.glyphCache} from {cfg.configPath}", flush=True)
+    subprocess.check_call([sys.executable, "-u", script, "--config", cfg.configPath, "--clean"])
+    if os.path.exists(os.path.join("checkpoints", "pretrain", cfg.runName, "train_state.pt")):
+        print(f"[rebuild] note: run {cfg.runName} already has a checkpoint and will resume on the rebuilt data",
+              flush=True)
+
+
 def supervise(cfg):
     progress = os.path.join("checkpoints", "pretrain", cfg.runName, "progress.json")
+    if cfg.rebuild:
+        rebuildData(cfg)   # once, not on every restart
 
     def savedStep():
         try:
@@ -384,7 +398,7 @@ def supervise(cfg):
         except Exception:
             return -1
 
-    args = [a for a in sys.argv[1:] if a != "--supervise"]
+    args = [a for a in sys.argv[1:] if a not in ("--supervise", "--rebuild")]
     failures = attempt = 0
     while failures < 30:
         attempt += 1
@@ -434,6 +448,8 @@ def main():
     cfg = parseArgs()
     if cfg.supervise:
         return supervise(cfg)
+    if cfg.rebuild:
+        rebuildData(cfg)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda":

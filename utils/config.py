@@ -75,3 +75,25 @@ class Config:
             return {k: Config._serialize(v) for k, v in data.items()}
         else:
             return data
+
+def loadRunConfig(path, operational=None):
+    """Run config for scripts that read their settings as flat attributes (finetuneTags.py, experiments/levjepa).
+    The file is {"section": {key: value}, ...} plus optional top-level key: value pairs; every key is lifted to the
+    top level (keys must be unique across sections). `operational` (an argparse.Namespace of flags that change how the
+    process runs, not what it computes) is merged on top. The file as loaded is kept in `.sections` so a run can save
+    exactly what defines it."""
+    import argparse
+    with open(path, encoding="utf8") as file:
+        data = json.load(file)
+    flat = {}
+    for key, value in data.items():
+        for innerKey, innerValue in (value.items() if isinstance(value, dict) else [(key, value)]):
+            assert innerKey not in flat, f"{path}: config key {innerKey!r} appears twice"
+            flat[innerKey] = innerValue
+    for key, value in vars(operational or argparse.Namespace()).items():
+        assert key not in flat, f"flag --{key} duplicates a key in {path}"
+        flat[key] = value
+    namespace = argparse.Namespace(**flat)
+    namespace.sections = data
+    namespace.configPath = path
+    return namespace
