@@ -41,9 +41,24 @@ For reference, the ICCV 2019 paper reports 26.29 / 16.77 / 14.93 for its end-to-
 
 ## Running a new pretraining run (all sources, Internet Archive included)
 
-1. **Data.** MyFonts (`dataset/`), DaFont (`dafont/`) and Google (`google/`) as before, plus the Internet Archive
-   fonts in `dataset/internetArchive/fonts/` (`experiments/internet-archive/fetch.py`, or the Internet Archive
-   section of `initialize.sh`).
+1. **Data.** MyFonts (`dataset/`), DaFont (`dafont/`) and Google (`google/`) as before (`initialize.sh`), plus the
+   Internet Archive fonts. Download only the 7 zips that contain new file names (~36 GB download; the other 6 zips
+   are re-compilations of these):
+   ```bash
+   python experiments/internet-archive/fetch.py \
+       "Worlds Largest Font Collection 600000.zip" \
+       "2012_Font_Collection.zip" \
+       "ADDITIONAL SETS.zip" \
+       "dafont.com_categories_2010-05-19.zip" \
+       "Enormous font collection.zip" \
+       "Font Collection by nonhocapito.zip" \
+       "Fonts.zip"
+   ```
+   - It extracts only `.ttf`/`.otf`/`.ttc` into `dataset/internetArchive/fonts/<zip stem>/` and deletes each zip
+     after extracting it (`--keepZip` keeps it). Peak disk use is the largest zip plus everything extracted so far.
+   - Re-running is safe. Downloads resume, zips are md5-checked, and already-extracted zips are skipped.
+   - `--list` shows every zip and its size.
+   - `configs/levjepa.json` already lists `dataset/internetArchive` under `standard`.
 2. **Config.** Copy `configs/levjepa.json` (e.g. to `configs/levjepa-ia.json`) and change:
    - `runName`: a new name, so the run can't resume an old run's checkpoint.
    - `epochs`: with ~200k+ fonts an epoch is ~6× the old one. The last run plateaued by ~25k steps, so aim for
