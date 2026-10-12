@@ -23,3 +23,19 @@ mkdir ./dafont/fonts
 mv ./dafont/*.ttf ./dafont/fonts
 mv ./dafont/*.otf ./dafont/fonts
 rm dafonts-free-v1.zip
+
+# Get the Internet Archive "1.5 Million Fonts Compilation" (experiments/internet-archive/).
+# Only the 7 zips that contain new file names (~36 GB download; together they hold all ~219k distinct names);
+# the other 6 are re-compilations of these. Extracts fonts to dataset/internetArchive/fonts/, deletes each zip.
+pip install faiss-cpu
+python3 experiments/internet-archive/fetch.py \
+    "Worlds Largest Font Collection 600000.zip" \
+    "2012_Font_Collection.zip" \
+    "ADDITIONAL SETS.zip" \
+    "dafont.com_categories_2010-05-19.zip" \
+    "Enormous font collection.zip" \
+    "Font Collection by nonhocapito.zip" \
+    "Fonts.zip"
+for d in dataset/internetArchive/fonts/*/; do
+    python3 experiments/internet-archive/build_cache.py "$d"
+done
