@@ -4,7 +4,7 @@ PCA-whitened, reduced-dimensional projection of the font embeddings
 (see dataset.PCAWhitener), given only the paired query embedding and
 timestep. Run after embed_text_local.py has produced a sentence cache.
 
-    python3 experiments/train.py --sentenceModel BAAI/bge-large-en-v1.5
+    python3 experiments/diffusion-searches/diffusion_sampling/train.py --config configs/diffusionTrain.json
 """
 import os as _os
 import sys as _sys
@@ -15,6 +15,8 @@ for _p in [_baseDir] + [_os.path.join(_baseDir, _d) for _d in _os.listdir(_baseD
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 import argparse
+
+from runConfig import loadRunConfig
 import json
 import os
 import time
@@ -27,7 +29,6 @@ from dataset import (PCAWhitener, QueryFontDataset, TextCenterer, loadRaw, split
                       loadTfidfFeatureCache, concatenateTfidfCache)
 from diffusion import DiffusionMLP, TwoPhaseDiffusionMLP, GaussianDiffusion
 
-CHECKPOINT_DIR = os.path.join("checkpoints", "diffusion")
 
 
 def cachePathFor(modelName):
@@ -35,76 +36,34 @@ def cachePathFor(modelName):
 
 
 def parseArgs():
+    """Run settings are in configs/diffusionTrain.json (copy it per variant; the checkpoint's config.json records
+    every key). Keys:
+      sentenceModel   must match what embed_text_local.py was run with
+      pcaDim          whitened PCA subspace the diffusion operates in (all.json's effective rank is ~57.6/512;
+                      64 keeps a little headroom for differentiation)
+      architecture    "standard" = DiffusionMLP (hiddenDim/depth/conditioning apply); "shapeI" = TwoPhaseDiffusionMLP,
+                      numPlainBlocks unconditioned blocks then numConditionedBlocks additively conditioned ones
+                      (conditioning/depth ignored; timeDim is shapeI only, standard hardcodes 128)
+      conditioning    "concat" or "film" (Perez et al. 2018), see diffusion.ResidualBlock
+      centerText      mean-center + renormalize query embeddings (dataset.TextCenterer; fixes the BGE anisotropy that
+                      compresses unrelated fonts' cosine near 0.86), fit on training queries, saved to textCenter.npz
+      tagConditioning concatenate a multi-hot tag-presence vector (tag_conditioning.py; needs embeddings/tagPresence.pkl)
+      tfidfDim        concatenate a corpus-native TF-IDF+SVD (LSA) feature of this size (dataset.TfidfTextFeaturizer);
+                      0 disables it. tfidfOnly uses it as the only text conditioning
+      consistencyWeight  same-font consistency loss weight (diffusion.GaussianDiffusion.trainingLoss); 0 disables it
+    Flags only change how the process runs: numWorkers (DataLoader workers; every run so far used 0) and a
+    checkpointDir override."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sentenceModel", default="BAAI/bge-large-en-v1.5",
-                         help="Must match what embed_text_local.py was run with.")
-    parser.add_argument("--pcaDim", type=int, default=64,
-                         help="Dimensionality of the whitened PCA subspace the diffusion process "
-                              "actually operates in (embeddings/all.json's own effective rank is "
-                              "~57.6/512 -- 64 keeps a little headroom above that for differentiation).")
-    parser.add_argument("--epochs", type=int, default=60)
-    parser.add_argument("--batchSize", type=int, default=256)
-    parser.add_argument("--numWorkers", type=int, default=0,
-                         help="DataLoader worker processes. 0 (default, and what every run so far actually "
-                              "used) loads synchronously in the main process -- a likely real bottleneck for "
-                              "a model this small, where each GPU step is near-instant and the Python-side "
-                              "batch fetch/collate dominates wall-clock time.")
-    parser.add_argument("--learningRate", type=float, default=2e-4)
-    parser.add_argument("--timesteps", type=int, default=1000)
-    parser.add_argument("--hiddenDim", type=int, default=512)
-    parser.add_argument("--depth", type=int, default=6)
-    parser.add_argument("--conditioning", choices=["concat", "film"], default="concat",
-                         help="See diffusion.ResidualBlock's docstring. 'film' (Perez et al. 2018) lets "
-                              "the text/timestep condition modulate the hidden state's own scale/shift "
-                              "instead of just being added alongside it -- untested prior to this run.")
-    parser.add_argument("--architecture", choices=["standard", "shapeI"], default="standard",
-                         help="'standard' = DiffusionMLP (--hiddenDim/--depth/--conditioning apply). "
-                              "'shapeI' = TwoPhaseDiffusionMLP: a much smaller network (see "
-                              "--numPlainBlocks/--numConditionedBlocks/--hiddenDim) where plain residual "
-                              "blocks process the noised input alone first, then a second group of blocks "
-                              "injects timestep+text conditioning via simple additive projection (no FiLM) "
-                              "-- --conditioning/--depth are ignored for this architecture.")
-    parser.add_argument("--numPlainBlocks", type=int, default=1,
-                         help="shapeI only: unconditioned blocks in phase 1.")
-    parser.add_argument("--numConditionedBlocks", type=int, default=2,
-                         help="shapeI only: conditioned blocks in phase 2.")
-    parser.add_argument("--timeDim", type=int, default=64, help="shapeI only (standard hardcodes 128).")
-    parser.add_argument("--centerText", action="store_true",
-                         help="Mean-center + renormalize text query embeddings before use (see "
-                              "dataset.TextCenterer) -- fixes measured anisotropy in the raw BGE space "
-                              "that compresses unrelated fonts' cosine similarity near 0.86. Fit on "
-                              "training queries only, saved to textCenter.npz for eval-time reuse.")
-    parser.add_argument("--tagConditioning", action="store_true",
-                         help="Concatenate a sparse multi-hot tag-presence vector (tag_conditioning.py, "
-                              "matched against the existing retrieval-head vocab) onto the dense text "
-                              "embedding -- makes tag PRESENCE the explicit representational unit instead "
-                              "of relying on a dense embedding to implicitly encode it. Requires "
-                              "embeddings/tagPresence.pkl (build_tag_presence_cache.py).")
-    parser.add_argument("--tfidfDim", type=int, default=0,
-                         help="Concatenate a TF-IDF+truncated-SVD (LSA) feature of this many dimensions, "
-                              "fit on the query corpus's OWN vocabulary, onto the dense text embedding "
-                              "(dataset.TfidfTextFeaturizer). 0 (default) disables it. A corpus-native, "
-                              "presence/absence-based alternative to tag_conditioning.py's external-vocab "
-                              "approach -- see TfidfTextFeaturizer's docstring for why that was rejected.")
-    parser.add_argument("--tfidfOnly", action="store_true",
-                         help="Use the LSA feature as the ONLY text conditioning (replacing the dense "
-                              "sentence embedding entirely) instead of concatenating it on. Only meaningful "
-                              "with --tfidfDim > 0. Motivated by the transferability check: the dense BGE "
-                              "embedding shows the WRONG sign of correlation with visual distance while LSA "
-                              "shows the correct sign -- concatenating them could dilute a real signal with "
-                              "an actively unhelpful one rather than adding a neutral extra.")
-    parser.add_argument("--consistencyWeight", type=float, default=0.0,
-                         help="Weight on an explicit same-font consistency loss (see diffusion.Gaussian"
-                              "Diffusion.trainingLoss): penalizes the model's noise predictions for TWO "
-                              "different captions of the SAME font disagreeing, under the same noise/"
-                              "timestep draw. 0.0 (default) disables it entirely -- standard training only.")
-    parser.add_argument("--testFraction", type=float, default=0.2)
-    parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--checkpointDir", default=CHECKPOINT_DIR,
-                         help="Defaults to the existing checkpoint directory; pass a new path when "
-                              "training a variant (e.g. a different --conditioning) to compare against "
-                              "it without overwriting the original.")
-    return parser.parse_args()
+    parser.add_argument("--config", default=os.path.join("configs", "diffusionTrain.json"))
+    parser.add_argument("--checkpointDir", default=None, help="override the config's checkpointDir")
+    parser.add_argument("--numWorkers", type=int, default=0, help="DataLoader worker processes (0 = main process)")
+    args = parser.parse_args()
+    checkpointDir = args.checkpointDir
+    del args.checkpointDir
+    cfg = loadRunConfig(args.config, args)
+    if checkpointDir:
+        cfg.checkpointDir = checkpointDir
+    return cfg
 
 
 def main():

@@ -18,7 +18,8 @@ made the candidate set blow up. All pairs above MIN_THRESHOLD are cached, so any
 Used by:
   * utils.pretraining.PairedImageData / utils.querying.CombinedQueryData via applyDedup (config key
     "dedupThreshold"), on the bitmap caches from loaders/standard.py and loaders/myfonts.py.
-  * experiments/levjepa/build_glyph_cache.py (writes dedup.npz next to glyphs.npy) and train.py --dedupThreshold.
+  * experiments/levjepa/build_glyph_cache.py (writes dedup.npz next to glyphs.npy) and train.py (config key
+    dataset.dedupThreshold).
 
 Table of thresholds vs. fonts discarded:
     python -m utils.dedup --config configs/vit.json

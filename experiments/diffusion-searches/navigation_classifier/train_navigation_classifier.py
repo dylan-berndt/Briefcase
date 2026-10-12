@@ -27,6 +27,8 @@ for _p in [_baseDir] + [_os.path.join(_baseDir, _d) for _d in _os.listdir(_baseD
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 import argparse
+
+from runConfig import loadRunConfig
 import json
 import os
 
@@ -153,38 +155,25 @@ class NavigationClassifier(nn.Module):
 
 
 def parseArgs():
+    """Run settings are in configs/navigationClassifier.json (copy it per variant). Keys beyond the obvious:
+      baseCheckpoint  only used for whitener.npz / config.json (pcaDim, textDim, testFraction)
+      depthWeights    per-depth loss weights, a list [1, 3, 1, 1, 1] or the string "1,3,1,1,1"; null = uniform
+      textMode        "bge" dense sentence embedding; "lsa" precomputed TF-IDF/LSA features instead
+                      (build_tfidf_cache.py); "concat" both. tfidfDim is the cached LSA width
+      nodeTextWeight  >0 appends weight * node.textCentroid to every node/child vector (needs a tree built with
+                      build_text_tree.py's auxMatrix); 0 reproduces prior behavior on any tree
+    The defaults are the script's original ones (v1 scale); the reported-best v4 used 771k examples / 60 epochs /
+    hiddenDim 384."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sentenceModel", default="BAAI/bge-large-en-v1.5")
-    parser.add_argument("--treeCache", default="results/trees/tree_variant_15_15_5_5_15.pkl")
-    parser.add_argument("--maxDepth", type=int, default=5)
-    parser.add_argument("--maxTrainExamples", type=int, default=60000)
-    parser.add_argument("--maxTestExamples", type=int, default=6000)
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--batchSize", type=int, default=512)
-    parser.add_argument("--learningRate", type=float, default=1e-3)
-    parser.add_argument("--hiddenDim", type=int, default=128)
-    parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--baseCheckpoint", default="checkpoints/diffusion-searches/diffusion_sampling/diffusion_lr_5e-4",
-                         help="Only used for whitener.npz / config.json (pcaDim, textDim, testFraction).")
-    parser.add_argument("--checkpointDir", default="checkpoints/diffusion-searches/navigation_classifier/scale/nav_classifier")
-    parser.add_argument("--depthWeights", default=None,
-                         help="Comma-separated per-depth loss weight, e.g. '1,3,1,1,1' to upweight depth 1. "
-                              "Default: uniform (all depths weighted equally).")
-    parser.add_argument("--textMode", choices=["bge", "lsa", "concat"], default="bge",
-                         help="'bge' (default): dense sentence-transformer embedding only. 'lsa': replace "
-                              "it entirely with precomputed TF-IDF/LSA features (build_tfidf_cache.py). "
-                              "'concat': append LSA features onto the BGE embedding.")
-    parser.add_argument("--tfidfDim", type=int, default=256, help="Dimensionality of the cached LSA features.")
-    parser.add_argument("--nodeTextWeight", type=float, default=0.0,
-                         help="If >0, append (weight * node.textCentroid) onto every node/child vector fed "
-                              "to the classifier -- an extra input feature (each node/child's own aggregate "
-                              "text-embedding centroid, from a tree built with build_text_tree.py's "
-                              "auxMatrix) on top of the existing visual centroid, letting the model directly "
-                              "compare a query against a child's descriptive language, not just translate "
-                              "text to a visual position. Requires --treeCache to be a tree whose nodes "
-                              "actually have textCentroid populated (0.0/default reproduces prior behavior "
-                              "exactly, safe on any tree).")
-    return parser.parse_args()
+    parser.add_argument("--config", default=os.path.join("configs", "navigationClassifier.json"))
+    parser.add_argument("--checkpointDir", default=None, help="override the config's checkpointDir")
+    args = parser.parse_args()
+    checkpointDir = args.checkpointDir
+    del args.checkpointDir
+    cfg = loadRunConfig(args.config, args)
+    if checkpointDir:
+        cfg.checkpointDir = checkpointDir
+    return cfg
 
 
 def main():
@@ -247,7 +236,8 @@ def main():
 
     depthWeights = None
     if args.depthWeights:
-        depthWeights = torch.tensor([float(w) for w in args.depthWeights.split(",")], device=device)
+        weights = args.depthWeights.split(",") if isinstance(args.depthWeights, str) else args.depthWeights
+        depthWeights = torch.tensor([float(w) for w in weights], device=device)
 
     def evaluate(loader):
         model.eval()

@@ -9,7 +9,7 @@
 # Vocabulary filtering: evalDescriptorGrounding.py measured how visually
 # coherent each descriptor actually is (do fonts sharing it cluster
 # together in the embedding space, vs a random-sample baseline), as a
-# z-score against that baseline's own noise. Descriptors below Z_CUTOFF are
+# z-score against that baseline's own noise. Descriptors below zCutoff are
 # dropped from the target vocabulary entirely -- a large chunk of the raw
 # tag/adjective vocabulary is generic filler ("many", "similar",
 # "typographic") with no real visual grounding, and training a target that's
@@ -32,6 +32,7 @@
 # - recall@10: of a font's actually-true tags, what fraction show up
 #   somewhere in the model's top 10 guesses.
 
+import argparse
 import json
 import os
 import random
@@ -43,41 +44,41 @@ import torch.nn.functional as F
 from pygtrie import CharTrie
 
 from utils import Config, loadDescriptionsFromSource
+from utils.config import loadRunConfig
 
-EMBEDDINGS_PATH = os.path.join("embeddings", "all.json")
-GROUNDING_PATH = os.path.join("results", "descriptorGrounding.json")
-
-# Minimum z-score (see evalDescriptorGrounding.py) for a descriptor to be
-# kept in the target vocabulary. None = no cutoff, use every descriptor
-# that was measured (every descriptor with >=30 fonts, per
-# MIN_FONTS_PER_DESCRIPTOR in evalDescriptorGrounding.py) regardless of
-# grounding score, for a direct comparison against the filtered run.
-Z_CUTOFF = None
-
-CHECKPOINT_DIR = os.path.join("checkpoints", "retrieval", "embeddingHead")
-
-TEST_FRACTION = 0.1
-SEED = 1234
-
-BATCH_SIZE = 256
-HIDDEN_DIM = 512
-DROPOUT = 0.15
-# Filtered run peaked at epoch ~15-20 then overfit for the remaining 480
-# epochs -- this task converges fast. 60 leaves margin past that without
-# repeating the same mistake; bestEpoch tracking below reports the actual
-# peak regardless, so overshooting isn't silently misleading anymore.
-EPOCHS = 60
-LR = 1e-3
-WEIGHT_DECAY = 1e-4
+# Run settings live in configs/retrieval.json (embeddings, grounding scores, zCutoff, split, model, optimizer,
+# checkpointDir). zCutoff is the minimum z-score (see evalDescriptorGrounding.py) for a descriptor to be kept in the
+# target vocabulary; null = no cutoff, every descriptor that was measured (>=30 fonts, per MIN_FONTS_PER_DESCRIPTOR in
+# evalDescriptorGrounding.py). epochs 60: the filtered run peaked at epoch ~15-20 then overfit for the remaining 480;
+# bestEpoch tracking below reports the actual peak regardless. Each run writes runConfig.json into checkpointDir.
+DEFAULT_CONFIG = os.path.join("configs", "retrieval.json")
 
 
-def loadFontEmbeddings(path=EMBEDDINGS_PATH):
+def parseArgs():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default=DEFAULT_CONFIG)
+    args = parser.parse_args()
+    return loadRunConfig(args.config, args)
+
+
+def trainedHeadSettings(configPath=DEFAULT_CONFIG):
+    """(checkpointDir, hiddenDim) of the head this script trained: hiddenDim from the checkpoint's own runConfig.json
+    when it has one (older checkpoints don't), otherwise from the config."""
+    cfg = loadRunConfig(configPath)
+    saved = os.path.join(cfg.checkpointDir, "runConfig.json")
+    if os.path.exists(saved):
+        with open(saved) as f:
+            return cfg.checkpointDir, json.load(f)["model"]["hiddenDim"]
+    return cfg.checkpointDir, cfg.hiddenDim
+
+
+def loadFontEmbeddings(path=os.path.join("embeddings", "all.json")):
     with open(path, "r") as file:
         data = json.load(file)
     return {name: np.array(vector, dtype=np.float32) for name, vector in data.items()}
 
 
-def loadVocab(path=GROUNDING_PATH, zCutoff=Z_CUTOFF):
+def loadVocab(path, zCutoff):
     with open(path, "r") as file:
         results = json.load(file)
     if zCutoff is None:
@@ -135,7 +136,7 @@ def buildTfidfTargets(descriptions, names, vocab):
 
 
 class RetrievalHead(nn.Module):
-    def __init__(self, inputDim, hiddenDim, outputDim, dropout=DROPOUT):
+    def __init__(self, inputDim, hiddenDim, outputDim, dropout=0.15):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(inputDim, hiddenDim),
@@ -216,23 +217,24 @@ def evaluate(model, embeddings, targets, idf=None, topK=None, ks=(5, 10)):
 
 
 def main():
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
+    cfg = parseArgs()
+    random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
 
     print("Loading font embeddings ...")
-    fontEmbeddings = loadFontEmbeddings()
+    fontEmbeddings = loadFontEmbeddings(cfg.embeddings)
 
     print("Loading descriptor grounding scores ...")
-    vocab = loadVocab()
-    cutoffLabel = "no cutoff (all measured descriptors)" if Z_CUTOFF is None else f"z > {Z_CUTOFF}"
+    vocab = loadVocab(cfg.grounding, cfg.zCutoff)
+    cutoffLabel = "no cutoff (all measured descriptors)" if cfg.zCutoff is None else f"z > {cfg.zCutoff}"
     print(f"{len(vocab)} descriptors kept ({cutoffLabel})")
 
     print("Loading raw tag/adjective descriptions ...")
-    config = Config().load(os.path.join("configs", "vit.json"))
+    config = Config().load(cfg.descriptionsConfig)
     descriptions = loadDescriptionsFromSource(config.dataset)
 
     matched = matchEmbeddingsToDescriptions(fontEmbeddings, descriptions)
@@ -242,8 +244,10 @@ def main():
     allNames = sorted(matched.keys())
     targets, idf = buildTfidfTargets(descriptions, allNames, vocab)
 
-    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    with open(os.path.join(CHECKPOINT_DIR, "idf.json"), "w") as f:
+    os.makedirs(cfg.checkpointDir, exist_ok=True)
+    with open(os.path.join(cfg.checkpointDir, "runConfig.json"), "w") as f:
+        json.dump(cfg.sections, f, indent=2)
+    with open(os.path.join(cfg.checkpointDir, "idf.json"), "w") as f:
         # Same IDF used to build training targets, keyed by vocab term --
         # search-time query scoring should weight by this too (see
         # estimateSearchQuality.py), otherwise only the font side of the
@@ -265,29 +269,29 @@ def main():
 
     shuffled = list(range(len(names)))
     random.shuffle(shuffled)
-    testSize = int(len(shuffled) * TEST_FRACTION)
+    testSize = int(len(shuffled) * cfg.testFraction)
     testIdx, trainIdx = shuffled[:testSize], shuffled[testSize:]
     print(f"{len(trainIdx)} train fonts, {len(testIdx)} test fonts")
 
-    model = RetrievalHead(fontDim, HIDDEN_DIM, len(vocab)).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    model = RetrievalHead(fontDim, cfg.hiddenDim, len(vocab), cfg.dropout).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weightDecay)
 
     trainEmb = fontEmbeddingMatrix[trainIdx].to(device)
     trainTarget = targetMatrix[trainIdx].to(device)
     testEmb = fontEmbeddingMatrix[testIdx].to(device)
     testTarget = targetMatrix[testIdx].to(device)
 
-    stepsPerEpoch = max(1, len(trainIdx) // BATCH_SIZE)
+    stepsPerEpoch = max(1, len(trainIdx) // cfg.batchSize)
 
     bestEpoch, bestRank, bestMetrics = None, float("inf"), None
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, cfg.epochs + 1):
         model.train()
         perm = torch.randperm(len(trainIdx))
         totalLoss = 0.0
 
         for step in range(stepsPerEpoch):
-            batchIdx = perm[step * BATCH_SIZE:(step + 1) * BATCH_SIZE]
+            batchIdx = perm[step * cfg.batchSize:(step + 1) * cfg.batchSize]
             if len(batchIdx) < 2:
                 continue
 
@@ -302,9 +306,9 @@ def main():
         m = evaluate(model, testEmb, testTarget)
         if m["medianTrueTagRank"] < bestRank:
             bestEpoch, bestRank, bestMetrics = epoch, m["medianTrueTagRank"], m
-            os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-            torch.save(model.state_dict(), os.path.join(CHECKPOINT_DIR, "head.pt"))
-            with open(os.path.join(CHECKPOINT_DIR, "vocab.json"), "w") as f:
+            os.makedirs(cfg.checkpointDir, exist_ok=True)
+            torch.save(model.state_dict(), os.path.join(cfg.checkpointDir, "head.pt"))
+            with open(os.path.join(cfg.checkpointDir, "vocab.json"), "w") as f:
                 json.dump(vocab, f)
 
         print(f"epoch {epoch:>4}  loss {totalLoss / stepsPerEpoch:.4f}  "
@@ -321,7 +325,7 @@ def main():
     # scoring against top-K sparsified TF-IDF reconstruction at a few K,
     # on the SAME held-out set -- a direct test of whether thresholding the
     # model's own predictions helps, before touching the search demo at all.
-    model.load_state_dict(torch.load(os.path.join(CHECKPOINT_DIR, "head.pt"), map_location=device))
+    model.load_state_dict(torch.load(os.path.join(cfg.checkpointDir, "head.pt"), map_location=device))
     print("\n=== raw dense output vs. top-K sparsified TF-IDF reconstruction (same best checkpoint) ===")
     raw = evaluate(model, testEmb, testTarget)
     print(f"  raw (no threshold)  P@5 {raw['precision@5']*100:>5.1f}%  P@10 {raw['precision@10']*100:>5.1f}%  "

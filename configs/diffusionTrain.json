@@ -1,0 +1,33 @@
+{
+    "data": {
+        "sentenceModel": "BAAI/bge-large-en-v1.5",
+        "pcaDim": 64,
+        "testFraction": 0.2,
+        "seed": 1234
+    },
+    "text": {
+        "centerText": false,
+        "tagConditioning": false,
+        "tfidfDim": 0,
+        "tfidfOnly": false
+    },
+    "model": {
+        "architecture": "standard",
+        "hiddenDim": 512,
+        "depth": 6,
+        "conditioning": "concat",
+        "numPlainBlocks": 1,
+        "numConditionedBlocks": 2,
+        "timeDim": 64,
+        "timesteps": 1000
+    },
+    "training": {
+        "epochs": 60,
+        "batchSize": 256,
+        "learningRate": 2e-4,
+        "consistencyWeight": 0.0
+    },
+    "output": {
+        "checkpointDir": "checkpoints/diffusion"
+    }
+}
