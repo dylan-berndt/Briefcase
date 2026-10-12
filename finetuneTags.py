@@ -8,8 +8,11 @@
 # scale-to-fit, then the uint8 bmp round trip the normal pipeline goes through). Rendered once and
 # cached to <datasetDir>/finetuneTagsCache_*.npy.
 #
-# Font representation: mean of the L2-normalized per-glyph CLS vectors, the same pooling
-# utils/embeddings.generateEmbeddings uses for embeddings/all.json. Training samples
+# Backbone: `backbone` in the config is either a utils.vit.ViT checkpoint (e.g. checkpoints/pretrain/best) or a
+# LeVJEPA run/snapshot (experiments/levjepa; detected from its config.json, model.type == "levjepa").
+# Font representation: ViT -- mean of the L2-normalized per-glyph CLS vectors, the same pooling
+# utils/embeddings.generateEmbeddings uses for embeddings/all.json; LeVJEPA -- the encoder's CLS over all of the font's
+# glyphs at once (the embedding experiments/levjepa/probe.py scores). LeVJEPA needs fontSize 32 (48px). Training samples
 # glyphsPerFont random letters per font per step; evaluation uses all 26.
 #
 # No rotation/aspect augmentation: tags describe slant and width, so those augmentations would
@@ -53,7 +56,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 def parseArgs():
     """Every setting that defines a run is in the config file (configs/finetuneTags.json: data, model, training,
     output; minTagCount 1 keeps every train tag so the ICCV query sets stay comparable, shiftAug is the max random
-    translation in pixels, 0 = off). The flags only change how this process runs."""
+    translation in pixels, 0 = off; backbone is a ViT or LeVJEPA checkpoint dir; autocast = fp16 mixed precision on
+    CUDA, which measured ~5x slower per step for LeVJEPA training on the GTX 1660 SUPER, so try false there).
+    The flags only change how this process runs."""
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=os.path.join("configs", "finetuneTags.json"))
     p.add_argument("--maxFonts", type=int, default=None, help="subsample fonts per split, for smoke tests")
@@ -122,11 +127,50 @@ def clsFeatures(vit, x):
     return vit.transformer(x)[:, 0]
 
 
+_levjepa = None
+
+
+def levjepaModule():
+    """experiments/levjepa/train.py (Encoder, GRID, PATCH, PER_GLYPH), loaded once by path."""
+    global _levjepa
+    if _levjepa is None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiments", "levjepa", "train.py")
+        spec = importlib.util.spec_from_file_location("levjepaTrain", path)
+        _levjepa = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_levjepa)
+    return _levjepa
+
+
+def loadBackbone(path):
+    """A pretrained backbone directory (checkpoint.pt + config.json) -> (module, kind, saveConfig(outDir)).
+    kind is "levjepa" when config.json says model.type == "levjepa" (experiments/levjepa/train.py runs and their
+    snapshots), else "vit" (utils.vit.ViT, e.g. checkpoints/pretrain/best)."""
+    with open(os.path.join(path, "config.json")) as f:
+        saved = json.load(f)
+    if saved.get("model", {}).get("type") == "levjepa":
+        m = saved["model"]
+        encoder = levjepaModule().Encoder(m["dim"], m["depth"], m["heads"], m["mlpRatio"])
+        encoder.load_state_dict(torch.load(os.path.join(path, "checkpoint.pt"), map_location="cpu", weights_only=True))
+
+        def saveConfig(outDir):
+            with open(os.path.join(outDir, "config.json"), "w") as f:
+                json.dump(saved, f, indent=1)   # unchanged, so experiments/levjepa/embed.py and probe.py load the run
+        return encoder, "levjepa", saveConfig
+    vit, vitConfig = ViT.load(path)
+    return vit, "vit", lambda outDir: vitConfig.save(os.path.join(outDir, "config.json"))
+
+
 class FontTagger(nn.Module):
-    def __init__(self, vit, numTags, hidden):
+    """Tag head on a pretrained backbone. kind "vit": per-glyph ViT CLS, L2-normalized and averaged (the all.json
+    pooling). kind "levjepa": the LeVJEPA encoder reads all of a font's given glyphs as one token sequence, each patch
+    carrying (letter, row, col) rotary coordinates, and its CLS output is the font feature (the embedding probe.py
+    evaluates)."""
+
+    def __init__(self, backbone, numTags, hidden, kind="vit"):
         super().__init__()
-        self.vit = vit
-        dim = vit.config.embedDim
+        self.backbone, self.kind = backbone, kind
+        dim = backbone.norm.normalized_shape[0] if kind == "levjepa" else backbone.config.embedDim
         self.head = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Dropout(0.2),
@@ -136,14 +180,37 @@ class FontTagger(nn.Module):
             nn.Linear(hidden, numTags),
         )
 
-    def fontFeatures(self, glyphs):
-        """glyphs: [B, G, H, W] -> [B, D], mean of per-glyph L2-normalized CLS (all.json pooling)."""
+    def fontFeatures(self, glyphs, letters=None):
+        """glyphs: [B, G, H, W]; letters: long [B, G] index of each glyph in a-z (default 0..G-1) -> [B, D]."""
         B, G, H, W = glyphs.shape
-        cls = clsFeatures(self.vit, glyphs.reshape(B * G, H, W))
-        return F.normalize(cls, dim=-1).reshape(B, G, -1).mean(dim=1)
+        if self.kind == "vit":
+            cls = clsFeatures(self.backbone, glyphs.reshape(B * G, H, W))
+            return F.normalize(cls, dim=-1).reshape(B, G, -1).mean(dim=1)
+        lj = levjepaModule()
+        assert H == W == lj.GRID * lj.PATCH, f"LeVJEPA backbones take {lj.GRID * lj.PATCH}px glyphs, got {H}px"
+        if letters is None:
+            letters = torch.arange(G, device=glyphs.device).expand(B, -1)
+        tokens = glyphs.reshape(B, G, lj.GRID, lj.PATCH, lj.GRID, lj.PATCH).permute(0, 1, 2, 4, 3, 5) \
+            .reshape(B, G * lj.PER_GLYPH, lj.PATCH * lj.PATCH)
+        pos = torch.arange(lj.PER_GLYPH, device=glyphs.device).repeat(G)
+        coords = torch.stack([letters.repeat_interleave(lj.PER_GLYPH, dim=1).float(),
+                              (pos // lj.GRID).float().expand(B, -1), (pos % lj.GRID).float().expand(B, -1)], -1)
+        return self.backbone(tokens, coords)
 
-    def forward(self, glyphs):
-        return self.head(self.fontFeatures(glyphs))
+    def forward(self, glyphs, letters=None):
+        return self.head(self.fontFeatures(glyphs, letters))
+
+
+def loadTrainedTagger(run):
+    """A finished finetuneTags.py run directory (checkpoint.pt + config.json, head.pt, vocab.json) -> (FontTagger,
+    vocab), with either backbone kind."""
+    backbone, kind, _ = loadBackbone(run)
+    with open(os.path.join(run, "vocab.json")) as f:
+        vocab = json.load(f)
+    head = torch.load(os.path.join(run, "head.pt"), map_location="cpu")
+    model = FontTagger(backbone, len(vocab), hidden=head["2.weight"].shape[0], kind=kind)
+    model.head.load_state_dict(head)
+    return model, vocab
 
 
 def asymmetricLoss(logits, targets, gammaNeg=4.0, gammaPos=0.0, clip=0.05):
@@ -158,12 +225,12 @@ def asymmetricLoss(logits, targets, gammaNeg=4.0, gammaPos=0.0, clip=0.05):
 # ---------------------------------------------------------------- evaluation
 
 @torch.no_grad()
-def predict(model, glyphs, batchFonts=32):
+def predict(model, glyphs, batchFonts=32, autocast=True):
     model.eval()
     out = []
     for start in range(0, len(glyphs), batchFonts):
         batch = torch.tensor(glyphs[start:start + batchFonts], device=device).float() / 255.0
-        with torch.autocast(device_type=device, enabled=device == "cuda"):
+        with torch.no_grad(), torch.autocast(device_type=device, enabled=device == "cuda" and autocast):
             out.append(model(batch).float().cpu())
     return torch.cat(out).numpy()
 
@@ -217,7 +284,7 @@ def amtAccuracy(logits, testNames, vocabIndex, datasetDir):
 
 
 def testReport(model, split, vocab, vocabIndex, top50Idx, args):
-    logits = predict(model, split["glyphs"])
+    logits = predict(model, split["glyphs"], autocast=args.autocast)
     roc, pr = top50Metrics(logits, split["targets"], top50Idx)
     testTags = [split["tags"][n] for n in split["names"]]
     single = [[t] for t in readList(os.path.join(args.datasetDir, "myfonts-testset", "singletag-test"))]
@@ -276,8 +343,9 @@ def main():
     print(f"fonts train/val/test = {len(splits['train']['names'])}/{len(splits['val']['names'])}/"
           f"{len(splits['test']['names'])}, vocab = {len(vocab)} tags")
 
-    vit, vitConfig = ViT.load(args.backbone)
-    model = FontTagger(vit, len(vocab), args.hidden).to(device)
+    backbone, backboneKind, saveBackboneConfig = loadBackbone(args.backbone)
+    print(f"backbone: {args.backbone} ({backboneKind})")
+    model = FontTagger(backbone, len(vocab), args.hidden, kind=backboneKind).to(device)
 
     lossFn = asymmetricLoss if args.loss == "asl" else \
         (lambda logits, targets: F.binary_cross_entropy_with_logits(logits, targets))
@@ -295,13 +363,13 @@ def main():
     train = splits["train"]
     trainTargets = torch.tensor(train["targets"])
     stepsPerEpoch = max(1, len(train["names"]) // args.batchFonts)
-    scaler = torch.amp.GradScaler("cuda", enabled=device == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=device == "cuda" and args.autocast)
 
     def makeOptimizer(finetune):
-        vit.requires_grad_(finetune)
+        backbone.requires_grad_(finetune)
         groups = [{"params": model.head.parameters(), "lr": args.headLR}]
         if finetune:
-            groups.append({"params": vit.parameters(), "lr": args.backboneLR})
+            groups.append({"params": backbone.parameters(), "lr": args.backboneLR})
         opt = torch.optim.AdamW(groups, weight_decay=args.weightDecay)
         epochs = args.headOnlyEpochs if not finetune else max(1, args.epochs - args.headOnlyEpochs)
         sched = torch.optim.lr_scheduler.OneCycleLR(
@@ -322,7 +390,7 @@ def main():
             best["valRocAuc"] = -1  # early stopping restarts for the finetuning phase
 
         model.train()
-        vit.train(epoch >= args.headOnlyEpochs)
+        backbone.train(epoch >= args.headOnlyEpochs)
         order = np.random.permutation(len(train["names"]))
         totalLoss = 0.0
         for step in range(stepsPerEpoch):
@@ -334,8 +402,8 @@ def main():
                 batch = torch.roll(batch, shifts=(int(dy), int(dx)), dims=(2, 3))
             targets = trainTargets[idx].to(device)
 
-            with torch.autocast(device_type=device, enabled=device == "cuda"):
-                logits = model(batch)
+            with torch.autocast(device_type=device, enabled=device == "cuda" and args.autocast):
+                logits = model(batch, torch.from_numpy(letters).to(device))
             loss = lossFn(logits.float(), targets)
 
             optimizer.zero_grad()
@@ -347,7 +415,7 @@ def main():
             scheduler.step()
             totalLoss += loss.item()
 
-        valLogits = predict(model, splits["val"]["glyphs"])
+        valLogits = predict(model, splits["val"]["glyphs"], autocast=args.autocast)
         valRoc, valPr = top50Metrics(valLogits, splits["val"]["targets"], top50Idx)
         phase = "head-only" if epoch < args.headOnlyEpochs else "finetune"
         print(f"epoch {epoch + 1:>3} [{phase}] loss {totalLoss / stepsPerEpoch:.4f}  "
@@ -359,7 +427,7 @@ def main():
         if valRoc > best["valRocAuc"]:
             best = {"valRocAuc": valRoc, "valPrAuc": valPr, "epoch": epoch + 1, "phase": phase}
             badEpochs = 0
-            torch.save(vit.state_dict(), os.path.join(outPath, "checkpoint.pt"))
+            torch.save(backbone.state_dict(), os.path.join(outPath, "checkpoint.pt"))
             torch.save(model.head.state_dict(), os.path.join(outPath, "head.pt"))
         elif epoch >= args.headOnlyEpochs:
             badEpochs += 1
@@ -371,7 +439,7 @@ def main():
         frozenBaseline = testReport(model, splits["test"], vocab, vocabIndex, top50Idx, args)
 
     # reload the best finetuned weights (checkpoint.pt loads with ViT.load(outPath))
-    vit.load_state_dict(torch.load(os.path.join(outPath, "checkpoint.pt"), map_location=device))
+    backbone.load_state_dict(torch.load(os.path.join(outPath, "checkpoint.pt"), map_location=device))
     model.head.load_state_dict(torch.load(os.path.join(outPath, "head.pt"), map_location=device))
     finetuned = testReport(model, splits["test"], vocab, vocabIndex, top50Idx, args)
 
@@ -379,7 +447,7 @@ def main():
     printReport("frozen baseline, test", frozenBaseline)
     printReport("finetuned, test", finetuned)
 
-    vitConfig.save(os.path.join(outPath, "config.json"))
+    saveBackboneConfig(outPath)
     with open(os.path.join(outPath, "runConfig.json"), "w") as f:
         json.dump(args.sections, f, indent=2)   # the configs/finetuneTags.json this run used
     with open(os.path.join(outPath, "vocab.json"), "w") as f:

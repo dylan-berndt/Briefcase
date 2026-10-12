@@ -19,7 +19,8 @@
         "loss": "bce",
         "shiftAug": 0,
         "patience": 5,
-        "seed": 0
+        "seed": 0,
+        "autocast": true
     },
     "output": {
         "outDir": "checkpoints/retrieval/finetuneTags"
