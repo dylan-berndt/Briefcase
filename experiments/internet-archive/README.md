@@ -6,28 +6,36 @@ Fonts Compilation", 2018, no stated licence), 60.24 GB over 13 zips. The zip lis
 files (plus ~100k Type 1 `.pfb` and a few thousand nested zips, not used), with ~219k distinct file names, which is
 where the "201k unique" figure comes from: the zips are overlapping compilations of each other.
 
-| script | what it does |
-|---|---|
-| `fetch.py` | Downloads zips (resumable, md5-checked) and extracts only `.ttf`/`.otf`/`.ttc` into `dataset/internetArchive/fonts/<zip stem>/`. `--list` shows the zips. |
-| `build_cache.py` | One render per unique file (sha256): the 52 training glyphs on the standardized MyFonts pipeline (same as `levjepa/build_glyph_cache.py`, same `glyphs.npy`/`present.npy` format), plus 8 dedup glyphs (`aegknHQR`) passed through `centerAndScaleNormalize`. Resumable by shard; fonts that crash FreeType are isolated per process. |
-| `dedup.py` | Pairwise cosine similarity of the 8 concatenated dedup glyphs over one or more caches (merged by sha256), and the discard count per threshold t. |
+`fetch.py` downloads zips (resumable, md5-checked) and extracts only `.ttf`/`.otf`/`.ttc` into
+`dataset/internetArchive/fonts/<zip stem>/` (`--list` shows the zips). From there the collection is one more
+`standard` font directory for the existing loaders:
 
-Dedup rule per t: byte-identical copies collapse to one file, then each pair with s > t is visited in random
-order and, if both fonts are still kept, one of them chosen at random is discarded (mean over 5 orders). Pairs are
-found exactly (blockwise matmul over the upper triangle, GPU through torch when available).
+* `utils/loaders/standard.py` caches its glyphs like DaFont's and Google's (`configs/vit.json` lists it), and
+  `experiments/levjepa/build_glyph_cache.py` packs it with the rest (`configs/levjepa.json`). Both use the same
+  MyFonts-style render, and font keys are `"<family> <style> <sha256[:12]>"`, so byte-identical copies collapse and
+  different files that share a name stay apart.
+* The near-duplicate step (`utils/dedup.py`) runs after every source is cached and loaded, over the whole compiled
+  corpus: `PairedImageData` with the config key `dedupThreshold`, `build_glyph_cache.py` (writes `dedup.npz`/`dedup.json`),
+  and `python -m utils.dedup --config ... | --glyphCache ...` for the table.
+
+Dedup rule per t: each pair with s > t is visited in random order and, if both fonts are still kept, one of them chosen
+at random is discarded (mean over 5 orders for the table, seed 0 for training). Similarity is the cosine of 8 glyphs
+(`aegknHQR`) concatenated, each through `centerAndScaleNormalize`. Fonts that draw one placeholder box for every letter
+are always dropped; fonts missing a dedup letter are kept and not compared. Pairs are found exactly (blockwise matmul,
+GPU through torch when available).
 
 ```bash
 python experiments/internet-archive/fetch.py "Fonts Mega Pack 102.000 Fonts.zip"
-python experiments/internet-archive/build_cache.py "dataset/internetArchive/fonts/Fonts Mega Pack 102.000 Fonts"
-python experiments/internet-archive/dedup.py "dataset/internetArchive/cache/Fonts Mega Pack 102.000 Fonts"
+python experiments/levjepa/build_glyph_cache.py                     # every source + dedup table
+python -u experiments/embedding-geometry/build_bitmap_cache.py --fontSize 32 --cacheSuffix "" --only standard   # utils cache
+python -m utils.dedup --config configs/vit.json
 ```
-
-Dedup should eventually run over all chunk caches together (`dedup.py cacheA cacheB ...`), since the zips
-duplicate each other.
 
 ## Results
 
-**Mega Pack chunk** (`Fonts Mega Pack 102.000 Fonts.zip`, Oct 2026, CPU; mean over 5 random orders). 72,781 font
+**Mega Pack chunk on its own** (`Fonts Mega Pack 102.000 Fonts.zip`, Oct 2026, CPU; mean over 5 random orders; run with
+the first standalone version of this pipeline, same render and normalization, but fonts missing a dedup letter were
+left out of the corpus count instead of kept). 72,781 font
 files, all distinct by sha256. 3,967 are not comparable (80 fail to open; the rest lack one of `aegknHQR`, mostly
 symbol/non-Latin fonts) and 3,669 draw the same placeholder box for every letter (they pass the cmap check, and
 nearly identical letters are how `dedup.py` catches them). **Corpus before dedup: 65,145.**

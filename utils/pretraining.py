@@ -9,6 +9,7 @@ import os
 import matplotlib.pyplot as plt
 
 from .loaders import *
+from .dedup import applyDedup
 
 from torchvision.transforms import v2
 
@@ -135,7 +136,7 @@ class FontData(Dataset):
 class PairedImageData(FontData):
     def __init__(self, config, training=False, limit=None):
         self.config = config
-        # optional dataset-config key: render/cache bitmaps in "bitmaps<suffix>"/"smallimage<suffix>"
+        # optional dataset-config key: render/cache bitmaps in "bitmaps_mf<suffix>"/"smallimage<suffix>"
         # instead of the default folders, so a different fontSize never reuses stale-resolution files
         cacheSuffix = config.cacheSuffix if "cacheSuffix" in config else ""
 
@@ -159,6 +160,9 @@ class PairedImageData(FontData):
                     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
 
             names = np.concatenate(names, axis=0); letters = np.concatenate(letters, axis=0); paths = np.concatenate(paths, axis=0)
+            # after every source is cached and loaded: drop repeated font files and, with "dedupThreshold",
+            # near-duplicate and placeholder-box fonts across all sources (utils/dedup.py)
+            names, letters, paths = applyDedup(config, names, letters, paths)
         else:
             data = loadMyFontsImagePaths(config.directory, config.fontSize, cacheSuffix=cacheSuffix)
             names, letters, paths = data["names"], data["letters"], data["paths"]

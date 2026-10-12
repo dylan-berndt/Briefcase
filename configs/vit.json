@@ -14,7 +14,8 @@
             "myFonts": "dataset",
             "standard": [
                 "google",
-                "dafont"
+                "dafont",
+                "dataset/internetArchive"
             ]
         },
         "directory": "dataset",

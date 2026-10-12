@@ -4,25 +4,31 @@ pretraining, with ALL sources standardized on the MyFonts pipeline:
 
   * MyFonts (dataset/fontimage PNGs): utils.loaders.myfonts.loadRochesterImage, then the same truncating
     uint8 conversion the .bmp cache goes through.
-  * Google / DaFont (font files): a large render (200px) of each glyph, then the identical tight-crop +
-    scale-to-fit step (experiments/critical-review/render.py::rochesterFromGray). Glyphs missing from the
-    font's cmap are skipped (PIL would otherwise draw the .notdef box, which imagesFromFont also guards
-    against).
+  * Font-file sources (dataset.standard: dafont, google, dataset/internetArchive): utils.loaders.standard.renderGlyph, the
+    same render imagesFromFont writes into the utils bitmap caches (200px render, glyphs missing from the font's cmap
+    skipped, then the shared tight-crop + scale-to-fit, standard.scaleToFit).
 
-Outputs in --out (default dataset/levjepa, gitignored):
+Then the near-duplicate step over the whole compiled cache (utils/dedup.py): dedup.npz holds every pair above
+MIN_THRESHOLD and the placeholder-box fonts, and the thresholds-vs-discarded table is printed and saved to
+dedup.json. Training picks a threshold with the config's dataset.dedupThreshold.
+
+Outputs in dataset.glyphCache (dataset/levjepa, gitignored):
     glyphs.npy   uint8 [fonts, 52, 48, 48]   (np.load(..., mmap_mode="r"))
     present.npy  bool  [fonts, 52]           False = glyph missing / unreadable (pixels are 0)
     meta.json    font names, sources, letters, font-file paths, presence statistics
+    dedup.npz, dedup.json
 
-Font names follow the existing pipeline (`"<family> <style>"` from PIL's getname(), or the MyFonts file stem),
-so they line up with tags/descriptions/embeddings. Two font files with the same name: the first one (sorted
-path order, .ttf before .otf) wins, as in imagesFromFont's "already rendered" check.
+Font names follow the utils loaders: the MyFonts file stem, or standard.fontKey ("<family> <style> <sha256[:12]>")
+for font files. Files with the same key (byte-identical copies, within or across sources) are packed once: the first
+in source order, then sorted path order.
+
+Sources (dataset.myFonts, dataset.standard) and the output directory (dataset.glyphCache) come from the config,
+default configs/levjepa.json; directories without a fonts/ folder are skipped.
 
     python experiments/levjepa/build_glyph_cache.py --limit 300 --out dataset/levjepa_test   # quick check
     python experiments/levjepa/build_glyph_cache.py                                          # full build
 """
 import argparse
-import importlib.util
 import json
 import os
 import sys
@@ -38,27 +44,13 @@ _repoRoot = os.path.dirname(os.path.dirname(_scriptDir))
 if _repoRoot not in sys.path:
     sys.path.insert(0, _repoRoot)
 
+from utils.dedup import NearDuplicates
 from utils.loaders.myfonts import loadRochesterImage
+from utils.loaders.standard import RENDER_PX, fontFilePaths, fontKey, openFont, renderGlyph, toUint8
 
 LETTERS = "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 FONT_SIZE = 32                                  # -> 48px canvas, 32px glyph box (matches the 48px caches)
 IMAGE_SIZE = int(FONT_SIZE * 1.5)
-RENDER_PX = 200                                 # render.myfontsStyleFromFont's default
-
-
-def loadRochesterFromGray():
-    spec = importlib.util.spec_from_file_location(
-        "criticalReviewRender", os.path.join(_repoRoot, "experiments", "critical-review", "render.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.rochesterFromGray
-
-
-rochesterFromGray = loadRochesterFromGray()
-
-
-def toUint8(canvas):
-    return np.rint(canvas * 255).astype(np.uint8)
 
 
 # ---------------------------------------------------------------- workers
@@ -83,34 +75,25 @@ def myFontsJob(args):
     return index, glyphs, present
 
 
-def fontNameJob(path):
+def fontKeyJob(path):
     try:
-        family, style = ImageFont.truetype(path, FONT_SIZE).getname()
+        font, _ = openFont(path)
+        return path, fontKey(font, path)
     except Exception:
         return path, None
-    return path, f"{family} {style}"
 
 
 def fontFileJob(args):
     index, path = args
-    from fontTools.ttLib import TTFont
     glyphs = np.zeros((len(LETTERS), IMAGE_SIZE, IMAGE_SIZE), np.uint8)
     present = np.zeros(len(LETTERS), bool)
     try:
-        font = ImageFont.truetype(path, RENDER_PX)
-        ttf = TTFont(path, lazy=True)
-        cmaps = [table.cmap for table in ttf["cmap"].tables]
+        font, cmaps = openFont(path)
     except Exception:
         return index, glyphs, present
     for i, ch in enumerate(LETTERS):
-        if not any(ord(ch) in cmap for cmap in cmaps):
-            continue
         try:
-            mask = font.getmask(ch)
-            if mask.size == (0, 0):
-                continue
-            gray = np.asarray(Image.Image()._new(mask), dtype=np.float32) / 255.0
-            canvas = rochesterFromGray(gray)
+            canvas = renderGlyph(font, cmaps, ch, FONT_SIZE)
         except Exception:
             continue
         if canvas is None:
@@ -125,7 +108,7 @@ def fontFileJob(args):
 def preview(glyphs, present, names, sources, path, perSource=6, seed=0):
     rng = np.random.RandomState(seed)
     strips = []
-    for source in ("myfonts", "dafont", "google"):
+    for source in sorted(set(sources)):
         idx = [i for i in range(len(names)) if sources[i] == source and present[i].all()]
         if not idx:
             continue
@@ -134,17 +117,21 @@ def preview(glyphs, present, names, sources, path, perSource=6, seed=0):
             b = np.concatenate(list(glyphs[i, 26:]), axis=1)
             strips.append(np.concatenate([a, b], axis=0))
             strips.append(np.zeros((6, a.shape[1]), np.uint8) + 60)
-    Image.fromarray(np.concatenate(strips, axis=0)).save(path)
+    if strips:
+        Image.fromarray(np.concatenate(strips, axis=0)).save(path)
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--myFonts", default="dataset")
-    p.add_argument("--standard", nargs="*", default=["dafont", "google"])
-    p.add_argument("--out", default=os.path.join("dataset", "levjepa"))
+    p = argparse.ArgumentParser(description="sources and output dir come from the config's dataset section")
+    p.add_argument("--config", default=os.path.join("configs", "levjepa.json"))
+    p.add_argument("--out", default=None, help="override the config's dataset.glyphCache (quick checks)")
     p.add_argument("--limit", type=int, default=None, help="fonts per source (quick check)")
     p.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
     args = p.parse_args()
+    with open(args.config, encoding="utf8") as f:
+        dataset = json.load(f)["dataset"]
+    args.myFonts, args.standard = dataset["myFonts"], dataset["standard"]
+    args.out = args.out or dataset["glyphCache"]
 
     os.makedirs(args.out, exist_ok=True)
     started = time.time()
@@ -160,19 +147,27 @@ def main():
         names.append(name); sources.append("myfonts"); fontPaths.append(None)
 
     with Pool(args.workers) as pool:
+        seen = set()
         for directory in args.standard:
+            if not os.path.isdir(os.path.join(directory, "fonts")):
+                print(f"{directory}: no fonts/ folder, skipped", flush=True)
+                continue
             tag = os.path.basename(os.path.normpath(directory))
-            paths = sorted(glob(os.path.join(directory, "fonts", "**", "*.ttf"), recursive=True)) + \
-                sorted(glob(os.path.join(directory, "fonts", "**", "*.otf"), recursive=True))
-            seen, kept = set(), []
-            for path, key in pool.imap(fontNameJob, paths, chunksize=64):
-                if key is None or key in seen:
+            paths = fontFilePaths(directory)
+            kept, unreadable, repeated = [], 0, 0
+            for path, key in pool.imap(fontKeyJob, paths, chunksize=64):
+                if key is None:
+                    unreadable += 1
+                    continue
+                if key in seen:
+                    repeated += 1
                     continue
                 seen.add(key)
                 kept.append((path, key))
                 if args.limit and len(kept) >= args.limit:
                     break
-            print(f"{tag}: {len(paths)} font files -> {len(kept)} unique named fonts", flush=True)
+            print(f"{tag}: {len(paths)} font files -> {len(kept)} fonts ({repeated} byte-identical repeats, "
+                  f"{unreadable} unreadable)", flush=True)
             for path, key in kept:
                 jobs.append(("file", path, key))
                 names.append(key); sources.append(tag); fontPaths.append(path)
@@ -217,6 +212,11 @@ def main():
             os.path.join(args.out, "preview.png"))
     print(json.dumps(stats, indent=1))
     print(f"cross-source duplicate names: {crossDuplicates}; total {time.time() - started:.0f}s -> {args.out}")
+
+    # near-duplicates over the whole compiled corpus, after every source is in the cache
+    table = NearDuplicates.fromGlyphCache(args.out).printTable()
+    with open(os.path.join(args.out, "dedup.json"), "w", encoding="utf8") as f:
+        json.dump(table, f, indent=1)
 
 
 if __name__ == "__main__":

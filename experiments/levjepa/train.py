@@ -19,7 +19,7 @@ predictor, target encoder, stop-gradient, momentum encoder, queue or negatives.
 Evaluation-time embedding (no token dropping, 52-glyph global view) is deferred until after pretraining.
 
     python -u experiments/levjepa/train.py --supervise          # the real run; restarts itself and resumes
-    python -u experiments/levjepa/train.py --maxSteps 20 --noWandb --runName smoke --batch 32   # quick check
+    python -u experiments/levjepa/train.py --maxSteps 20 --noWandb --runName smoke --limitFonts 256   # quick check
 
 Writes ONLY to checkpoints/pretrain/<runName>; never touches pretrain/latest or pretrain/best. checkpoint.pt is the bare
 encoder state dict (CLS output = post-final-LayerNorm backbone feature, the thing that gets embedded downstream).
@@ -48,6 +48,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
+from utils.dedup import NearDuplicates
 from utils.training import sigreg_strong_loss
 
 NUM_GLYPHS = 52
@@ -58,53 +59,33 @@ PER_GLYPH = GRID * GRID
 ROPE_BASES = (200.0, 20.0, 20.0)   # letter, row, col: geometric frequencies from 1 down to 1/base
 
 
+CONFIG_SECTIONS = ("model", "views", "loss", "optimization", "dataset", "logging")
+
+
 def parseArgs():
+    """Everything that defines a run lives in the config file (configs/levjepa.json); the flags below only change
+    how this process runs, not what it computes (--runName / --limitFonts / --maxSteps are for smoke tests)."""
     p = argparse.ArgumentParser()
-    p.add_argument("--runName", default="levjepa-d256")
-    p.add_argument("--data", default=os.path.join("dataset", "levjepa"))
-    # model
-    p.add_argument("--dim", type=int, default=256)
-    p.add_argument("--depth", type=int, default=12)
-    p.add_argument("--heads", type=int, default=4)
-    p.add_argument("--mlpRatio", type=int, default=3)
-    p.add_argument("--projHidden", type=int, default=2048)
-    p.add_argument("--projDim", type=int, default=256)
-    # views
-    p.add_argument("--keep", type=float, default=0.10, help="fraction of patch tokens kept per view")
-    p.add_argument("--inkFrac", type=float, default=0.75, help="fraction of the kept tokens drawn from ink patches")
-    p.add_argument("--inkThreshold", type=float, default=0.1)
-    p.add_argument("--views", type=int, default=4, help="local views per font")
-    p.add_argument("--cropPatches", type=int, default=3, help="local crop side in patches (3 = 24px)")
-    p.add_argument("--minGlyphs", type=int, default=26, help="fonts with fewer present glyphs are not used")
-    # objective
-    p.add_argument("--lam", type=float, default=0.02, help="SIGReg weight (LeVJEPA)")
-    p.add_argument("--invReduction", choices=["mean", "sum"], default="mean",
-                   help="reduce ||z0 - zv||^2 over embedding dims by mean (LeJEPA reference code) or sum (paper eq. 2)")
-    p.add_argument("--sketch", type=int, default=1024, help="SIGReg random directions")
-    # optimisation
-    p.add_argument("--batch", type=int, default=128)
-    p.add_argument("--epochs", type=int, default=100)
-    p.add_argument("--lr", type=float, default=5e-4)
-    p.add_argument("--wd", type=float, default=0.05)
-    p.add_argument("--warmup", type=float, default=0.05, help="fraction of steps")
-    p.add_argument("--clip", type=float, default=1.0)
-    p.add_argument("--noCkpt", action="store_true", help="disable per-block gradient checkpointing")
-    p.add_argument("--vramFraction", type=float, default=0.93)
-    # data split / run control
-    p.add_argument("--holdout", type=float, default=0.05)
-    p.add_argument("--splitSalt", default="levjepa-split-v1")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--saveEvery", type=int, default=500)
-    p.add_argument("--evalEvery", type=int, default=500)
-    p.add_argument("--evalBatches", type=int, default=4)
-    p.add_argument("--diagEvery", type=int, default=50)
+    p.add_argument("--config", default=os.path.join("configs", "levjepa.json"))
+    p.add_argument("--runName", default=None, help="override the config's runName (smoke tests)")
     p.add_argument("--maxSteps", type=int, default=None, help="stop (and save) after this many total steps")
     p.add_argument("--limitFonts", type=int, default=None, help="use only the first N usable fonts (smoke tests)")
+    p.add_argument("--noCkpt", action="store_true", help="disable per-block gradient checkpointing")
+    p.add_argument("--vramFraction", type=float, default=0.93)
     p.add_argument("--noWandb", action="store_true")
-    p.add_argument("--wandbEntity", default="dylanberndt123-missouri-state-university")
-    p.add_argument("--wandbProject", default="Briefcase")
     p.add_argument("--supervise", action="store_true", help="re-launch this script until it exits cleanly")
-    return p.parse_args()
+    args = p.parse_args()
+    with open(args.config, encoding="utf8") as f:
+        config = json.load(f)
+    flat = {"runName": args.runName or config["runName"]}
+    for section in CONFIG_SECTIONS:
+        for key, value in config[section].items():
+            assert key not in flat, f"config key {key!r} appears in two sections"
+            flat[key] = value
+    flat.update({k: v for k, v in vars(args).items() if k != "runName"})
+    cfg = argparse.Namespace(**flat)
+    cfg.sections = {section: config[section] for section in CONFIG_SECTIONS}
+    return cfg
 
 
 # ------------------------------------------------------------------ data
@@ -112,7 +93,7 @@ def parseArgs():
 class GlyphStore:
     """dataset/levjepa: glyphs.npy uint8 [fonts, 52, 48, 48] (memmap), present.npy bool [fonts, 52], meta.json."""
 
-    def __init__(self, dataDir, holdout, salt, minGlyphs, limit=None):
+    def __init__(self, dataDir, holdout, salt, minGlyphs, limit=None, dedupThreshold=None):
         self.glyphs = np.load(os.path.join(dataDir, "glyphs.npy"), mmap_mode="r")
         self.present = np.load(os.path.join(dataDir, "present.npy"))
         with open(os.path.join(dataDir, "meta.json"), encoding="utf8") as f:
@@ -120,6 +101,12 @@ class GlyphStore:
         assert self.glyphs.shape[1:] == (NUM_GLYPHS, GRID * PATCH, GRID * PATCH), self.glyphs.shape
         names = self.meta["names"]
         usable = np.where(self.present.sum(1) >= minGlyphs)[0]
+        if dedupThreshold is not None:
+            dropped = NearDuplicates.load(os.path.join(dataDir, "dedup.npz")).discarded(dedupThreshold)
+            before = len(usable)
+            usable = usable[~np.isin(usable, list(dropped))]
+            print(f"dedup t={dedupThreshold}: {before - len(usable)} near-duplicate / placeholder fonts dropped",
+                  flush=True)
         if limit:
             usable = usable[:limit]
 
@@ -362,16 +349,22 @@ def atomicSave(obj, path):
     os.replace(tmp, path)
 
 
+def runConfig(cfg):
+    """What checkpoints/pretrain/<run>/config.json holds: the config file's sections (enough to recreate the run),
+    with the fixed architecture constants added to "model" (embed.py / probe.py build the encoder from it)."""
+    config = {"runName": cfg.runName, **json.loads(json.dumps(cfg.sections))}
+    config["model"].update({"type": "levjepa", "patchSize": PATCH, "imageSize": GRID * PATCH,
+                            "ropeBases": ROPE_BASES, "glyphs": NUM_GLYPHS})
+    return json.loads(json.dumps(config))   # tuples -> lists, so it compares equal to a saved config.json
+
+
 def saveState(dirPath, cfg, encoder, projector, optimizer, step, runId):
     original = signal.signal(signal.SIGINT, signal.SIG_IGN)   # never die half-way through a save
     try:
         os.makedirs(dirPath, exist_ok=True)
         atomicSave(encoder.state_dict(), os.path.join(dirPath, "checkpoint.pt"))
         with open(os.path.join(dirPath, "config.json"), "w") as f:
-            json.dump({"model": {"type": "levjepa", "dim": cfg.dim, "depth": cfg.depth, "heads": cfg.heads,
-                                 "mlpRatio": cfg.mlpRatio, "patchSize": PATCH, "imageSize": GRID * PATCH,
-                                 "ropeBases": ROPE_BASES, "glyphs": NUM_GLYPHS},
-                       "train": vars(cfg)}, f, indent=1)
+            json.dump(runConfig(cfg), f, indent=1)
         atomicSave({"step": step, "optimizer": optimizer.state_dict(), "projector": projector.state_dict(),
                     "wandbId": runId}, os.path.join(dirPath, "train_state.pt"))
         with open(os.path.join(dirPath, "progress.json.tmp"), "w") as f:
@@ -448,7 +441,7 @@ def main():
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
 
-    store = GlyphStore(cfg.data, cfg.holdout, cfg.splitSalt, cfg.minGlyphs, cfg.limitFonts)
+    store = GlyphStore(cfg.glyphCache, cfg.holdout, cfg.splitSalt, cfg.minGlyphs, cfg.limitFonts, cfg.dedupThreshold)
     stepsPerEpoch = len(store.train) // cfg.batch
     total = stepsPerEpoch * cfg.epochs
     sampler = ViewSampler(cfg, device)
@@ -472,6 +465,15 @@ def main():
     statePath = os.path.join(runDir, "train_state.pt")
     step, runId = 0, None
     if os.path.exists(statePath):
+        savedPath = os.path.join(runDir, "config.json")
+        if os.path.exists(savedPath):
+            with open(savedPath, encoding="utf8") as f:
+                saved = json.load(f)
+            current = runConfig(cfg)
+            changed = [k for k in CONFIG_SECTIONS if k != "logging" and k in saved and saved[k] != current[k]]
+            if changed:
+                raise SystemExit(f"{runDir} was started with a different config ({', '.join(changed)} differ); "
+                                 f"use a new runName or restore the config")
         state = torch.load(statePath, map_location=device, weights_only=False)
         encoder.load_state_dict(torch.load(os.path.join(runDir, "checkpoint.pt"), map_location=device, weights_only=True))
         projector.load_state_dict(state["projector"])
@@ -482,7 +484,7 @@ def main():
     run = None
     if not cfg.noWandb:
         import wandb
-        run = wandb.init(entity=cfg.wandbEntity, project=cfg.wandbProject, name=cfg.runName, config=vars(cfg),
+        run = wandb.init(entity=cfg.wandbEntity, project=cfg.wandbProject, name=cfg.runName, config=runConfig(cfg),
                          id=runId, resume="allow")
         runId = run.id
 

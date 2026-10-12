@@ -40,7 +40,7 @@ from scipy.optimize import minimize
 from scipy.ndimage import affine_transform
 from skimage.metrics import structural_similarity as ssim
 
-from glyph_normalize import centerAndScaleNormalize
+from utils.dedup import centerAndScaleNormalize
 
 CHUNK = 4000
 PREFILTER_GLYPH = "a"

@@ -8,6 +8,7 @@ import os
 from .unet import *
 from .pretraining import *
 from .loaders import *
+from .dedup import applyDedup
 from .vit import *
 import cv2
 import random
@@ -74,6 +75,7 @@ class CombinedQueryData:
                     names.append(data["names"]); letters.append(data["letters"]); paths.append(data["paths"])
 
             names = np.concatenate(names, axis=0); letters = np.concatenate(letters, axis=0); paths = np.concatenate(paths, axis=0)
+            names, letters, paths = applyDedup(config, names, letters, paths)
         else:
             data = loadMyFontsImagePaths(config.directory, config.fontSize)
             names, letters, paths = data["names"], data["letters"], data["paths"]
