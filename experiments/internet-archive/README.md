@@ -14,9 +14,7 @@ where the "201k unique" figure comes from: the zips are overlapping compilations
 
 Dedup rule per t: byte-identical copies collapse to one file, then each pair with s > t is visited in random
 order and, if both fonts are still kept, one of them chosen at random is discarded (mean over 5 orders). Pairs are
-found with an SVD projection + faiss range search, then re-scored exactly on the full 18,432-pixel vectors; the
-search radius is lowered by the measured projection error so no pair above min(t) is missed (up to a 99.99%
-quantile).
+found exactly (blockwise matmul over the upper triangle, GPU through torch when available).
 
 ```bash
 python experiments/internet-archive/fetch.py "Fonts Mega Pack 102.000 Fonts.zip"

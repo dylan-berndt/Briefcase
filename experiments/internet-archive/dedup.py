@@ -10,11 +10,9 @@ Discard rule, per threshold t: byte-identical copies (same sha256, similarity 1)
 every pair of distinct fonts with s > t is visited in random order; if both are still kept, one of the two, chosen
 at random, is discarded. Averaged over --seeds random orders.
 
-Finding the pairs: all-pairs cosine on 18,432-d vectors is too slow on CPU, so vectors are projected onto the top
---dims right singular vectors (uncentered SVD of a sample, which approximately preserves dot products), every pair
-with projected cosine above min(t) - margin is found exactly in that space with faiss range search, and each
-candidate's exact cosine is then recomputed on the full vectors. The margin is measured (99.99th percentile of
-|projected - exact| on near pairs) and printed.
+Finding the pairs: exact cosine over the upper triangle by blockwise matmul (GPU via torch if available, numpy
+otherwise), keeping every pair above min(t). An SVD projection + faiss range search was tried first and dropped: at
+384 dims its cosine error reached 0.29 (99.99th percentile), so the safety margin swallowed most of the corpus.
 
     python experiments/internet-archive/dedup.py dataset/internetArchive/cache/<zip stem> [more caches...]
 
@@ -26,7 +24,6 @@ import json
 import os
 import time
 
-import faiss
 import numpy as np
 from PIL import Image
 
@@ -81,52 +78,38 @@ def loadVectors(sources):
     return out
 
 
-def project(vectors, dims, sample=8000, seed=0):
-    rng = np.random.default_rng(seed)
-    idx = np.sort(rng.choice(len(vectors), min(sample, len(vectors)), replace=False))
-    _, _, vt = np.linalg.svd(vectors[idx].astype(np.float32), full_matrices=False)
-    basis = vt[:dims].T.copy()
-    projected = np.concatenate([vectors[s:s + 8192].astype(np.float32) @ basis
-                                for s in range(0, len(vectors), 8192)])
-    projected /= np.maximum(np.linalg.norm(projected, axis=1, keepdims=True), 1e-8)
-    return projected
-
-
-def exactCosine(vectors, i, j, batch=200000):
-    out = np.empty(len(i), np.float32)
-    for s in range(0, len(i), batch):
-        a = vectors[i[s:s + batch]].astype(np.float32)
-        b = vectors[j[s:s + batch]].astype(np.float32)
-        out[s:s + batch] = (a * b).sum(1)
-    return out
-
-
-def measureMargin(vectors, projected, n=3000, k=20, seed=0):
-    """|projected cosine - exact cosine| on each sampled font's k projected nearest neighbours (the pairs that
-    matter for a high threshold)."""
-    rng = np.random.default_rng(seed)
-    q = rng.choice(len(vectors), min(n, len(vectors)), replace=False)
-    index = faiss.IndexFlatIP(projected.shape[1])
-    index.add(projected)
-    sims, nbrs = index.search(projected[q], k + 1)
-    i = np.repeat(q, k)
-    j = nbrs[:, 1:].reshape(-1)
-    keep = j >= 0
-    err = np.abs(sims[:, 1:].reshape(-1)[keep] - exactCosine(vectors, i[keep], j[keep]))
-    return float(np.quantile(err, 0.9999)), float(err.mean()), index
-
-
-def rangePairs(index, projected, radius, batch=4096):
-    allI, allJ = [], []
-    for s in range(0, len(projected), batch):
-        lims, _, labels = index.range_search(projected[s:s + batch], radius)
-        rows = np.repeat(np.arange(s, s + len(lims) - 1), np.diff(lims).astype(np.int64))
-        keep = labels > rows
-        allI.append(rows[keep]); allJ.append(labels[keep])
-        print(f"\r  range search {min(s + batch, len(projected))}/{len(projected)}, "
-              f"candidates {sum(len(x) for x in allI)}", end="", flush=True)
+def exactPairs(vectors, threshold, rowBlock=4096, colBlock=16384):
+    """Every pair (i < j) with cosine > threshold, exact, by blockwise matmul over the upper triangle. Uses a CUDA
+    GPU through torch when available (fp16 storage, fp32 products), numpy BLAS otherwise."""
+    n = len(vectors)
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else None
+    except ImportError:
+        device = None
+    allI, allJ, allS = [], [], []
+    started = time.time()
+    for r in range(0, n, rowBlock):
+        rows = vectors[r:r + rowBlock].astype(np.float32)
+        if device:
+            rows = torch.from_numpy(rows).to(device)
+        for c in range(r, n, colBlock):
+            cols = vectors[c:c + colBlock].astype(np.float32)
+            if device:
+                block = (rows @ torch.from_numpy(cols).to(device).T).cpu().numpy()
+            else:
+                block = rows @ cols.T
+            ii, jj = np.nonzero(block > threshold)
+            keep = (jj + c) > (ii + r)
+            ii, jj = ii[keep], jj[keep]
+            allI.append((ii + r).astype(np.int32)); allJ.append((jj + c).astype(np.int32))
+            allS.append(block[ii, jj])
+        done = min(r + rowBlock, n)
+        work = 1 - (1 - done / n) ** 2
+        print(f"\r  exact pairs: rows {done}/{n}, pairs {sum(len(x) for x in allI)}, "
+              f"~{(time.time() - started) * (1 - work) / max(work, 1e-9) / 60:.0f} min left", end="", flush=True)
     print()
-    return np.concatenate(allI).astype(np.int64), np.concatenate(allJ).astype(np.int64)
+    return np.concatenate(allI), np.concatenate(allJ), np.concatenate(allS)
 
 
 def greedyDiscard(n, i, j, s, t, seed):
@@ -179,7 +162,6 @@ def main():
     p.add_argument("caches", nargs="+")
     p.add_argument("--name", default=None)
     p.add_argument("--thresholds", type=float, nargs="+", default=DEFAULT_THRESHOLDS)
-    p.add_argument("--dims", type=int, default=384)
     p.add_argument("--seeds", type=int, default=5)
     args = p.parse_args()
 
@@ -197,20 +179,11 @@ def main():
           f"{nContent} distinct by sha256", flush=True)
 
     vectors = loadVectors(sources)
-    projected = project(vectors, args.dims)
-    margin, meanErr, index = measureMargin(vectors, projected)
-    radius = min(args.thresholds) - margin
-    print(f"projection {args.dims}d: |proj - exact| cosine error mean {meanErr:.5f}, 99.99% {margin:.5f} "
-          f"-> search radius {radius:.4f} ({time.time() - started:.0f}s)", flush=True)
-
-    ci, cj = rangePairs(index, projected, radius)
-    cs = exactCosine(vectors, ci, cj)
-    keep = cs > min(args.thresholds)
-    i, j, s = ci[keep], cj[keep], cs[keep]
+    print(f"vectors loaded ({time.time() - started:.0f}s)", flush=True)
+    i, j, s = exactPairs(vectors, min(args.thresholds))
     np.savez_compressed(os.path.join(out, "pairs.npz"), i=i, j=j, s=s,
                         sha256=np.array([x[3] for x in sources]))
-    print(f"{len(ci)} candidates -> {len(i)} pairs with exact s > {min(args.thresholds)} "
-          f"({time.time() - started:.0f}s)", flush=True)
+    print(f"{len(i)} pairs with s > {min(args.thresholds)} ({time.time() - started:.0f}s)", flush=True)
 
     exactCopies = comparableFiles - nContent
     table = []
@@ -231,8 +204,7 @@ def main():
     pairSheet(sources, i, j, s, sorted(args.thresholds), os.path.join(out, "pairs_near_t.png"))
     results = {"caches": args.caches, "files": nFiles, "unreadableFiles": int((fileContent == -2).sum()),
                "notComparable": int((fileContent == -1).sum()), "corpusBeforeDedup": comparableFiles,
-               "distinctBySha256": nContent, "exactCopies": exactCopies, "dims": args.dims,
-               "projectionErrorMean": meanErr, "projectionError9999": margin, "seeds": args.seeds,
+               "distinctBySha256": nContent, "exactCopies": exactCopies, "seeds": args.seeds,
                "table": table, "seconds": time.time() - started}
     with open(os.path.join(out, "results.json"), "w") as f:
         json.dump(results, f, indent=1)
