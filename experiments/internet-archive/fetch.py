@@ -128,6 +128,9 @@ def main():
         if name not in files:
             sys.exit(f"unknown zip {name!r}; see --list")
         print(name, flush=True)
+        if os.path.exists(os.path.join(ROOT, "fonts", os.path.splitext(name)[0], ".extracted")):
+            print("  already extracted, skipping download")
+            continue
         zipPath = download(name, files[name])
         extract(zipPath)
         if not args.keepZip:
