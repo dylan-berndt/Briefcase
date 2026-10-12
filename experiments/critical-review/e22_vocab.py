@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Tag frequency distribution and tagger ROC-AUC by tag frequency (MyFonts, official splits, frozen ViT + MLP).
 import numpy as np, pickle, torch
 from collections import Counter

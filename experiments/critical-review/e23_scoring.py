@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Font-scoring comparison for tag search, parser held fixed (oracle query tags from the ICCV query sets).
 #   raw      : dot(query one-hot, sigmoid probs)          -- current TagSearch
 #   tagZ     : dot(query, per-tag z-scored logits)        -- normalize each tag across fonts

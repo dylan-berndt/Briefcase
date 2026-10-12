@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Run the tag-bottleneck search over the DaFont corpus for the 30 pre-existing queries in
 # experiments/choice-searches/estimateSearchQuality.py, two ways:
 #   A = current vectors (all.json, metric render, case-mixed)

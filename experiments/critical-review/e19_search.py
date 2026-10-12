@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Tag-bottleneck search engine: query --(learned from MyFonts captions)--> tag weights,
 # font --(visual tagger trained on MyFonts)--> tag scores, rank by weighted sum.
 # Everything is trained on MyFonts trainset only; evaluated on MyFonts testset and on DaFont.
