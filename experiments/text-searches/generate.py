@@ -2,6 +2,14 @@
 
 import json
 import os
+import os
+import sys
+
+_repoRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repoRoot not in sys.path:
+    sys.path.insert(0, _repoRoot)
+os.chdir(_repoRoot)   # paths below are relative to the repo root
+
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from utils import Description, loadGoogleDescriptions, loadDescriptionsFromSource, Config

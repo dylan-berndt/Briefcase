@@ -11,6 +11,7 @@ No model runs on the server. A tagger scores every font offline; the server only
 
 ```
 site/tools/   offline: pick the fonts, run the tagger, render specimens, write the bundle   (needs torch, a GPU helps)
+              also findCycle.py (front-page font tours) and explore.py (Plotly embedding maps for the Map page)
 site/backend/ Flask + numpy: load the bundle, parse queries, rank, serve specimens, accounts/votes/ratings/descriptions
 site/frontend/ React app, built into the image
 site/e2e/     browser tests against the built site
