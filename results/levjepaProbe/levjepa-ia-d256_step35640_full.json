@@ -1,0 +1,85 @@
+{
+ "fonts": {
+  "train": 15049,
+  "val": 1875,
+  "test": 1876
+ },
+ "tags": 1824,
+ "val": {
+  "top50RocAuc": 0.7960944270180126,
+  "top50PrAuc": 0.36579531110126046
+ },
+ "top50RocAuc": 0.8007939440095417,
+ "top50PrAuc": 0.3752196926145979,
+ "iccvSingle300": {
+  "mAP": 20.834806950397482,
+  "NDCG": 62.907553016129306,
+  "queries": 300,
+  "skippedOutOfVocab": 0
+ },
+ "iccvSingleFull": {
+  "mAP": 12.231462256895394,
+  "NDCG": 37.79418828483325,
+  "queries": 1684,
+  "skippedOutOfVocab": 0
+ },
+ "iccvMulti": {
+  "mAP": 12.221083197569387,
+  "NDCG": 33.390475460066156,
+  "queries": 5465,
+  "skippedOutOfVocab": 0
+ },
+ "amt": {
+  "accuracy": 0.4957780458383595,
+  "groups": 1658
+ },
+ "tag": "levjepa-ia-d256_step35640_full",
+ "args": {
+  "glyphCache": "dataset/levjepa",
+  "datasetDir": "dataset",
+  "minGlyphs": 26,
+  "epochs": 40,
+  "seed": 0,
+  "sparseViews": 8,
+  "keep": 0.1,
+  "inkFrac": 0.75,
+  "inkThreshold": 0.1,
+  "config": "configs\\levjepaProbe.json",
+  "ckpt": "checkpoints/pretrain/levjepa-ia-d256-snapshots\\step35640",
+  "control": null,
+  "glyphs": "lower",
+  "bitmap64": false,
+  "mode": "full",
+  "tag": "levjepa-ia-d256_step35640_full",
+  "follow": "checkpoints/pretrain/levjepa-ia-d256-snapshots",
+  "total": 35640,
+  "followPoll": 300.0,
+  "maxFonts": null,
+  "batch": 8,
+  "device": "cuda",
+  "vramFraction": 0.3,
+  "minFreeGB": 2.5,
+  "wandb": true,
+  "sections": {
+   "data": {
+    "glyphCache": "dataset/levjepa",
+    "datasetDir": "dataset",
+    "minGlyphs": 26
+   },
+   "probe": {
+    "epochs": 40,
+    "seed": 0
+   },
+   "sparseViews": {
+    "sparseViews": 8,
+    "keep": 0.1,
+    "inkFrac": 0.75,
+    "inkThreshold": 0.1
+   }
+  },
+  "configPath": "configs\\levjepaProbe.json"
+ },
+ "embedSeconds": 674.1177639961243,
+ "peakGpuGiB": 0.2779731750488281,
+ "totalSeconds": 725.5333156585693
+}
