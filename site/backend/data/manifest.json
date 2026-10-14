@@ -1,6 +1,6 @@
 {
  "format": 1,
- "created": "2026-09-30T19:56:52+00:00",
+ "created": "2026-10-14T15:38:03+00:00",
  "numFonts": 12802,
  "numTags": 1824,
  "specimen": {
@@ -8,14 +8,14 @@
  },
  "model": {
   "adapter": "finetuneTags",
-  "path": "checkpoints/retrieval/finetuneTags/2026-09-28 19-25",
+  "path": "checkpoints/retrieval/finetuneTags-levjepa-ia-lora/2026-10-14 08-19",
   "device": "cuda",
   "failedToRender": 51
  },
  "files": {
   "vocab.json": {
    "bytes": 19228,
-   "sha256": "27f360698a7f29b9ee2c1951a59bbc3e2efee3c46b730980ceb9282c51cee1d5"
+   "sha256": "8da7356d9af9d7c5269e1523a4457cc81de80d5a911cebc941b281d4ef4c1eca"
   },
   "fonts.json": {
    "bytes": 2147420,
@@ -23,7 +23,7 @@
   },
   "logits.npy": {
    "bytes": 46701824,
-   "sha256": "cd973316a5b38d78cdedb3ddc953564efcdd80a32ae1c057d5c219166970d54d"
+   "sha256": "84ea34140000080bea6cb7d491b4951bbebe95cb5b61cd057954fc682047d5bb"
   },
   "specimens.pack": {
    "bytes": 71147612,

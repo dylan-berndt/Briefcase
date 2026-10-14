@@ -65,8 +65,7 @@ class FineTuneTags:
         import torch
         with torch.no_grad():
             batch = torch.tensor(glyphs, device=self.device).float() / 255.0
-            with torch.autocast(device_type=self.device, enabled=self.device == "cuda"):
-                return self.model(batch).float().cpu().numpy()
+            return self.model(batch).float().cpu().numpy()   # fp32: fp16 autocast measured slower on the GTX 1660 SUPER
 
 
 ADAPTERS = {"finetuneTags": FineTuneTags}
