@@ -49,15 +49,18 @@ def test_search_shows_specimens_that_load(page, site):
     assert page.errors == []
 
 
-def test_every_specimen_link_goes_out_in_a_new_tab(page):
+def test_every_result_links_to_its_font_page(page):
     page.goto("/")
     search(page, "serif")
     page.locator(".ResultWindow").first.wait_for()
     links = page.locator(".ResultWindow a")
     for i in range(links.count()):
-        assert links.nth(i).get_attribute("target") == "_blank"
-        assert "noopener" in links.nth(i).get_attribute("rel")
-        assert links.nth(i).get_attribute("href").startswith("https://")
+        assert links.nth(i).get_attribute("target") is None
+        assert links.nth(i).get_attribute("href").startswith("/font/")
+    name = page.locator(".ResultTitle a").first.inner_text()
+    page.locator(".ResultTitle a").first.click()
+    page.locator("h1").wait_for()
+    assert page.locator("h1").inner_text() == name and "/font/" in page.url
 
 
 def test_paging_to_the_very_end_and_back(page):

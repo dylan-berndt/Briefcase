@@ -268,6 +268,7 @@ def createApp(overrides=None):
                 "name": font["name"],
                 "source": font["source"],
                 "url": font["url"],
+                "path": fontPath(bundle.slugs[i]),
                 "creator": font.get("creator"),
                 "specimen": specimenURL(i),
                 "rating": {"average": round(rating["average"], 2) if rating else None,

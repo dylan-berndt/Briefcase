@@ -5,6 +5,7 @@ export function makeResult(i, overrides = {}) {
 		name: `Font ${i}`,
 		source: i % 2 ? "google" : "dafont",
 		url: `https://example.com/font-${i}`,
+		path: `/font/Font%20${i}`,
 		creator: i % 2 ? null : "Some Designer",
 		specimen: `/api/font/specimen/${i}?v=abc`,
 		rating: { average: null, count: 0, mine: null },

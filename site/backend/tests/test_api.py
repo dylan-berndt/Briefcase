@@ -22,10 +22,10 @@ def test_query_shape(client):
     assert body["page"] == 1 and body["pageSize"] == 5 and body["total"] == 300 and body["totalPages"] == 60
     assert body["tags"] == [{"tag": "serif", "weight": 1.0}]
     first = body["results"][0]
-    assert set(first) == {"key", "name", "source", "url", "creator", "specimen", "rating", "vote"}
+    assert set(first) == {"key", "name", "source", "url", "path", "creator", "specimen", "rating", "vote"}
     assert first["specimen"].startswith("/api/font/specimen/") and "?v=" in first["specimen"]
     assert first["rating"] == {"average": None, "count": 0, "mine": None} and first["vote"] == 0
-    assert first["url"].startswith("https://")
+    assert first["url"].startswith("https://") and first["path"].startswith("/font/")
 
 
 def test_pages_tile_the_whole_ranking(client, app):

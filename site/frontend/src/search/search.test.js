@@ -1,4 +1,5 @@
-import { render, screen, waitFor, within, act } from '@testing-library/react';
+import { render as renderBare, screen, waitFor, within, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import SearchPage, { pageWindow } from './index';
 import { installFetch, jsonResponse, makePage, makeResult } from '../testUtils';
@@ -7,6 +8,9 @@ beforeEach(() => {
 	window.history.replaceState({}, "", "/");
 	window.HTMLElement.prototype.scrollIntoView = jest.fn();
 });
+
+// the result cards link to font pages, which needs a router
+const render = (ui) => renderBare(ui, { wrapper: MemoryRouter });
 
 const queryCalls = (calls) => calls.filter(c => c.path === "/api/font/query");
 
@@ -53,7 +57,7 @@ describe("searching", () => {
 		expect(screen.getByText("Please enter a description to search for a font")).toBeInTheDocument();
 	});
 
-	test("shows specimen images linking out, with the matched tags", async () => {
+	test("shows specimen images linking to the font pages, with the matched tags", async () => {
 		const calls = installFetch({
 			"/api/font/tags": () => jsonResponse({ tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: 1 }], suggested: [], unmatched: [] }),
 			"/api/font/query": queryHandler(30),
@@ -65,9 +69,9 @@ describe("searching", () => {
 		expect(images).toHaveLength(24);
 		expect(images[0]).toHaveAttribute("src", "/api/font/specimen/0?v=abc");
 		expect(images[0]).toHaveAttribute("alt", "Font 0 specimen");
-		expect(images[0].closest("a")).toHaveAttribute("href", "https://example.com/font-0");
-		expect(images[0].closest("a")).toHaveAttribute("target", "_blank");
-		expect(images[0].closest("a").getAttribute("rel")).toContain("noopener");
+		expect(images[0].closest("a")).toHaveAttribute("href", "/font/Font%200");
+		expect(images[0].closest("a")).not.toHaveAttribute("target");
+		expect(screen.getByRole("link", { name: "Font 0" })).toHaveAttribute("href", "/font/Font%200");
 		const chips = within(await screen.findByRole("list", { name: "Tags in your search" })).getAllByRole("listitem");
 		expect(chips.map(c => c.textContent)).toEqual(["serif", "bold"]);
 		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "bold: included");

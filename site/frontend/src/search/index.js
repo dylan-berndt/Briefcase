@@ -1,5 +1,6 @@
 import './main.css'
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 
 const PAGE_SIZE = 24;
 
@@ -82,12 +83,12 @@ function Result({ result, query, tags, username, onNeedLogin, allowDescriptions 
 	};
 
 	return <article className="ResultWindow">
-		<a href={result.url} target="_blank" rel="noopener noreferrer" className="Specimen">
+		<Link to={result.path} className="Specimen">
 			<img src={result.specimen} alt={`${result.name} specimen`} width="640" height="180" loading="lazy" />
-		</a>
+		</Link>
 		<div className="ResultInfo">
 			<div className="ResultTitle">
-				<a href={result.url} target="_blank" rel="noopener noreferrer">{result.name}</a>
+				<Link to={result.path}>{result.name}</Link>
 				<span className="ResultSource">{result.source === "google" ? "Google Fonts" : "DaFont"}{result.creator ? ` · ${result.creator}` : ""}</span>
 			</div>
 			<div className="ResultFeedback">
