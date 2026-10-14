@@ -9,7 +9,7 @@ from urllib.parse import quote, unquote
 import numpy as np
 import pytest
 
-from seo import CLOSE_SHOWN, TAGS_SHOWN, FontProfiles
+from seo import CLOSE_SHOWN, TAGS_MAX, FontProfiles
 from slugs import LabelMatcher, assignSlugs, cleanName, fontPath, specimenPath, words
 
 SITEMAP = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
@@ -221,14 +221,16 @@ def test_a_sample_of_real_fonts_match_their_own_map_label():
         assert found is not None and words(fonts[found]["name"]) == words(fonts[i]["name"]), fonts[i]["name"]
 
 
-def test_the_tag_lists_stay_short():
-    groups = 1800
+def test_the_tag_lists_follow_how_sure_the_model_is_and_stay_short():
+    groups = 1300
     profiles = object.__new__(FontProfiles)
     profiles.names = [f"tag{i}" for i in range(groups)]
-    profiles.probability = np.stack([np.full(groups, 255), np.full(groups, 40)]).astype(np.uint8)   # all certain; all close
-    profiles.mean = np.full(groups, 0.05, dtype=np.float32)
-    profiles.std = np.full(groups, 0.1, dtype=np.float32)
+    sure = np.full(groups, -6.0)
+    sure[0] = 8.0                                     # one tag far above the rest
+    flat = np.full(groups, 2.0)                       # nothing stands out
+    profiles.logit = np.stack([sure, flat]).astype(np.float16)
     tags, close = profiles.tagLists(0)
-    assert len(tags) == TAGS_SHOWN and close == []
+    assert tags == ["tag0"] and len(close) == CLOSE_SHOWN
     tags, close = profiles.tagLists(1)
-    assert len(tags) <= 3 and len(close) == CLOSE_SHOWN
+    assert len(tags) == TAGS_MAX and len(close) == CLOSE_SHOWN     # capped, never hundreds
+    assert not set(tags) & set(close)

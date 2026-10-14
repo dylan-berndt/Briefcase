@@ -74,7 +74,7 @@ export default function FontPage() {
 				<div className="FontSpecimen">
 					<img src={font.specimen} alt={`${font.name} specimen`} width="640" height="180" />
 				</div>
-				{font.tags.length ? <p><Link to={"/?q=" + encodeURIComponent(font.tags.slice(0, 3).join(" "))}>Search for more fonts like this</Link></p> : null}
+				{font.tags.length ? <p><Link to={"/?q=" + encodeURIComponent(font.tags.join(" "))}>Search for more fonts like this</Link></p> : null}
 			</article>
 			<aside className="FontTagColumn">
 				<TagList title="Tags" tags={font.tags} />

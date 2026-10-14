@@ -19,11 +19,14 @@ import numpy as np
 from slugs import fontPath, specimenPath
 
 SOURCE_LABELS = {"google": "Google Fonts", "dafont": "DaFont"}
-TAG_FLOOR = 0.3          # a font "has" a tag above this probability
-CLOSE_FLOOR = 0.1        # and a tag between this and TAG_FLOOR is close to being one of its tags
+# Which tags a font "has": its tags' logits, best first, are softmaxed over the top TAIL of them (so a font the model is
+# unsure of still ends up with a few leading tags, and the long tail of weak ones cannot dilute the share), and tags are
+# taken until they hold SHARE of that softmax. TAGS_MAX is only a safety against a flat font.
+TAIL = 100
+SHARE = 0.4
+TAGS_MAX = 15
+CLOSE_SHOWN = 10         # the tags that come next in the same ranking
 RELATED = 6
-TAGS_SHOWN = 12
-CLOSE_SHOWN = 10
 
 
 def sourceLabel(source):
@@ -38,34 +41,30 @@ def tagPhrase(tags):
 
 
 class FontProfiles:
-    """Per font: the probability of each tag group (as bytes, so 12k fonts x 1.8k groups is 23 MB), and a unit vector of
-    the groups' z-scores over the corpus, whose dot product between two fonts is how alike their tags are."""
+    """Per font: the logit of each tag group (its most confident member tag; 12k fonts x 1.3k groups is 34 MB), and a unit
+    vector of the groups' probability z-scores over the corpus, whose dot product between two fonts is how alike their
+    tags are."""
 
     def __init__(self, index, chunk=1024):
         self.names = index.groupNames
         n, g = index.numFonts, len(self.names)
-        self.probability = np.zeros((n, g), dtype=np.uint8)
+        self.logit = np.zeros((n, g), dtype=np.float16)
         for start in range(0, n, chunk):
             ids = np.arange(start, min(n, start + chunk))
-            block = index.groupProbabilities(ids)                     # [groups, len(ids)]
-            self.probability[ids] = np.round(block.T * 255).astype(np.uint8)
-        probability = self.probability.astype(np.float32) / 255
-        self.mean = probability.mean(axis=0)
-        self.std = probability.std(axis=0) + 1e-3
-        z = (probability - self.mean) / self.std
+            block = np.asarray(index.logits[:, ids], dtype=np.float32)[index.memberRows]
+            self.logit[ids] = np.maximum.reduceat(block, index.memberStarts, axis=0).T
+        probability = 1.0 / (1.0 + np.exp(-self.logit.astype(np.float32)))
+        z = (probability - probability.mean(axis=0)) / (probability.std(axis=0) + 1e-3)
         self.unit = (z / (np.linalg.norm(z, axis=1, keepdims=True) + 1e-9)).astype(np.float16)
 
     def tagLists(self, i):
-        """(tags, close): the tags the font has, most likely first, and the ones just short of that, most telling first
-        (a tag's z-score is how far above its usual probability across the corpus this font puts it)."""
-        p = self.probability[i].astype(np.float32) / 255
-        has = [g for g in np.argsort(-p, kind="stable") if p[g] >= TAG_FLOOR][:TAGS_SHOWN]
-        if not has:
-            has = list(np.argsort(-p, kind="stable")[:3])
-        z = (p - self.mean) / self.std
-        taken = set(has)
-        near = [g for g in np.argsort(-z, kind="stable") if CLOSE_FLOOR <= p[g] < TAG_FLOOR and g not in taken]
-        return [self.names[g] for g in has], [self.names[g] for g in near[:CLOSE_SHOWN]]
+        """(tags, close): the tags the font has, most likely first, and the next few in the same ranking."""
+        logit = self.logit[i].astype(np.float32)
+        order = np.argsort(-logit, kind="stable")[:TAIL]
+        weight = np.exp(logit[order] - logit[order[0]])
+        share = np.cumsum(weight / weight.sum())
+        count = min(int((share < SHARE).sum()) + 1, TAGS_MAX)
+        return [self.names[g] for g in order[:count]], [self.names[g] for g in order[count:count + CLOSE_SHOWN]]
 
     def similar(self, i, count=RELATED, chunk=4096):
         vector = self.unit[i].astype(np.float32)

@@ -46,6 +46,7 @@ describe("font page", () => {
 			expect(screen.getByRole("link", { name: tag })).toHaveAttribute("href", "/?q=" + tag);
 		}
 		expect(screen.getByRole("link", { name: /Ganton/ })).toHaveAttribute("href", "/font/Ganton");
+		expect(screen.getByRole("link", { name: "Search for more fonts like this" })).toHaveAttribute("href", "/?q=serif%20didone");
 	});
 
 	test("asks for the font by its decoded name, even when it holds a slash", async () => {
