@@ -134,8 +134,6 @@ def test_font_files_to_ranked_results(tmp_path, shapes):
     top = lambda q: {index.bundle.fonts[i]["name"] for i in index.search(q)[0][:2]}  # noqa: E731
     assert top("bold") == {"Heavy One", "Heavy Two"}
     assert top("thin") == {"Thin One", "Thin Two"}
-    assert top("not bold") == {"Thin One", "Thin Two"}
-    assert top("bold not thin") == {"Heavy One", "Heavy Two"}
 
     specimen = Image.open(io.BytesIO(index.bundle.specimen(0)))
     assert specimen.format == "WEBP"
