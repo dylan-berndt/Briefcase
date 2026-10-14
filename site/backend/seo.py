@@ -6,9 +6,8 @@ JSON-LD go into the <head>, and plain HTML goes inside #root. React replaces #ro
 this is hydrated or has to match what React draws. Nothing is generated ahead of time or written to disk: the pages are
 templates (templates/) filled from the bundle.
 
-FontProfiles is the one expensive piece: every font's tag probabilities, kept so a page can name the tags it has and the
-ones close to it. The fonts a page lists as similar are the first results of the search its "more like this" link opens
-(the page's own tags as the query), so the two always agree.
+FontProfiles is the one expensive piece: every font's tag probabilities, kept so a page can name the tags that set its
+font apart and the fonts most like it.
 """
 
 import os
@@ -39,7 +38,8 @@ def tagPhrase(tags):
 
 
 class FontProfiles:
-    """Per font, the probability of each tag group, as bytes (12k fonts x 1.8k groups is 23 MB)."""
+    """Per font: the probability of each tag group (as bytes, so 12k fonts x 1.8k groups is 23 MB), and a unit vector of
+    the groups' z-scores over the corpus, whose dot product between two fonts is how alike their tags are."""
 
     def __init__(self, index, chunk=1024):
         self.names = index.groupNames
@@ -52,6 +52,8 @@ class FontProfiles:
         probability = self.probability.astype(np.float32) / 255
         self.mean = probability.mean(axis=0)
         self.std = probability.std(axis=0) + 1e-3
+        z = (probability - self.mean) / self.std
+        self.unit = (z / (np.linalg.norm(z, axis=1, keepdims=True) + 1e-9)).astype(np.float16)
 
     def tagLists(self, i):
         """(tags, close): the tags the font has, most likely first, and the ones just short of that, most telling first
@@ -64,6 +66,15 @@ class FontProfiles:
         taken = set(has)
         near = [g for g in np.argsort(-z, kind="stable") if CLOSE_FLOOR <= p[g] < TAG_FLOOR and g not in taken]
         return [self.names[g] for g in has], [self.names[g] for g in near[:CLOSE_SHOWN]]
+
+    def similar(self, i, count=RELATED, chunk=4096):
+        vector = self.unit[i].astype(np.float32)
+        scores = np.empty(len(self.unit), dtype=np.float32)
+        for start in range(0, len(self.unit), chunk):
+            scores[start:start + chunk] = self.unit[start:start + chunk].astype(np.float32) @ vector
+        scores[i] = -np.inf
+        return [int(j) for j in np.argsort(-scores, kind="stable")[:count]]
+
 
 class Shell:
     """The built index.html, with a page's head and body put into it."""
@@ -112,7 +123,6 @@ class Pages:
     def __init__(self, bundle, index, siteURL):
         self.bundle = bundle
         self.siteURL = siteURL.rstrip("/")
-        self.index = index
         self.profiles = FontProfiles(index)
         self.page = lru_cache(maxsize=4096)(self.buildPage)
 
@@ -122,18 +132,11 @@ class Pages:
         return {"slug": slug, "name": font["name"], "source": sourceLabel(font["source"]),
                 "path": fontPath(slug), "specimen": specimenPath(slug)}
 
-    def similar(self, i, query):
-        """The first results of searching for `query`, which is what the page's "more like this" link opens, without the
-        font itself."""
-        terms, _, _ = self.index.describe(query, suggest=False)
-        return [int(j) for j in self.index.rank(terms)[:RELATED + 1] if j != i][:RELATED]
-
     def buildPage(self, i):
         bundle = self.bundle
         font = bundle.fonts[i]
         slug = bundle.slugs[i]
         tags, close = self.profiles.tagLists(i)
-        query = " ".join(tags)
         label = sourceLabel(font["source"])
         by = f" by {font['creator']}" if font.get("creator") else ""
         look = f" It reads as {tagPhrase(tags[:4])}." if tags else ""
@@ -149,8 +152,7 @@ class Pages:
             "specimen": specimenPath(slug),
             "tags": tags,
             "closeTags": close,
-            "query": query,
-            "related": [self.card(j) for j in self.similar(i, query)],
+            "related": [self.card(j) for j in self.profiles.similar(i)],
             "about": aboutParagraphs(self.siteSummary()),
             "title": f"{font['name']} font – free preview and similar fonts | Font Search",
             "description": description,
