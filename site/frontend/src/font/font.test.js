@@ -7,7 +7,7 @@ const info = (overrides = {}) => ({
 	slug: "Abril Fatface", key: "google:Abril Fatface", name: "Abril Fatface", source: "Google Fonts", creator: null,
 	url: "https://fonts.google.com/specimen/Abril+Fatface", path: "/font/Abril%20Fatface",
 	specimen: "/specimen/Abril%20Fatface.webp",
-	tags: ["serif", "didone"], closeTags: ["classic", "vintage"],
+	tags: ["serif", "didone"], closeTags: ["classic", "vintage"], query: "serif didone",
 	related: [{ slug: "Ganton", name: "Ganton", source: "DaFont", path: "/font/Ganton", specimen: "/specimen/Ganton.webp" }],
 	about: ["First paragraph.", "Second paragraph."], title: "Abril Fatface font", description: "d",
 	...overrides,
@@ -46,6 +46,7 @@ describe("font page", () => {
 			expect(screen.getByRole("link", { name: tag })).toHaveAttribute("href", "/?q=" + tag);
 		}
 		expect(screen.getByRole("link", { name: /Ganton/ })).toHaveAttribute("href", "/font/Ganton");
+		expect(screen.getByRole("link", { name: "Search for more fonts like this" })).toHaveAttribute("href", "/?q=serif%20didone");
 	});
 
 	test("asks for the font by its decoded name, even when it holds a slash", async () => {

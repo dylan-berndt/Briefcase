@@ -233,8 +233,8 @@ to disk):
 - `/`, `/map`, `/about` and any other client route get this; `/font/<name>` is one page per family, e.g.
   `/font/Abril%20Fatface`. Its content is the font's name (a link to the font's own Google Fonts or DaFont page, with a
   link-out icon), source and creator, the specimen, a column of the tags it has (probability 0.3 or more) and close ones
-  (0.1 to 0.3), "Search for more fonts like this", the six fonts with the most alike tags (cosine of the tags' z-scores)
-  under "Similar fonts", and the site description. `/api/font/info/<name>` returns the same data as JSON for the React
+  (0.1 to 0.3), "Search for more fonts like this", the first six results of the search the "more like this" link opens (the
+  font's own tags as the query, the font itself left out) under "Similar fonts", and the site description. `/api/font/info/<name>` returns the same data as JSON for the React
   route (`frontend/src/font`). The site description is `aboutParagraphs` in `backend/seo.py`, the one place to edit it.
 - `/specimen/<name>.webp` is the specimen at an address that does not change when the bundle does (the search page still
   uses `/api/font/specimen/<i>?v=`).

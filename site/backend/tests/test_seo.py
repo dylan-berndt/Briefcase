@@ -104,6 +104,18 @@ def test_font_page_lists_tags_close_tags_and_similar_fonts(client, app):
     assert len(related) == 6 and quote(bundle.slugs[10], safe="") not in related
 
 
+def test_similar_fonts_are_the_first_results_of_the_search_the_link_opens(client, app):
+    bundle = app.extensions["bundle"]
+    for i in (3, 10, 77, 200):
+        info = client.get("/api/font/info/" + quote(bundle.slugs[i], safe="")).json
+        html = client.get(fontPath(bundle.slugs[i])).get_data(as_text=True)
+        assert f'href="/?q={quote(info["query"], safe="")}"' in html or f'href="/?q={info["query"].replace(" ", "%20")}"' in html
+        found = client.get("/api/font/query", query_string={"query": info["query"], "pageSize": 7}).json["results"]
+        expected = [r["key"] for r in found if r["key"] != bundle.fonts[i]["key"]][:6]
+        shown = [bundle.fonts[bundle.indexBySlug[card["slug"]]]["key"] for card in info["related"]]
+        assert shown == expected
+
+
 def test_unknown_font_is_a_404_that_is_not_indexed(client):
     response = client.get("/font/Not%20A%20Real%20Font")
     assert response.status_code == 404

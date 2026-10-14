@@ -5,7 +5,7 @@
         <svg class="SeoExternal" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg></a></h1>
       <p class="SeoSource">{{ font.source }}{% if font.creator %} · {{ font.creator }}{% endif %}</p>
       <div class="SeoSpecimen"><img src="{{ font.specimen }}" alt="{{ font.name }} specimen" width="640" height="180"></div>
-      {% if font.tags %}<p><a href="/?q={{ font.tags[:3] | join(' ') | urlencode }}">Search for more fonts like this</a></p>{% endif %}
+      {% if font.query %}<p><a href="/?q={{ font.query | urlencode }}">Search for more fonts like this</a></p>{% endif %}
     </article>
     <aside class="SeoTagColumn">
       {% if font.tags %}<div><h2>Tags</h2>

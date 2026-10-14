@@ -107,18 +107,22 @@
   font-size: 14px;
 }
 
+/* the tags the font has are in the accent colour, the ones it nearly has are grey */
 .FontTags a {
-  color: var(--col-text);
+  color: var(--col-accent);
   text-decoration: none;
 }
 
 .FontTags a:hover {
-  color: var(--col-accent);
+  color: var(--col-text);
 }
 
-/* tags the model nearly gave the font */
 .FontTagsClose a {
   color: var(--col-text-muted);
+}
+
+.FontTagsClose a:hover {
+  color: var(--col-text);
 }
 
 .FontSimilar {
