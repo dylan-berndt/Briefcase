@@ -523,8 +523,7 @@ def test_sitemap_and_robots_point_crawlers_at_real_pages(site):
 
     status, kind, body = get("/robots.txt")
     assert status == 200 and "Sitemap: https://font-search.com/sitemap.xml" in body
-    assert "Disallow: /
-" not in body and "Disallow: /api/" in body             # only the API is off limits
+    assert "Disallow: /\n" not in body and "Disallow: /api/" in body             # only the API is off limits
 
     status, kind, body = get("/sitemap.xml")
     assert status == 200 and "xml" in kind
