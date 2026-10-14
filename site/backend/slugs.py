@@ -1,51 +1,63 @@
 """URL slugs for the font pages, and the matching of map point labels onto them.
 
-A font page is /font/<slug>, one per family (a bundle entry). The slug is the family name folded to ASCII. Two entries
-that fold to the same slug (a Google and a DaFont font of one name) both get their source appended, and any that still
-collide get a number, in key order, so the result depends only on the bundle.
+A font page is /font/<slug>, one per family (a bundle entry). The slug is the family's own name, as it is written
+("Abril Fatface"); the address is that name percent-encoded (/font/Abril%20Fatface). Two entries whose names are the
+same ignoring case (a Google and a DaFont font of one name) both get their source added, "Abel (Google Fonts)", and any
+that still collide get a number, in key order, so the result depends only on the bundle.
 
-The maps label each point "<family> <style>" (the font file's name); matchLabel finds the bundle family such a label
+The maps label each point "<family> <style>" (the font file's name); LabelMatcher finds the bundle family such a label
 belongs to.
 """
 
-import hashlib
 import re
 import unicodedata
 from collections import defaultdict
+from urllib.parse import quote
+
+SOURCE_NAMES = {"google": "Google Fonts", "dafont": "DaFont"}
 
 
-def slugify(text):
-    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")
+def fontPath(slug):
+    """The address of a font's page. Every reserved character is encoded, "/" and "?" included."""
+    return "/font/" + quote(slug, safe="")
+
+
+def specimenPath(slug):
+    return "/specimen/" + quote(slug, safe="") + ".webp"
+
+
+def cleanName(name):
+    return re.sub(r"\s+", " ", "".join(c for c in name if unicodedata.category(c)[0] != "C")).strip()
 
 
 def assignSlugs(fonts):
     """One slug per font, in the order of `fonts`."""
     bases = []
     for font in fonts:
-        # a name with no ASCII letters at all (Arabic, Thai...) still needs a stable address
-        bases.append(slugify(font["name"]) or "font-" + hashlib.sha1(font["key"].encode()).hexdigest()[:8])
+        base = cleanName(font["name"])
+        bases.append(base if base.strip(".") else cleanName(font["key"]))   # "." and ".." are not addresses
     groups = defaultdict(list)
     for i, base in enumerate(bases):
-        groups[base].append(i)
+        groups[base.lower()].append(i)
 
     slugs = [None] * len(fonts)
     taken = set()
-    for base, members in groups.items():
+    for members in groups.values():
         if len(members) == 1:
-            slugs[members[0]] = base
-            taken.add(base)
-    for base, members in groups.items():
+            slugs[members[0]] = bases[members[0]]
+            taken.add(bases[members[0]].lower())
+    for members in groups.values():
         if len(members) == 1:
             continue
         for i in sorted(members, key=lambda i: fonts[i]["key"]):
-            slug = f"{base}-{slugify(fonts[i]['source'])}"
+            source = SOURCE_NAMES.get(fonts[i]["source"], fonts[i]["source"])
+            slug = f"{bases[i]} ({source})"
             n = 2
-            while slug in taken:
-                slug = f"{base}-{slugify(fonts[i]['source'])}-{n}"
+            while slug.lower() in taken:
+                slug = f"{bases[i]} ({source}) {n}"
                 n += 1
             slugs[i] = slug
-            taken.add(slug)
+            taken.add(slug.lower())
     return slugs
 
 

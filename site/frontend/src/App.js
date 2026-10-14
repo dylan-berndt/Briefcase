@@ -313,7 +313,7 @@ function App() {
 						<Route path="/" element={<SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage>} />
 						<Route path="/map" element={<MapPage></MapPage>} />
 						<Route path="/about" element={<AboutPage></AboutPage>} />
-						<Route path="/font/:slug" element={<FontPage></FontPage>} />
+						<Route path="/font/*" element={<FontPage></FontPage>} />
 						<Route path="*" element={<Navigate to="/" replace />} />
 					</Routes>
 				</div>

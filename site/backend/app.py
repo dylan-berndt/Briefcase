@@ -14,7 +14,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from bundle import Bundle
 from db import initializeDB, normalizeQuery, tagsKey, MAX_QUERY
-from seo import Pages, Shell
+from seo import Pages, Shell, aboutParagraphs
+from slugs import fontPath, specimenPath
 from tagsearch import TagIndex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -381,7 +382,7 @@ def createApp(overrides=None):
 
     siteURL = pages.siteURL
     cache = {}
-    summary = pages.siteSummary()
+    about = aboutParagraphs(pages.siteSummary())
 
     def fontIndexFromSlug(slug):
         i = bundle.indexBySlug.get(slug)
@@ -389,13 +390,14 @@ def createApp(overrides=None):
             abort(404)
         return i
 
-    @app.route("/api/font/info/<slug>", methods=["GET"])
+    # a name can hold "/" (it arrives decoded), so these take a path, not a single segment
+    @app.route("/api/font/info/<path:slug>", methods=["GET"])
     @limiter.limit("120 per minute")
     def fontInfo(slug):
         """Everything the font page shows, for the React route (the server-rendered page is built from the same data)."""
         return jsonify(pages.page(fontIndexFromSlug(slug))), 200
 
-    @app.route("/specimen/<slug>.webp", methods=["GET"])
+    @app.route("/specimen/<path:slug>.webp", methods=["GET"])
     @limiter.exempt
     def specimenBySlug(slug):
         """A font's specimen at an address that does not change when the bundle does, for search engines' image index."""
@@ -417,7 +419,7 @@ def createApp(overrides=None):
                 "jsonld": list(jsonld), "noindex": False}
 
     def siteBody(heading, lead, featured=()):
-        return render_template("siteBody.html", heading=heading, lead=lead, summary=summary, featured=featured)
+        return render_template("siteBody.html", heading=heading, lead=lead, about=about, featured=featured)
 
     SITE_PAGES = {
         "": ("Font Search – find free fonts by describing them",
@@ -454,14 +456,15 @@ def createApp(overrides=None):
         head = siteHead(title, description, urlPath if path else "/", jsonld)
         return htmlResponse(head, siteBody(heading, lead, pages.featured() if path == "" else ()))
 
-    @app.route("/font/<slug>", methods=["GET"])
+    @app.route("/font/<path:slug>", methods=["GET"])
     @limiter.exempt
     def fontPage(slug):
-        if slug != slug.lower():
-            return redirect(f"/font/{slug.lower()}", code=301)
         i = bundle.indexBySlug.get(slug)
+        if i is None and slug.rstrip("/").lower() in bundle.indexBySlugLower:
+            # the right name in the wrong case, or with a slash on the end
+            return redirect(fontPath(bundle.slugs[bundle.indexBySlugLower[slug.rstrip("/").lower()]]), code=301)
         if i is None:
-            head = siteHead("Font not found | Font Search", "There is no font at this address.", f"/font/{slug}")
+            head = siteHead("Font not found | Font Search", "There is no font at this address.", fontPath(slug))
             head["noindex"] = True
             return htmlResponse(head, siteBody("Font not found", "There is no font at this address."), 404)
         font = pages.page(i)
@@ -475,7 +478,7 @@ def createApp(overrides=None):
                    "primaryImageOfPage": {"@type": "ImageObject", "contentUrl": image, "name": f"{font['name']} specimen"}}]
         head = {"title": font["title"], "description": font["description"], "canonical": canonical, "image": image,
                 "jsonld": jsonld, "noindex": False}
-        return htmlResponse(head, render_template("fontBody.html", font=font, summary=summary))
+        return htmlResponse(head, render_template("fontBody.html", font=font, about=font["about"]))
 
     @app.route("/sitemap.xml", methods=["GET"])
     @limiter.exempt
@@ -487,8 +490,8 @@ def createApp(overrides=None):
             lastmod = f"<lastmod>{modified}</lastmod>" if modified else ""
             rows = [f"<url><loc>{siteURL}{path}</loc>{lastmod}</url>" for path in ("/", "/map", "/about")]
             for slug in bundle.slugs:
-                rows.append(f"<url><loc>{escape(siteURL)}/font/{slug}</loc>{lastmod}"
-                            f"<image:image><image:loc>{escape(siteURL)}/specimen/{slug}.webp</image:loc></image:image></url>")
+                rows.append(f"<url><loc>{escape(siteURL + fontPath(slug))}</loc>{lastmod}"
+                            f"<image:image><image:loc>{escape(siteURL + specimenPath(slug))}</image:loc></image:image></url>")
             cache["sitemap"] = ('<?xml version="1.0" encoding="UTF-8"?>\n'
                                 '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
                                 'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'

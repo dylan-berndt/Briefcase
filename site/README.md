@@ -229,20 +229,23 @@ to disk):
   replaced.
 - inside `#root`: plain HTML (a heading, what the site is and how the search works, links into the fonts). React replaces
   it when it starts; it is not hydrated.
-- `/`, `/map`, `/about` and any other client route get this; `/font/<slug>` is one page per family. Its content is the
-  font's name, source and creator, the specimen, the tags that set it apart (links to `/?q=<tag>`), the six fonts with the
-  most alike tags (cosine of the tags' z-scores), previous/next in the bundle, and a link to the font's own Google Fonts or
-  DaFont page. `/api/font/info/<slug>` returns the same data as JSON for the React route (`frontend/src/font`).
-- `/specimen/<slug>.webp` is the specimen at an address that does not change when the bundle does (the search page still
+- `/`, `/map`, `/about` and any other client route get this; `/font/<name>` is one page per family, e.g.
+  `/font/Abril%20Fatface`. Its content is the font's name (a link to the font's own Google Fonts or DaFont page, with a
+  link-out icon), source and creator, the specimen, a column of the tags it has (probability 0.3 or more) and close ones
+  (0.1 to 0.3), "Search for more fonts like this", the six fonts with the most alike tags (cosine of the tags' z-scores)
+  under "Similar fonts", and the site description. `/api/font/info/<name>` returns the same data as JSON for the React
+  route (`frontend/src/font`). The site description is `aboutParagraphs` in `backend/seo.py`, the one place to edit it.
+- `/specimen/<name>.webp` is the specimen at an address that does not change when the bundle does (the search page still
   uses `/api/font/specimen/<i>?v=`).
 - `/sitemap.xml` is built from the bundle: the three pages plus one `<url>` per font with `<lastmod>` (the bundle's build
   date) and its specimen in the image extension. 12.8k fonts is far under the 50,000 URL limit. `robots.txt` (static)
   points at it and disallows `/api/`.
 - `SITE_URL` (default `https://font-search.com`) is the address in canonical links, cards and the sitemap.
 
-Slugs (`backend/slugs.py`) are the family name folded to ASCII; two families with one name get their source appended
-(`abel-google`, `abel-dafont`) and a name with no ASCII letters gets `font-<hash>`. They depend only on the bundle, and
-`Bundle` refuses to load if they are not unique. Search results (`/?q=...`) are not listed: there is no end to them.
+Slugs (`backend/slugs.py`) are the family's own name, percent-encoded in the address (`quote(name, safe="")`, so a "/"
+in a name is `%2F`; the routes take a path for that reason). Two families whose names match ignoring case get their source
+added (`Abel (Google Fonts)`, `Abel (DaFont)`), and `Bundle` refuses to load if they are not unique ignoring case. A name in
+the wrong case is redirected to the right one. They depend only on the bundle. Search results (`/?q=...`) are not listed: there is no end to them.
 If a page is added, add it to `SITE_PAGES` in `backend/app.py`.
 
 ## Map page

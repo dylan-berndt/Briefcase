@@ -1,4 +1,4 @@
-/* A font's own page: the same column and colours as the About page. */
+/* A font's own page: the About page's column and spacing, the search results' square, thick-edged cards. */
 
 .FontPage {
   background-color: var(--col-surface);
@@ -9,9 +9,36 @@
   color: var(--col-text);
 }
 
-.FontPage h1,
-.FontPage h2 {
+.FontPage h1 {
+  margin: 0 0 8px;
   font-weight: normal;
+  font-size: clamp(24px, 3.4vmin, 36px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.FontPage h1 a {
+  color: var(--col-text);
+  text-decoration: none;
+}
+
+.FontPage h1 a:hover {
+  color: var(--col-accent);
+}
+
+.FontExternal {
+  margin-left: 10px;
+  vertical-align: -2px;
+}
+
+/* the small labels that head a block, as on the search page */
+.FontPage h2 {
+  margin: 0 0 16px;
+  font-weight: normal;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--col-text-muted);
 }
 
 .FontPage a {
@@ -24,59 +51,136 @@
 }
 
 .FontSource {
+  margin: 0 0 32px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--col-text-muted);
 }
 
+/* the specimen and the tags side by side, as the About page puts its text and contents */
+.FontLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 2fr);
+  column-gap: 8%;
+}
+
+.FontSpecimen {
+  box-sizing: border-box;
+  padding: 16px;
+  margin-bottom: 24px;
+  background: var(--col-surface-2);
+  border: 4px solid var(--col-edge);
+}
+
+/* the specimen images are 640x180 with about 55px of blank space above and below the text: show the middle 140 rows */
 .FontSpecimen img,
 .FontCards img {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 8px;
-  background: var(--col-surface-2);
+  aspect-ratio: 640 / 140;
+  object-fit: cover;
+}
+
+.FontTagColumn {
+  padding-top: 4px;
+}
+
+.FontTagGroup {
+  margin-bottom: 40px;
 }
 
 .FontTags {
   list-style: none;
+  margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
 }
 
 .FontTags a {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--col-surface-2);
+  color: var(--col-text);
   text-decoration: none;
+}
+
+.FontTags a:hover {
+  color: var(--col-accent);
+}
+
+/* tags the model nearly gave the font */
+.FontTagsClose a {
+  color: var(--col-text-muted);
+}
+
+.FontSimilar {
+  margin-top: 96px;
 }
 
 .FontCards {
   list-style: none;
+  margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 24px;
 }
 
 .FontCards a {
   display: block;
+  color: var(--col-text);
   text-decoration: none;
+}
+
+.FontCards a:hover {
+  color: var(--col-accent);
+}
+
+.FontCards img {
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--col-surface-2);
+  border: 4px solid var(--col-edge);
+  transition: border-color 0.2s;
+}
+
+.FontCards a:hover img {
+  border-color: var(--col-edge-hover);
 }
 
 .FontCards span {
   display: block;
-  margin-top: 4px;
-  color: var(--col-text);
-}
-
-.FontSiblings {
-  display: flex;
-  justify-content: space-between;
-  margin: 32px 0;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
 }
 
 .FontAbout {
+  margin-top: 96px;
+  max-width: 640px;
   color: var(--col-text-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .FontLayout {
+    display: block;
+  }
+
+  .FontTagColumn {
+    margin-top: 16px;
+  }
+}
+
+@media (max-width: 700px) {
+  .FontPage {
+    padding-top: 96px;
+  }
+
+  .FontSimilar,
+  .FontAbout {
+    margin-top: 64px;
+  }
 }

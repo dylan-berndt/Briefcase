@@ -77,7 +77,9 @@ class Bundle:
         self.indexByKey = {key: i for i, key in enumerate(keys)}
         self.slugs = assignSlugs(self.fonts)
         self.indexBySlug = {slug: i for i, slug in enumerate(self.slugs)}
-        if len(self.indexBySlug) != len(self.fonts):
+        # slugs are unique ignoring case, so an address in the wrong case can be sent to the right one
+        self.indexBySlugLower = {slug.lower(): i for i, slug in enumerate(self.slugs)}
+        if len(self.indexBySlugLower) != len(self.fonts):
             raise BundleError("font slugs are not unique")
         # Changes whenever any file does; used to bust the browser cache on specimen URLs
         self.version = hashlib.sha256(json.dumps(self.manifest["files"], sort_keys=True).encode()).hexdigest()[:12]

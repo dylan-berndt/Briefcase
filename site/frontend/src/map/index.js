@@ -1,6 +1,7 @@
 import './main.css'
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { fontPath } from '../font';
 
 // Plotly leaves 80-100px of margin round a 3D plot, which on a phone is most of the width, and its default camera
 // crops a portrait scene at the sides. The maps are same-origin, so the page can reach into the frame: zero the
@@ -87,7 +88,7 @@ export default function MapPage() {
             if (!frameRef.current) return;
             if (fitMap(frame)) {
                 links.then(list => {
-                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => navigate("/font/" + slug));
+                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => navigate(fontPath(slug)));
                 });
                 return;
             }

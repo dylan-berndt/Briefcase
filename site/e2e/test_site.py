@@ -566,7 +566,7 @@ def test_clicking_a_map_point_opens_its_font_page(browser, site):
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "public", "maps", "routes.links.json")
     with open(path) as file:
         links = json.load(file)
-    links["slugs"] = ["fake-0001" if i % 2 == 0 else None for i in range(links["count"])]
+    links["slugs"] = ["Fake 0001" if i % 2 == 0 else None for i in range(links["count"])]
     page.route("**/maps/routes.links.json", lambda route: route.fulfill(json=links))
     page.goto("/map")
     page.select_option("#options", "routes")
@@ -578,7 +578,7 @@ def test_clicking_a_map_point_opens_its_font_page(browser, site):
     page.evaluate(emit, 1)                               # a point with no page does nothing
     assert page.url.endswith("/map")
     page.evaluate(emit, 2)
-    page.wait_for_url("**/font/fake-0001")
+    page.wait_for_url("**/font/Fake%200001")
     page.locator("h1").wait_for()
     assert page.locator("h1").inner_text() == "Fake 0001"
     ctx.close()

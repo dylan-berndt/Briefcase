@@ -16,10 +16,14 @@ from functools import lru_cache
 
 import numpy as np
 
+from slugs import fontPath, specimenPath
+
 SOURCE_LABELS = {"google": "Google Fonts", "dafont": "DaFont"}
 TAG_FLOOR = 0.3          # a font "has" a tag above this probability
+CLOSE_FLOOR = 0.1        # and a tag between this and TAG_FLOOR is close to being one of its tags
 RELATED = 6
-TAGS_SHOWN = 8
+TAGS_SHOWN = 12
+CLOSE_SHOWN = 10
 
 
 def sourceLabel(source):
@@ -51,18 +55,17 @@ class FontProfiles:
         z = (probability - self.mean) / self.std
         self.unit = (z / (np.linalg.norm(z, axis=1, keepdims=True) + 1e-9)).astype(np.float16)
 
-    def zscores(self, i):
-        return (self.probability[i].astype(np.float32) / 255 - self.mean) / self.std
-
-    def topTags(self, i, count=TAGS_SHOWN):
-        """The tags the font has that set it apart: highest z-score among those it is likely to have."""
+    def tagLists(self, i):
+        """(tags, close): the tags the font has, most likely first, and the ones just short of that, most telling first
+        (a tag's z-score is how far above its usual probability across the corpus this font puts it)."""
         p = self.probability[i].astype(np.float32) / 255
+        has = [g for g in np.argsort(-p, kind="stable") if p[g] >= TAG_FLOOR][:TAGS_SHOWN]
+        if not has:
+            has = list(np.argsort(-p, kind="stable")[:3])
         z = (p - self.mean) / self.std
-        order = np.argsort(-z, kind="stable")
-        chosen = [self.names[g] for g in order[:count * 4] if p[g] >= TAG_FLOOR][:count]
-        if not chosen:
-            chosen = [self.names[g] for g in np.argsort(-p, kind="stable")[:count]]
-        return chosen
+        taken = set(has)
+        near = [g for g in np.argsort(-z, kind="stable") if CLOSE_FLOOR <= p[g] < TAG_FLOOR and g not in taken]
+        return [self.names[g] for g in has], [self.names[g] for g in near[:CLOSE_SHOWN]]
 
     def similar(self, i, count=RELATED, chunk=4096):
         vector = self.unit[i].astype(np.float32)
@@ -102,6 +105,18 @@ class Shell:
         return html.replace(root, f'<div id="root">{body}</div>', 1) if root in html else html + body
 
 
+def aboutParagraphs(summary):
+    """The description of the site shown on every page; also what the font page tells a visitor."""
+    return [
+        f"Font Search is a free tool for finding fonts by describing them. Type what you want, like “spooky "
+        f"handwritten” or “clean geometric sans”, and it ranks {summary['fonts']} free fonts from Google Fonts and "
+        f"DaFont against your words. Your words are matched to style tags that a model predicted for every font, and "
+        f"you can approve or disapprove results to help correct them.",
+        "Fonts are not hosted here. Every result links to the font’s own page on Google Fonts or DaFont, where its "
+        "license and download are.",
+    ]
+
+
 class Pages:
     """Builds the data behind each page; app.py renders it."""
 
@@ -111,22 +126,17 @@ class Pages:
         self.profiles = FontProfiles(index)
         self.page = lru_cache(maxsize=4096)(self.buildPage)
 
-    def absolute(self, path):
-        return self.siteURL + path
-
-    def specimenPath(self, i):
-        return f"/specimen/{self.bundle.slugs[i]}.webp"
-
     def card(self, i):
         font = self.bundle.fonts[i]
-        return {"slug": self.bundle.slugs[i], "name": font["name"], "source": sourceLabel(font["source"]),
-                "specimen": self.specimenPath(i)}
+        slug = self.bundle.slugs[i]
+        return {"slug": slug, "name": font["name"], "source": sourceLabel(font["source"]),
+                "path": fontPath(slug), "specimen": specimenPath(slug)}
 
     def buildPage(self, i):
         bundle = self.bundle
         font = bundle.fonts[i]
         slug = bundle.slugs[i]
-        tags = self.profiles.topTags(i)
+        tags, close = self.profiles.tagLists(i)
         label = sourceLabel(font["source"])
         by = f" by {font['creator']}" if font.get("creator") else ""
         look = f" It reads as {tagPhrase(tags[:4])}." if tags else ""
@@ -139,19 +149,18 @@ class Pages:
             "source": label,
             "creator": font.get("creator"),
             "url": font["url"],
-            "specimen": self.specimenPath(i),
+            "specimen": specimenPath(slug),
             "tags": tags,
+            "closeTags": close,
             "related": [self.card(j) for j in self.profiles.similar(i)],
-            "previous": self.card(i - 1) if i > 0 else None,
-            "next": self.card(i + 1) if i + 1 < len(bundle.fonts) else None,
+            "about": aboutParagraphs(self.siteSummary()),
             "title": f"{font['name']} font – free preview and similar fonts | Font Search",
             "description": description,
-            "path": f"/font/{slug}",
+            "path": fontPath(slug),
         }
 
     def siteSummary(self):
-        bundle = self.bundle
-        return {"fonts": f"{len(bundle.fonts):,}", "tags": f"{len(bundle.vocab) // 100 * 100:,}"}
+        return {"fonts": f"{len(self.bundle.fonts):,}"}
 
     def featured(self, count=48):
         """An even spread through the alphabet, so the home page links to fonts a crawler can follow."""

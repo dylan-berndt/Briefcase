@@ -1,13 +1,5 @@
-<section>
+<section class="SeoAbout">
   <h2>About Font Search</h2>
-  <p>Font Search is a free tool for finding fonts by describing them. Type what you want, like “spooky handwritten” or
-    “clean geometric sans”, and it ranks {{ summary.fonts }} free fonts from Google Fonts and DaFont against your words.</p>
-  <p>Behind it, a vision transformer looks at images of each font’s letters and predicts which of about {{ summary.tags }}
-    style tags (bold, elegant, retro, rounded and so on) apply to it. Your words are matched to tags through a reviewed list of
-    aliases and synonyms, and fonts are ranked by how strongly the model gave them those tags. The tags are
-    predictions rather than human labels, so some are wrong; you can edit the tags a search uses, approve or disapprove
-    results, and rate fonts, which helps build better models.</p>
-  <p>Fonts are not hosted here. Every result links to the font’s own page on Google Fonts or DaFont, where its license
-    and download are.</p>
-  <p><a href="/">Search fonts</a> · <a href="/map">Browse the font maps</a> · <a href="/about">How it was made</a></p>
+  {% for paragraph in about %}<p>{{ paragraph }}</p>
+  {% endfor %}<p><a href="/">Search fonts</a> · <a href="/map">Browse the font maps</a> · <a href="/about">How it was made</a></p>
 </section>
