@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import SearchPage from './search';
 import AboutPage from './about';
 import MapPage from './map';
+import FontPage from './font';
 
 
 const fragmentSource = `
@@ -312,6 +313,7 @@ function App() {
 						<Route path="/" element={<SearchPage username={username} onNeedLogin={() => setLoginVisible(true)}></SearchPage>} />
 						<Route path="/map" element={<MapPage></MapPage>} />
 						<Route path="/about" element={<AboutPage></AboutPage>} />
+						<Route path="/font/*" element={<FontPage></FontPage>} />
 						<Route path="*" element={<Navigate to="/" replace />} />
 					</Routes>
 				</div>

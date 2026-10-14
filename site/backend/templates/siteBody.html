@@ -1,0 +1,14 @@
+<main class="Seo">
+  <h1>{{ heading }}</h1>
+  <p>{{ lead }}</p>
+  {% include "about_search.html" %}
+  {% if featured %}
+  <section class="SeoSimilar">
+    <h2>Some of the fonts you can search</h2>
+    <ul class="SeoNames">
+      {% for other in featured %}<li><a href="{{ other.path }}">{{ other.name }}</a> ({{ other.source }})</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</main>

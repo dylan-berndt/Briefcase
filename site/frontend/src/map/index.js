@@ -1,5 +1,7 @@
 import './main.css'
 import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { fontPath } from '../font';
 
 // Plotly leaves 80-100px of margin round a 3D plot, which on a phone is most of the width, and its default camera
 // crops a portrait scene at the sides. The maps are same-origin, so the page can reach into the frame: zero the
@@ -38,7 +40,38 @@ export function fitMap(frame) {
     return true;
 }
 
+// Makes the points of the map in `frame` open font pages. The maps cannot be regenerated, so the page each point opens
+// is listed beside the map (<map>.links.json, written by site/tools/linkMaps.py) in the order of the map's points; a
+// point's number is its place in that list. A list that does not fit the map (the map was replaced and the list was
+// not) is not used, rather than opening the wrong fonts. Returns whether the map was wired up.
+export function linkMap(frame, slugs, onOpen) {
+    let doc;
+    try {
+        doc = frame.contentDocument;
+    } catch (e) {
+        return false;
+    }
+    const gd = doc && doc.querySelector(".plotly-graph-div");
+    if (!gd || !gd.on || !Array.isArray(gd.data)) return false;
+    const trace = gd.data.find(t => Array.isArray(t.text));
+    if (!trace || !Array.isArray(slugs) || slugs.length !== trace.text.length) return false;
+
+    const slugOf = (event) => {
+        const point = event && event.points && event.points[0];
+        return point ? slugs[point.pointNumber ?? point.pointIndex] : null;
+    };
+    gd.on("plotly_click", (event) => {
+        const slug = slugOf(event);
+        if (slug) onOpen(slug);
+    });
+    // a pointer over the points that open something, so it is clear they can be clicked
+    gd.on("plotly_hover", (event) => { gd.style.cursor = slugOf(event) ? "pointer" : ""; });
+    gd.on("plotly_unhover", () => { gd.style.cursor = ""; });
+    return true;
+}
+
 export default function MapPage() {
+    const navigate = useNavigate();
 
     const [selectedMap, setSelectedMap] = useState("flower");
     const frameRef = useRef(null);
@@ -47,9 +80,19 @@ export default function MapPage() {
     const handleLoad = () => {
         const frame = frameRef.current;
         if (!frame) return;
+        const name = selectedMap;
+        // the list of pages the points open; a map without one just is not clickable
+        const links = fetch("/maps/" + name + ".links.json").then(r => r.ok ? r.json() : null).catch(() => null);
         let tries = 0;
         const attempt = () => {
-            if (!frameRef.current || fitMap(frame) || ++tries > 50) return;
+            if (!frameRef.current) return;
+            if (fitMap(frame)) {
+                links.then(list => {
+                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => navigate(fontPath(slug)));
+                });
+                return;
+            }
+            if (++tries > 50) return;
             setTimeout(attempt, 100);
         };
         attempt();
@@ -77,7 +120,7 @@ export default function MapPage() {
                 trained before completing the search project. The flower map is made up of the embeddings extracted from one of the first
                 models I trained that was designed to take a letter and uppercase it. It also only uses fonts from the Google Fonts
                 repository. The next map is routes, and it contains every font that is available to search on the website embedded with the
-                latest model that I created using LeVJEPA. </p>
+                latest model that I created using LeVJEPA. Click a point to open that font's page.</p>
             <br></br><br></br>
             <div height="4vh">
                 <label htmlFor="options">Viewing: </label>

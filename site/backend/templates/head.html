@@ -1,0 +1,45 @@
+<title>{{ title }}</title>
+<meta name="description" content="{{ description }}">
+{% if noindex %}<meta name="robots" content="noindex">
+{% else %}<link rel="canonical" href="{{ canonical }}">
+{% endif %}<meta property="og:site_name" content="Font Search">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:url" content="{{ canonical }}">
+{% if image %}<meta property="og:image" content="{{ image }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{ image }}">
+{% else %}<meta name="twitter:card" content="summary">
+{% endif %}<meta name="twitter:title" content="{{ title }}">
+<meta name="twitter:description" content="{{ description }}">
+{% for block in jsonld %}<script type="application/ld+json">{{ block | tojson }}</script>
+{% endfor %}<style>
+  body { margin: 0; background: #111214; }
+  .Seo { box-sizing: border-box; max-width: 64rem; margin: 0 auto; padding: 4rem 2.5rem 5rem; min-height: 100vh;
+         background: #18191d; color: #e8e6e0; line-height: 1.6;
+         font-family: Figtree, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .Seo a { color: #c8b89a; }
+  .Seo h1 { font-weight: normal; font-size: 2rem; margin: 0 0 .5rem; }
+  .Seo h1 a { color: #e8e6e0; text-decoration: none; }
+  .Seo h2 { font-weight: normal; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: #7a7870;
+            margin: 0 0 1rem; }
+  .Seo img { display: block; max-width: 100%; height: auto; }
+  .SeoExternal { vertical-align: -2px; margin-left: .3rem; }
+  .SeoSource { margin: 0 0 2rem; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: #7a7870; }
+  .SeoLayout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); column-gap: 6%; }
+  .SeoTagColumn { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 1.5rem; align-items: start; }
+  .SeoSpecimen { background: #1f2026; border: 4px solid rgba(255, 255, 255, .11); padding: 1rem; margin-bottom: 1.5rem; }
+  .SeoTags, .SeoNames { list-style: none; margin: 0; padding: 0; }
+  .SeoTags li { margin-bottom: .5rem; }
+  .SeoTags a { color: #e8e6e0; text-decoration: none; }
+  .SeoClose a { color: #7a7870; }
+  .SeoSimilar { margin-top: 5rem; }
+  .SeoCards { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.5rem;
+              grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+  .SeoCards a { display: block; color: #e8e6e0; text-decoration: none; }
+  .SeoCards img { background: #1f2026; border: 4px solid rgba(255, 255, 255, .11); padding: .5rem; box-sizing: border-box; }
+  .SeoCards span { display: block; margin-top: .5rem; }
+  .SeoAbout { margin-top: 5rem; color: #7a7870; max-width: 40rem; }
+  @media (max-width: 700px) { .Seo { padding: 2rem 1.25rem 3rem; } .SeoLayout { display: block; } }
+</style>

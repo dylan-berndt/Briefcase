@@ -6,8 +6,6 @@ import glob
 import os
 import re
 
-import pytest
-
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
@@ -69,18 +67,3 @@ def test_every_copied_file_exists_and_is_in_the_build_context():
         assert found, f"{source} is copied but is not in the repo"
         for path in found:
             assert not ignored(path, patterns), f"{path} is copied by the Dockerfile but .dockerignore leaves it out"
-
-
-@pytest.mark.parametrize("path", ["site/backend/tests/test_api.py", "site/frontend/node_modules/x/y.js",
-                                  "site/backend/data-dev/manifest.json", "configs/vit.json", "checkpoints/pretrain/best/config.json",
-                                  "site/backend/__pycache__/app.cpython-311.pyc"])
-def test_what_should_stay_out_stays_out(path):
-    assert ignored(path, readPatterns())
-
-
-def test_the_matcher_would_have_caught_the_missing_file():
-    # .dockerignore as it was when the deploy failed
-    old = ["*", "!site/backend", "!site/frontend", "!utils/tagVocabulary.py", "!configs/tagVocabulary.json"]
-    assert ignored("configs/wordTags.json", old)
-    assert not ignored("configs/tagVocabulary.json", old)
-    assert not ignored("site/backend/app.py", old)

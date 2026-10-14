@@ -8,6 +8,12 @@ from fakeBundle import makeFakeBundle  # noqa: E402
 from app import createApp  # noqa: E402
 
 
+# shaped like the CRA build: a title and description to replace, a noscript, an empty root
+INDEX = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="description" content="old">'
+         '<title>Font Search</title></head><body><noscript>You need JavaScript</noscript><div id="root"></div>'
+         '</body></html>')
+
+
 @pytest.fixture(scope="session")
 def fake(tmp_path_factory):
     directory = tmp_path_factory.mktemp("bundle")
@@ -20,7 +26,7 @@ def makeApp(tmp_path, fake):
     def make(**overrides):
         static = tmp_path / "static"
         static.mkdir(exist_ok=True)
-        (static / "index.html").write_text("<html>index</html>")
+        (static / "index.html").write_text(INDEX)
         (static / "hello.txt").write_text("hi")
         config = {"DATABASE": str(tmp_path / "test.db"), "BUNDLE_DIR": fake[0], "STATIC_DIR": str(static),
                   "COOKIE_SECURE": False, "RATELIMIT_ENABLED": False, "TESTING": True,
