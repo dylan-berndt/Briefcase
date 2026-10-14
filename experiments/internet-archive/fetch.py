@@ -59,7 +59,7 @@ def download(name, info):
                 raise
             print(f"\n  retry {attempt} after {e}", flush=True)
             time.sleep(2 ** attempt)
-            have = os.path.getsize(path)
+            have = os.path.getsize(path) if os.path.exists(path) else 0
     if have != size:
         raise RuntimeError(f"{path}: {have} bytes, expected {size}")
     if "md5" in info:

@@ -32,6 +32,7 @@
 import argparse
 import csv
 import json
+import math
 import os
 import random
 import zlib
@@ -65,6 +66,9 @@ def parseArgs():
     p.add_argument("--maxEpochs", type=int, default=None, help="stop after this many epochs, for smoke tests")
     p.add_argument("--workers", type=int, default=os.cpu_count())
     p.add_argument("--wandb", action="store_true")
+    p.add_argument("--evalOnly", default=None, metavar="RUN_DIR",
+                   help="skip training: load checkpoint.pt + head.pt from an interrupted run's directory, then run the "
+                        "final test report and write the run's metadata files (no frozen baseline)")
     args = p.parse_args()
     return loadRunConfig(args.config, args)
 
@@ -199,6 +203,67 @@ class FontTagger(nn.Module):
 
     def forward(self, glyphs, letters=None):
         return self.head(self.fontFeatures(glyphs, letters))
+
+
+class LoRALinear(nn.Module):
+    """Frozen nn.Linear plus a trainable low-rank update: y = base(x) + (alpha / rank) * B(A(x)). B starts at zero, so
+    the wrapped model begins identical to the pretrained one."""
+
+    def __init__(self, base, rank, alpha):
+        super().__init__()
+        self.base, self.scale = base, alpha / rank
+        self.loraA = nn.Parameter(torch.empty(rank, base.in_features))
+        self.loraB = nn.Parameter(torch.zeros(base.out_features, rank))
+        nn.init.kaiming_uniform_(self.loraA, a=math.sqrt(5))
+
+    def forward(self, x):
+        return self.base(x) + F.linear(F.linear(x, self.loraA), self.loraB) * self.scale
+
+    def delta(self):
+        return (self.loraB @ self.loraA) * self.scale
+
+
+def applyLora(backbone, rank, alpha, targets):
+    """Wrap every nn.Linear of a LeVJEPA encoder's blocks whose name contains one of `targets` (qkv, out, mlp)."""
+    wrapped = []
+    for name, module in list(backbone.named_modules()):
+        for childName, child in list(module.named_children()):
+            full = f"{name}.{childName}" if name else childName
+            if isinstance(child, nn.Linear) and full.startswith("blocks.") and any(t in full for t in targets):
+                lora = LoRALinear(child, rank, alpha).to(child.weight.device)
+                setattr(module, childName, lora)
+                wrapped.append(full)
+    assert wrapped, f"no linear layer matched LoRA targets {targets}"
+    return wrapped
+
+
+def loraParameters(backbone):
+    return [p for n, p in backbone.named_parameters() if n.endswith(("loraA", "loraB"))]
+
+
+def mergedStateDict(backbone):
+    """The state dict of the plain encoder: each LoRA layer's update folded into its base weight, so the saved
+    checkpoint loads into the original architecture (embed.py, probe.py, the site adapter)."""
+    deltas = {n: m.delta() for n, m in backbone.named_modules() if isinstance(m, LoRALinear)}
+    out = {}
+    for key, value in backbone.state_dict().items():
+        if key.endswith(("loraA", "loraB")):
+            continue
+        parts = key.split(".")
+        if len(parts) >= 3 and parts[-2] == "base" and ".".join(parts[:-2]) in deltas:
+            layer = ".".join(parts[:-2])
+            value = value + deltas[layer] if parts[-1] == "weight" else value
+            key = f"{layer}.{parts[-1]}"
+        out[key] = value.detach().clone()
+    return out
+
+
+def removeLora(backbone):
+    """Put the plain nn.Linear layers back (adapters discarded); load a merged state dict afterwards."""
+    for name, module in list(backbone.named_modules()):
+        for childName, child in list(module.named_children()):
+            if isinstance(child, LoRALinear):
+                setattr(module, childName, child.base)
 
 
 def loadTrainedTagger(run):
@@ -351,11 +416,11 @@ def main():
         (lambda logits, targets: F.binary_cross_entropy_with_logits(logits, targets))
 
     stamp = datetime.now().strftime("%Y-%m-%d %H-%M")
-    outPath = os.path.join(args.outDir, stamp)
+    outPath = args.evalOnly or os.path.join(args.outDir, stamp)
     os.makedirs(outPath, exist_ok=True)
 
     run = None
-    if args.wandb:
+    if args.wandb and not args.evalOnly:
         import wandb
         run = wandb.init(entity="dylanberndt123-missouri-state-university", project="Font Retrieval",
                          config=vars(args), name=f"finetuneTags {stamp}")
@@ -365,10 +430,25 @@ def main():
     stepsPerEpoch = max(1, len(train["names"]) // args.batchFonts)
     scaler = torch.amp.GradScaler("cuda", enabled=device == "cuda" and args.autocast)
 
+    loraRank = getattr(args, "loraRank", 0)   # 0 = full finetuning; > 0 = LoRA adapters on a frozen LeVJEPA encoder
+    if loraRank:
+        assert backboneKind == "levjepa", "loraRank is implemented for LeVJEPA backbones only"
+
     def makeOptimizer(finetune):
-        backbone.requires_grad_(finetune)
+        backbone.requires_grad_(finetune and not loraRank)
         groups = [{"params": model.head.parameters(), "lr": args.headLR}]
-        if finetune:
+        if finetune and loraRank:
+            wrapped = applyLora(backbone, loraRank, getattr(args, "loraAlpha", 2 * loraRank),
+                                getattr(args, "loraTargets", ["qkv", "out", "mlp"]))
+            backbone.requires_grad_(False)
+            adapters = loraParameters(backbone)
+            for p in adapters:
+                p.requires_grad_(True)
+            print(f"LoRA rank {loraRank}: {len(wrapped)} layers, {sum(p.numel() for p in adapters) / 1e6:.2f}M "
+                  f"trainable backbone parameters of {sum(p.numel() for p in backbone.parameters()) / 1e6:.2f}M",
+                  flush=True)
+            groups.append({"params": adapters, "lr": args.loraLR})
+        elif finetune:
             groups.append({"params": backbone.parameters(), "lr": args.backboneLR})
         opt = torch.optim.AdamW(groups, weight_decay=args.weightDecay)
         epochs = args.headOnlyEpochs if not finetune else max(1, args.epochs - args.headOnlyEpochs)
@@ -381,7 +461,7 @@ def main():
     frozenBaseline = None
     badEpochs = 0
 
-    for epoch in range(min(args.epochs, args.maxEpochs or args.epochs)):
+    for epoch in range(0 if args.evalOnly else min(args.epochs, args.maxEpochs or args.epochs)):
         if epoch == args.headOnlyEpochs:
             # end of head-only phase == frozen-backbone baseline, measured with this exact code
             frozenBaseline = testReport(model, splits["test"], vocab, vocabIndex, top50Idx, args)
@@ -427,7 +507,8 @@ def main():
         if valRoc > best["valRocAuc"]:
             best = {"valRocAuc": valRoc, "valPrAuc": valPr, "epoch": epoch + 1, "phase": phase}
             badEpochs = 0
-            torch.save(backbone.state_dict(), os.path.join(outPath, "checkpoint.pt"))
+            torch.save(mergedStateDict(backbone) if loraRank and epoch >= args.headOnlyEpochs else backbone.state_dict(),
+                       os.path.join(outPath, "checkpoint.pt"))
             torch.save(model.head.state_dict(), os.path.join(outPath, "head.pt"))
         elif epoch >= args.headOnlyEpochs:
             badEpochs += 1
@@ -435,16 +516,23 @@ def main():
                 print(f"early stop: no val improvement for {args.patience} epochs")
                 break
 
-    if frozenBaseline is None:  # run ended inside the head-only phase
+    if frozenBaseline is None and not args.evalOnly:  # run ended inside the head-only phase
         frozenBaseline = testReport(model, splits["test"], vocab, vocabIndex, top50Idx, args)
 
-    # reload the best finetuned weights (checkpoint.pt loads with ViT.load(outPath))
+    # reload the best finetuned weights (checkpoint.pt loads with ViT.load(outPath)); a LoRA run saved them merged
+    # into the plain layers, so the adapters come off first
+    removeLora(backbone)
     backbone.load_state_dict(torch.load(os.path.join(outPath, "checkpoint.pt"), map_location=device))
     model.head.load_state_dict(torch.load(os.path.join(outPath, "head.pt"), map_location=device))
     finetuned = testReport(model, splits["test"], vocab, vocabIndex, top50Idx, args)
 
+    if args.evalOnly:
+        valRoc, valPr = top50Metrics(predict(model, splits["val"]["glyphs"], autocast=args.autocast),
+                                     splits["val"]["targets"], top50Idx)
+        best = {"valRocAuc": valRoc, "valPrAuc": valPr, "epoch": None, "phase": "finetune"}
     print(f"\nbest epoch {best['epoch']} ({best['phase']}), val top-50 ROC-AUC {best['valRocAuc']:.4f}")
-    printReport("frozen baseline, test", frozenBaseline)
+    if frozenBaseline is not None:
+        printReport("frozen baseline, test", frozenBaseline)
     printReport("finetuned, test", finetuned)
 
     saveBackboneConfig(outPath)

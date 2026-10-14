@@ -1,0 +1,36 @@
+{
+    "data": {
+        "datasetDir": "dataset",
+        "fontSize": 32,
+        "minTagCount": 1
+    },
+    "model": {
+        "backbone": "checkpoints/pretrain/levjepa-ia-d256-snapshots/step35640",
+        "hidden": 1024
+    },
+    "training": {
+        "epochs": 30,
+        "headOnlyEpochs": 3,
+        "batchFonts": 64,
+        "glyphsPerFont": 8,
+        "headLR": 0.001,
+        "backboneLR": 1e-05,
+        "weightDecay": 0.05,
+        "loss": "bce",
+        "shiftAug": 0,
+        "patience": 5,
+        "seed": 0,
+        "autocast": false,
+        "loraRank": 16,
+        "loraAlpha": 32,
+        "loraLR": 0.0003,
+        "loraTargets": [
+            "qkv",
+            "out",
+            "mlp"
+        ]
+    },
+    "output": {
+        "outDir": "checkpoints/retrieval/finetuneTags-levjepa-ia-lora"
+    }
+}
