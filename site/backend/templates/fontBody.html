@@ -8,16 +8,16 @@
       {% if font.tags %}<p><a href="/?q={{ font.tags[:3] | join(' ') | urlencode }}">Search for more fonts like this</a></p>{% endif %}
     </article>
     <aside class="SeoTagColumn">
-      {% if font.tags %}<h2>Tags</h2>
+      {% if font.tags %}<div><h2>Tags</h2>
       <ul class="SeoTags">
         {% for tag in font.tags %}<li><a href="/?q={{ tag | urlencode }}">{{ tag }}</a></li>
         {% endfor %}
-      </ul>{% endif %}
-      {% if font.closeTags %}<h2>Close tags</h2>
+      </ul></div>{% endif %}
+      {% if font.closeTags %}<div><h2>Close tags</h2>
       <ul class="SeoTags SeoClose">
         {% for tag in font.closeTags %}<li><a href="/?q={{ tag | urlencode }}">{{ tag }}</a></li>
         {% endfor %}
-      </ul>{% endif %}
+      </ul></div>{% endif %}
     </aside>
   </div>
   {% if font.related %}

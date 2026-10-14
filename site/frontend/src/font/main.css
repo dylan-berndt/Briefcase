@@ -62,8 +62,8 @@
 /* the specimen and the tags side by side, as the About page puts its text and contents */
 .FontLayout {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 2fr);
-  column-gap: 8%;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  column-gap: 6%;
 }
 
 .FontSpecimen {
@@ -84,12 +84,17 @@
   object-fit: cover;
 }
 
+/* Tags and close tags side by side, so the column is only as tall as the longer list */
 .FontTagColumn {
   padding-top: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 24px;
+  align-items: start;
 }
 
 .FontTagGroup {
-  margin-bottom: 40px;
+  min-width: 0;
 }
 
 .FontTags {
