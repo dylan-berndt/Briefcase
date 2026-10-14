@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 import numpy as np, pickle, sys, torch
 from collections import Counter
 lab,_=pickle.load(open("labels.pkl","rb"))

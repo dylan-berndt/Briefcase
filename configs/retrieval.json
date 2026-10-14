@@ -1,0 +1,23 @@
+{
+    "data": {
+        "embeddings": "embeddings/all.json",
+        "grounding": "results/descriptorGrounding.json",
+        "descriptionsConfig": "configs/vit.json",
+        "zCutoff": null,
+        "testFraction": 0.1,
+        "seed": 1234
+    },
+    "model": {
+        "hiddenDim": 512,
+        "dropout": 0.15
+    },
+    "training": {
+        "batchSize": 256,
+        "epochs": 60,
+        "lr": 1e-3,
+        "weightDecay": 1e-4
+    },
+    "output": {
+        "checkpointDir": "checkpoints/retrieval/embeddingHead"
+    }
+}

@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 """
 Rank-N-Contrast (Zha et al., NeurIPS 2023) adapter: a small MLP on top of the FROZEN pretrain
 backbone, trained against a CONTINUOUS text-similarity target (TF-IDF cosine over each font's real

@@ -1,0 +1,29 @@
+{
+    "runName": "strong-sigreg-64px-patch8",
+    "baseConfig": "configs/vit.json",
+    "objective": {
+        "alpha": 0.1,
+        "sigreg": "strong",
+        "temperature": 0.04
+    },
+    "projector": {
+        "projDim": 256,
+        "projHidden": 2048
+    },
+    "geometry": {
+        "fontSize": 43,
+        "cacheSuffix": "_64",
+        "patchSize": 8,
+        "embedDim": 512
+    },
+    "training": {
+        "batchSize": 64,
+        "initFrom": null,
+        "excludeFontsFile": null
+    },
+    "logging": {
+        "saveEvery": 500,
+        "testEvery": 4,
+        "geometryEvery": 50
+    }
+}

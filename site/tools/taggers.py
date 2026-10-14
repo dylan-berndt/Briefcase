@@ -41,7 +41,8 @@ def newestRun(path, required):
 
 
 class FineTuneTags:
-    """A run of finetuneTags.py: ViT backbone (checkpoint.pt + config.json) plus the tag head (head.pt, vocab.json)."""
+    """A run of finetuneTags.py: backbone (checkpoint.pt + config.json; a ViT or a LeVJEPA encoder) plus the tag head
+    (head.pt, vocab.json)."""
     REQUIRED = ("checkpoint.pt", "config.json", "head.pt", "vocab.json")
 
     def __init__(self, model, vocab, fontSize, device, run):
@@ -49,17 +50,10 @@ class FineTuneTags:
 
     @staticmethod
     def load(path, device):
-        import torch
-        from utils.vit import ViT
-        from finetuneTags import FontTagger
+        from finetuneTags import loadTrainedTagger
 
         run = newestRun(path, FineTuneTags.REQUIRED)
-        vit, _ = ViT.load(run)
-        with open(os.path.join(run, "vocab.json")) as file:
-            vocab = json.load(file)
-        head = torch.load(os.path.join(run, "head.pt"), map_location="cpu")
-        model = FontTagger(vit, len(vocab), hidden=head["2.weight"].shape[0])
-        model.head.load_state_dict(head)
+        model, vocab = loadTrainedTagger(run)   # ViT or LeVJEPA backbone, read from the run's config.json
 
         fontSize = 32
         if os.path.exists(os.path.join(run, "metrics.json")):
@@ -71,8 +65,7 @@ class FineTuneTags:
         import torch
         with torch.no_grad():
             batch = torch.tensor(glyphs, device=self.device).float() / 255.0
-            with torch.autocast(device_type=self.device, enabled=self.device == "cuda"):
-                return self.model(batch).float().cpu().numpy()
+            return self.model(batch).float().cpu().numpy()   # fp32: fp16 autocast measured slower on the GTX 1660 SUPER
 
 
 ADAPTERS = {"finetuneTags": FineTuneTags}

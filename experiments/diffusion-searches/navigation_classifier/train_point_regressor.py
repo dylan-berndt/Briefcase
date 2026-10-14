@@ -22,6 +22,8 @@ for _p in [_baseDir] + [_os.path.join(_baseDir, _d) for _d in _os.listdir(_baseD
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 import argparse
+
+from runConfig import loadRunConfig
 import json
 import os
 
@@ -72,17 +74,18 @@ class RegressorDataset(Dataset):
 
 
 def parseArgs():
+    """Run settings are in configs/pointRegressor.json. baseCheckpoint is only used for whitener.npz / config.json
+    (pcaDim, textDim, testFraction)."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sentenceModel", default="BAAI/bge-large-en-v1.5")
-    parser.add_argument("--baseCheckpoint", default="checkpoints/diffusion-searches/diffusion_sampling/diffusion_lr_5e-4",
-                         help="Only used for whitener.npz / config.json (pcaDim, textDim, testFraction).")
-    parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batchSize", type=int, default=512)
-    parser.add_argument("--learningRate", type=float, default=1e-3)
-    parser.add_argument("--hiddenDim", type=int, default=256)
-    parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--checkpointDir", default="checkpoints/diffusion-searches/point_regressor")
-    return parser.parse_args()
+    parser.add_argument("--config", default=os.path.join("configs", "pointRegressor.json"))
+    parser.add_argument("--checkpointDir", default=None, help="override the config's checkpointDir")
+    args = parser.parse_args()
+    checkpointDir = args.checkpointDir
+    del args.checkpointDir
+    cfg = loadRunConfig(args.config, args)
+    if checkpointDir:
+        cfg.checkpointDir = checkpointDir
+    return cfg
 
 
 def main():

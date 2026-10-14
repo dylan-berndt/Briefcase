@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Checks configs/tagVocabulary.json before it's used for training or search:
 #   1. merges: ROC-AUC of each canonical tag (label = OR of its member tags) vs. its best single member,
 #      same frozen-ViT + MLP probe and official MyFonts splits as e22_vocab.py. A merge that costs a lot of

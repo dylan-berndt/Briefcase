@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Quick experiment: can a small text MLP make font-search queries
 # discriminative, using the *existing* contrastive font embeddings
 # (embeddings/all.json) as a frozen target space instead of training a new

@@ -5,6 +5,13 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32,expandable_segments:True"
 os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
 
+import sys
+
+_repoRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repoRoot not in sys.path:
+    sys.path.insert(0, _repoRoot)
+os.chdir(_repoRoot)   # paths below are relative to the repo root
+
 from utils import *
 import pickle
 import gc
@@ -64,8 +71,8 @@ imageModel, imageConfig = UNet.load(os.path.join("checkpoints", "pretrain", "upp
 imageConfig.dataset.directory = "google"
 dataset = QueryData(imageConfig.dataset)
 
-if not os.path.exists(os.path.join("style", "activations")):
-    os.makedirs(os.path.join("style", "activations"), exist_ok=True)
+if not os.path.exists(os.path.join("experiments", "pretrain-analysis", "activations")):
+    os.makedirs(os.path.join("experiments", "pretrain-analysis", "activations"), exist_ok=True)
 
 # Get and save activations for each of the image models
 for checkpoint in checkpoints:
@@ -85,7 +92,7 @@ for checkpoint in checkpoints:
     if checkpoint == "CLIP" or checkpoint == "Random" or checkpoint == "Zeroes":
         dataset.method = "masked"
 
-    path = os.path.join("style", "activations", f"{checkpoint} image.pkl")
+    path = os.path.join("experiments", "pretrain-analysis", "activations", f"{checkpoint} image.pkl")
 
     if not os.path.exists(path):
         print(f"\nGetting image activations for {checkpoint} model")
@@ -107,7 +114,7 @@ for t in range(len(textModels)):
     name = textModelNames[t]
     name = name.replace("/", "-")
 
-    path = os.path.join("style", "activations", f"{name} text.pkl")
+    path = os.path.join("experiments", "pretrain-analysis", "activations", f"{name} text.pkl")
 
     if not os.path.exists(path):
         print(f"\nGetting text activations for {name} model")
@@ -119,8 +126,8 @@ for t in range(len(textModels)):
         del allTextActivations
 
 # The big final matrix
-imageActivationPaths = glob(os.path.join("style", "activations", "* image.pkl"))
-textActivationPaths = glob(os.path.join("style", "activations", "* text.pkl"))
+imageActivationPaths = glob(os.path.join("experiments", "pretrain-analysis", "activations", "* image.pkl"))
+textActivationPaths = glob(os.path.join("experiments", "pretrain-analysis", "activations", "* text.pkl"))
 
 imageModelNames = [os.path.basename(name).removesuffix(" image.pkl") for name in imageActivationPaths]
 textModelNames = [os.path.basename(name).removesuffix(" text.pkl") for name in textActivationPaths]
@@ -189,7 +196,7 @@ for n, name in enumerate(scoreFunctions.keys()):
         table[textName] = bestMatrix[:, t]
 
     df = pd.DataFrame(table)
-    df.to_csv(os.path.join("style", "activations", f"{name}.csv"))
+    df.to_csv(os.path.join("experiments", "pretrain-analysis", "activations", f"{name}.csv"))
 
 plt.show()
 
