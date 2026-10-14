@@ -1,0 +1,160 @@
+"""What a crawler (or a visitor without JavaScript) sees: a page per font, and a summary of the site in every page.
+
+The React app is a single page whose built index.html has an empty #root, so a crawler that does not run scripts sees
+nothing. Here the server fills that shell in, per address: a <title>, description, canonical address, social card and
+JSON-LD go into the <head>, and plain HTML goes inside #root. React replaces #root's contents when it starts, so none of
+this is hydrated or has to match what React draws. Nothing is generated ahead of time or written to disk: the pages are
+templates (templates/) filled from the bundle.
+
+FontProfiles is the one expensive piece: every font's tag probabilities, kept so a page can name the tags that set its
+font apart and the fonts most like it.
+"""
+
+import os
+import re
+from functools import lru_cache
+
+import numpy as np
+
+SOURCE_LABELS = {"google": "Google Fonts", "dafont": "DaFont"}
+TAG_FLOOR = 0.3          # a font "has" a tag above this probability
+RELATED = 6
+TAGS_SHOWN = 8
+
+
+def sourceLabel(source):
+    return SOURCE_LABELS.get(source, source)
+
+
+def tagPhrase(tags):
+    """["a", "b", "c"] -> "a, b and c"."""
+    if len(tags) <= 1:
+        return "".join(tags)
+    return ", ".join(tags[:-1]) + " and " + tags[-1]
+
+
+class FontProfiles:
+    """Per font: the probability of each tag group (as bytes, so 12k fonts x 1.8k groups is 23 MB), and a unit vector of
+    the groups' z-scores over the corpus, whose dot product between two fonts is how alike their tags are."""
+
+    def __init__(self, index, chunk=1024):
+        self.names = index.groupNames
+        n, g = index.numFonts, len(self.names)
+        self.probability = np.zeros((n, g), dtype=np.uint8)
+        for start in range(0, n, chunk):
+            ids = np.arange(start, min(n, start + chunk))
+            block = index.groupProbabilities(ids)                     # [groups, len(ids)]
+            self.probability[ids] = np.round(block.T * 255).astype(np.uint8)
+        probability = self.probability.astype(np.float32) / 255
+        self.mean = probability.mean(axis=0)
+        self.std = probability.std(axis=0) + 1e-3
+        z = (probability - self.mean) / self.std
+        self.unit = (z / (np.linalg.norm(z, axis=1, keepdims=True) + 1e-9)).astype(np.float16)
+
+    def zscores(self, i):
+        return (self.probability[i].astype(np.float32) / 255 - self.mean) / self.std
+
+    def topTags(self, i, count=TAGS_SHOWN):
+        """The tags the font has that set it apart: highest z-score among those it is likely to have."""
+        p = self.probability[i].astype(np.float32) / 255
+        z = (p - self.mean) / self.std
+        order = np.argsort(-z, kind="stable")
+        chosen = [self.names[g] for g in order[:count * 4] if p[g] >= TAG_FLOOR][:count]
+        if not chosen:
+            chosen = [self.names[g] for g in np.argsort(-p, kind="stable")[:count]]
+        return chosen
+
+    def similar(self, i, count=RELATED, chunk=4096):
+        vector = self.unit[i].astype(np.float32)
+        scores = np.empty(len(self.unit), dtype=np.float32)
+        for start in range(0, len(self.unit), chunk):
+            scores[start:start + chunk] = self.unit[start:start + chunk].astype(np.float32) @ vector
+        scores[i] = -np.inf
+        return [int(j) for j in np.argsort(-scores, kind="stable")[:count]]
+
+
+class Shell:
+    """The built index.html, with a page's head and body put into it."""
+
+    def __init__(self, staticDir):
+        self.path = os.path.join(staticDir, "index.html")
+        self.stamp = None
+        self.text = ""
+
+    def load(self):
+        try:
+            stamp = os.stat(self.path).st_mtime_ns
+        except FileNotFoundError:  # no frontend build next to the server (development): a bare page
+            return '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>'
+        if stamp != self.stamp:  # re-read after a new build is copied in, without a restart
+            with open(self.path, encoding="utf-8") as file:
+                self.text = file.read()
+            self.stamp = stamp
+        return self.text
+
+    def render(self, head, body):
+        html = self.load()
+        html = re.sub(r"<title>.*?</title>", "", html, flags=re.DOTALL)
+        html = re.sub(r'<meta\s+name="description"[^>]*>', "", html)
+        html = re.sub(r"<noscript>.*?</noscript>", "", html, flags=re.DOTALL)   # the body below says more
+        html = html.replace("</head>", head + "</head>", 1) if "</head>" in html else head + html
+        root = '<div id="root"></div>'
+        return html.replace(root, f'<div id="root">{body}</div>', 1) if root in html else html + body
+
+
+class Pages:
+    """Builds the data behind each page; app.py renders it."""
+
+    def __init__(self, bundle, index, siteURL):
+        self.bundle = bundle
+        self.siteURL = siteURL.rstrip("/")
+        self.profiles = FontProfiles(index)
+        self.page = lru_cache(maxsize=4096)(self.buildPage)
+
+    def absolute(self, path):
+        return self.siteURL + path
+
+    def specimenPath(self, i):
+        return f"/specimen/{self.bundle.slugs[i]}.webp"
+
+    def card(self, i):
+        font = self.bundle.fonts[i]
+        return {"slug": self.bundle.slugs[i], "name": font["name"], "source": sourceLabel(font["source"]),
+                "specimen": self.specimenPath(i)}
+
+    def buildPage(self, i):
+        bundle = self.bundle
+        font = bundle.fonts[i]
+        slug = bundle.slugs[i]
+        tags = self.profiles.topTags(i)
+        label = sourceLabel(font["source"])
+        by = f" by {font['creator']}" if font.get("creator") else ""
+        look = f" It reads as {tagPhrase(tags[:4])}." if tags else ""
+        description = (f"{font['name']}{by} is a free font from {label}.{look} See a preview of it and the fonts most "
+                      f"like it, or search {len(bundle.fonts):,} free fonts by describing what you want.")
+        return {
+            "slug": slug,
+            "key": font["key"],
+            "name": font["name"],
+            "source": label,
+            "creator": font.get("creator"),
+            "url": font["url"],
+            "specimen": self.specimenPath(i),
+            "tags": tags,
+            "related": [self.card(j) for j in self.profiles.similar(i)],
+            "previous": self.card(i - 1) if i > 0 else None,
+            "next": self.card(i + 1) if i + 1 < len(bundle.fonts) else None,
+            "title": f"{font['name']} font – free preview and similar fonts | Font Search",
+            "description": description,
+            "path": f"/font/{slug}",
+        }
+
+    def siteSummary(self):
+        bundle = self.bundle
+        return {"fonts": f"{len(bundle.fonts):,}", "tags": f"{len(bundle.vocab) // 100 * 100:,}"}
+
+    def featured(self, count=48):
+        """An even spread through the alphabet, so the home page links to fonts a crawler can follow."""
+        n = len(self.bundle.fonts)
+        step = max(1, n // count)
+        return [self.card(i) for i in range(0, n, step)][:count]

@@ -1,0 +1,82 @@
+/* A font's own page: the same column and colours as the About page. */
+
+.FontPage {
+  background-color: var(--col-surface);
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 120px calc((var(--ui-width) - var(--content-width)) / 2) 96px;
+  font-family: var(--font-sans);
+  color: var(--col-text);
+}
+
+.FontPage h1,
+.FontPage h2 {
+  font-weight: normal;
+}
+
+.FontPage a {
+  color: var(--col-accent);
+}
+
+.FontMessage {
+  text-align: center;
+  color: var(--col-text-muted);
+}
+
+.FontSource {
+  color: var(--col-text-muted);
+}
+
+.FontSpecimen img,
+.FontCards img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: var(--col-surface-2);
+}
+
+.FontTags {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.FontTags a {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--col-surface-2);
+  text-decoration: none;
+}
+
+.FontCards {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 16px;
+}
+
+.FontCards a {
+  display: block;
+  text-decoration: none;
+}
+
+.FontCards span {
+  display: block;
+  margin-top: 4px;
+  color: var(--col-text);
+}
+
+.FontSiblings {
+  display: flex;
+  justify-content: space-between;
+  margin: 32px 0;
+}
+
+.FontAbout {
+  color: var(--col-text-muted);
+}

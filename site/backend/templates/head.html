@@ -1,0 +1,25 @@
+<title>{{ title }}</title>
+<meta name="description" content="{{ description }}">
+{% if noindex %}<meta name="robots" content="noindex">
+{% else %}<link rel="canonical" href="{{ canonical }}">
+{% endif %}<meta property="og:site_name" content="Font Search">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:url" content="{{ canonical }}">
+{% if image %}<meta property="og:image" content="{{ image }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{ image }}">
+{% else %}<meta name="twitter:card" content="summary">
+{% endif %}<meta name="twitter:title" content="{{ title }}">
+<meta name="twitter:description" content="{{ description }}">
+{% for block in jsonld %}<script type="application/ld+json">{{ block | tojson }}</script>
+{% endfor %}<style>
+  .Seo { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; color: #e8e6e0; background: #15161a; min-height: 100vh;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.55; }
+  .Seo a { color: #9ec5ff; }
+  .Seo img { max-width: 100%; height: auto; background: #1d1e24; border-radius: 8px; }
+  .Seo ul { padding-left: 1.2rem; }
+  .Seo .SeoTags, .Seo .SeoCards { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+  .Seo .SeoCards li { flex: 1 1 14rem; }
+</style>

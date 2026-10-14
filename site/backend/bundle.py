@@ -15,6 +15,8 @@ import os
 
 import numpy as np
 
+from slugs import assignSlugs
+
 FORMAT = 1
 FILES = ("vocab.json", "fonts.json", "logits.npy", "specimens.pack")
 
@@ -73,6 +75,10 @@ class Bundle:
                 raise BundleError(f"specimen of {font['key']!r} lies outside specimens.pack")
 
         self.indexByKey = {key: i for i, key in enumerate(keys)}
+        self.slugs = assignSlugs(self.fonts)
+        self.indexBySlug = {slug: i for i, slug in enumerate(self.slugs)}
+        if len(self.indexBySlug) != len(self.fonts):
+            raise BundleError("font slugs are not unique")
         # Changes whenever any file does; used to bust the browser cache on specimen URLs
         self.version = hashlib.sha256(json.dumps(self.manifest["files"], sort_keys=True).encode()).hexdigest()[:12]
 

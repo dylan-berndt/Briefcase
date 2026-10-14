@@ -520,18 +520,21 @@ def test_sitemap_and_robots_point_crawlers_at_real_pages(site):
 
     status, kind, body = get("/robots.txt")
     assert status == 200 and "Sitemap: https://font-search.com/sitemap.xml" in body
-    assert "Disallow: /" not in body.replace("Disallow:\n", "")                  # nothing is blocked
+    assert "Disallow: /
+" not in body and "Disallow: /api/" in body             # only the API is off limits
 
     status, kind, body = get("/sitemap.xml")
     assert status == 200 and "xml" in kind
     ns = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     locs = [e.text for e in ET.fromstring(body).findall("s:url/s:loc", ns)]
-    assert set(locs) == {"https://font-search.com/", "https://font-search.com/map", "https://font-search.com/about"}
-    for loc in locs:
+    assert locs[:3] == ["https://font-search.com/", "https://font-search.com/map", "https://font-search.com/about"]
+    assert len(locs) > 3 and all(loc.startswith("https://font-search.com/font/") for loc in locs[3:])
+    for loc in locs[:3] + locs[3:6]:
         # each listed address is served as the app, with no redirect (the same path on this server)
         path = urlparse(loc).path
         status, kind, page = get(path)
         assert status == 200 and "text/html" in kind and 'id="root"' in page, (path, status, kind)
+        assert "<h1>" in page and 'rel="canonical"' in page                         # real content without running the app
 
 
 @pytest.mark.parametrize("width,height", [(390, 844), (1280, 800)])
@@ -551,4 +554,31 @@ def test_map_has_no_plotly_margin_and_fits_the_scene(browser, site, width, heigh
     assert all(info["margin"][k] == 0 for k in "lrtb")
     assert info["w"] >= info["frameW"] - 20
     assert info["zoom"] == (1.5 if width < height else 1)
+    ctx.close()
+
+
+def test_clicking_a_map_point_opens_its_font_page(browser, site):
+    import json
+    import os
+    ctx = browser.new_context(base_url=site["url"], viewport={"width": 1280, "height": 800})
+    page = ctx.new_page()
+    # the real list names the real corpus' fonts; this server has the fake one
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "public", "maps", "routes.links.json")
+    with open(path) as file:
+        links = json.load(file)
+    links["slugs"] = ["fake-0001" if i % 2 == 0 else None for i in range(links["count"])]
+    page.route("**/maps/routes.links.json", lambda route: route.fulfill(json=links))
+    page.goto("/map")
+    page.select_option("#options", "routes")
+    frame = page.frame_locator("iframe[title=mapLocation]")
+    frame.locator(".plotly-graph-div canvas").first.wait_for(timeout=60000)
+    page.wait_for_timeout(1500)                          # the links are fetched and wired up once the plot is drawn
+    emit = """n => { const g = document.querySelector('iframe[title=mapLocation]').contentDocument.querySelector('.plotly-graph-div');
+        g.emit('plotly_click', {points: [{pointNumber: n}]}); }"""
+    page.evaluate(emit, 1)                               # a point with no page does nothing
+    assert page.url.endswith("/map")
+    page.evaluate(emit, 2)
+    page.wait_for_url("**/font/fake-0001")
+    page.locator("h1").wait_for()
+    assert page.locator("h1").inner_text() == "Fake 0001"
     ctx.close()

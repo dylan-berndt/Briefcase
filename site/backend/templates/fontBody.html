@@ -1,0 +1,33 @@
+<main class="Seo">
+  <nav aria-label="Breadcrumb"><a href="/">Font Search</a> › Fonts › {{ font.name }}</nav>
+  <article>
+    <h1>{{ font.name }}</h1>
+    <p>A free font from {{ font.source }}{% if font.creator %} by {{ font.creator }}{% endif %}.</p>
+    <img src="{{ font.specimen }}" alt="{{ font.name }} specimen" width="640" height="180">
+    {% if font.tags %}
+    <h2>What it looks like</h2>
+    <p>The model that tags every font in the search found these tags describe {{ font.name }} best:</p>
+    <ul class="SeoTags">
+      {% for tag in font.tags %}<li><a href="/?q={{ tag | urlencode }}">{{ tag }}</a></li>
+      {% endfor %}
+    </ul>
+    <p><a href="/?q={{ font.tags[:3] | join(' ') | urlencode }}">Search for more fonts like this</a></p>
+    {% endif %}
+    <p><a href="{{ font.url }}" rel="noopener">Get {{ font.name }} on {{ font.source }}</a>, where its license and
+      download are.</p>
+  </article>
+  {% if font.related %}
+  <section>
+    <h2>Fonts like {{ font.name }}</h2>
+    <ul class="SeoCards">
+      {% for other in font.related %}<li><a href="/font/{{ other.slug }}">{{ other.name }}</a> ({{ other.source }})<br>
+        <img src="{{ other.specimen }}" alt="{{ other.name }} specimen" width="640" height="180" loading="lazy"></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  <p>{% if font.previous %}<a href="/font/{{ font.previous.slug }}" rel="prev">← {{ font.previous.name }}</a>{% endif %}
+    {% if font.previous and font.next %} · {% endif %}
+    {% if font.next %}<a href="/font/{{ font.next.slug }}" rel="next">{{ font.next.name }} →</a>{% endif %}</p>
+  {% include "about_search.html" %}
+</main>
