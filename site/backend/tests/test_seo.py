@@ -9,7 +9,7 @@ from urllib.parse import quote, unquote
 import numpy as np
 import pytest
 
-from seo import CLOSE_SHOWN, TAGS_MAX, FontProfiles
+from seo import CLOSE_SHOWN, TAG_SUM, TAGS_MAX, FontProfiles
 from slugs import LabelMatcher, assignSlugs, cleanName, fontPath, specimenPath, words
 
 SITEMAP = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
@@ -221,16 +221,19 @@ def test_a_sample_of_real_fonts_match_their_own_map_label():
         assert found is not None and words(fonts[found]["name"]) == words(fonts[i]["name"]), fonts[i]["name"]
 
 
-def test_the_tag_lists_follow_how_sure_the_model_is_and_stay_short():
+def test_tags_are_taken_until_their_probabilities_add_up_and_never_more_than_the_cap():
     groups = 1300
     profiles = object.__new__(FontProfiles)
     profiles.names = [f"tag{i}" for i in range(groups)]
-    sure = np.full(groups, -6.0)
-    sure[0] = 8.0                                     # one tag far above the rest
-    flat = np.full(groups, 2.0)                       # nothing stands out
-    profiles.logit = np.stack([sure, flat]).astype(np.float16)
+    two = np.full(groups, -9.0)
+    two[:2] = 2.0                                     # 0.88 + 0.88 = 1.76, which is enough
+    three = np.full(groups, -9.0)
+    three[:3] = 1.0                                   # 0.73 each: 1.46 is not, 2.19 is
+    weak = np.full(groups, -4.0)                      # 0.018 each: the sum would take 90 of them
+    profiles.logit = np.stack([two, three, weak]).astype(np.float16)
+    assert TAG_SUM == 1.5
     tags, close = profiles.tagLists(0)
-    assert tags == ["tag0"] and len(close) == CLOSE_SHOWN
-    tags, close = profiles.tagLists(1)
-    assert len(tags) == TAGS_MAX and len(close) == CLOSE_SHOWN     # capped, never hundreds
-    assert not set(tags) & set(close)
+    assert tags == ["tag0", "tag1"] and len(close) == CLOSE_SHOWN
+    assert profiles.tagLists(1)[0] == ["tag0", "tag1", "tag2"]
+    tags, close = profiles.tagLists(2)
+    assert len(tags) == TAGS_MAX and len(close) == CLOSE_SHOWN and not set(tags) & set(close)

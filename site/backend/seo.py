@@ -19,11 +19,12 @@ import numpy as np
 from slugs import fontPath, specimenPath
 
 SOURCE_LABELS = {"google": "Google Fonts", "dafont": "DaFont"}
-# Which tags a font "has": its tags' logits, best first, are softmaxed over the top TAIL of them (so a font the model is
-# unsure of still ends up with a few leading tags, and the long tail of weak ones cannot dilute the share), and tags are
-# taken until they hold SHARE of that softmax. TAGS_MAX is only a safety against a flat font.
+# Which tags a font "has": its tag groups' probabilities, best first, are added up and tags are taken until the sum
+# reaches TAG_SUM. (Over all fonts that is 3 to 6 tags for 80%, 3 being the commonest.) TAIL is how many of the best tags
+# are looked at, and TAGS_MAX a safety for the few fonts whose tags are all weak, which would otherwise take every one of
+# the TAIL to reach the sum.
+TAG_SUM = 1.5
 TAIL = 100
-SHARE = 0.4
 TAGS_MAX = 15
 CLOSE_SHOWN = 10         # the tags that come next in the same ranking
 RELATED = 6
@@ -61,9 +62,8 @@ class FontProfiles:
         """(tags, close): the tags the font has, most likely first, and the next few in the same ranking."""
         logit = self.logit[i].astype(np.float32)
         order = np.argsort(-logit, kind="stable")[:TAIL]
-        weight = np.exp(logit[order] - logit[order[0]])
-        share = np.cumsum(weight / weight.sum())
-        count = min(int((share < SHARE).sum()) + 1, TAGS_MAX)
+        total = np.cumsum(1.0 / (1.0 + np.exp(-logit[order])))
+        count = min(int((total < TAG_SUM).sum()) + 1, TAGS_MAX)
         return [self.names[g] for g in order[:count]], [self.names[g] for g in order[count:count + CLOSE_SHOWN]]
 
     def similar(self, i, count=RELATED, chunk=4096):
