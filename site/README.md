@@ -259,7 +259,7 @@ map: the slug of every point, in the point order, `null` where no font page matc
 does not list). `LabelMatcher` takes the longest leading run of the label's words that spells a family name, ignoring
 spacing, and a Google family wins a name Google and DaFont share. Short names (under 6 letters) only match when nothing
 but style words follows, so "3D Animals Regular" is not the family "3D". The map page checks the list is as long as the
-map's points before using it. Run it again after the maps or the bundle change (`--check` reports a stale list):
+map's points before using it. Run it again after the maps or the bundle change:
 
     python site/tools/linkMaps.py
 

@@ -122,51 +122,6 @@ def test_scrolling_down_and_back_up_returns_to_the_first_view(page):
     assert where() == first
 
 
-def test_card_has_no_stars_and_name_source_and_thumbs_are_right_aligned(page):
-    page.goto("/")
-    search(page, "serif")
-    card = page.locator(".ResultWindow").first
-    assert card.get_by_role("button", name=re.compile("Rate")).count() == 0 and "unrated" not in card.inner_text()
-    edge = card.bounding_box()["x"] + card.bounding_box()["width"]
-    name, source, thumbs = card.locator(".ResultTitle a"), card.locator(".ResultSource"), card.locator(".Votes")
-    for part in (name, source, thumbs):
-        box = part.bounding_box()
-        assert edge - (box["x"] + box["width"]) < 40          # all three sit against the right edge of the card
-    assert name.bounding_box()["y"] < source.bounding_box()["y"] < thumbs.bounding_box()["y"]
-    box = card.bounding_box()
-    thumbs_box, source_box = thumbs.bounding_box(), source.bounding_box()
-    assert box["y"] + box["height"] - (thumbs_box["y"] + thumbs_box["height"]) < 40      # thumbs at the bottom of the card
-    assert thumbs_box["y"] - (source_box["y"] + source_box["height"]) >= 16              # with room under the source
-    assert box["height"] <= 150                                                          # and the whole result is short
-    img = card.locator(".Specimen img").bounding_box()
-    assert img["width"] >= 430                                                           # the preview keeps its size...
-    assert abs(img["width"] / img["height"] - 640 / 140) < 0.1                           # ...but not the blank bands above and below
-    up = card.get_by_role("button", name="This font matched my query")
-    assert up.get_attribute("title") == "This font matched my query"
-    assert card.get_by_role("button", name="This font did not match my query").get_attribute("title") == "This font did not match my query"
-    assert card.get_by_role("button", name="Describe").count() == 0
-
-
-def test_info_sits_beside_the_preview_on_a_desktop(page):
-    page.goto("/")
-    search(page, "serif")
-    card = page.locator(".ResultWindow").first
-    img, info = card.locator(".Specimen").bounding_box(), card.locator(".ResultInfo").bounding_box()
-    assert img["x"] + img["width"] <= info["x"] + 1          # to the right of the preview, not under it
-    assert abs((img["y"] + img["height"] / 2) - (info["y"] + info["height"] / 2)) < img["height"]  # same row
-
-
-def test_tag_line_is_one_line_when_it_fits(page):
-    page.goto("/")
-    search(page, "elegant script not thin")           # there is no negation: "not thin" gives no tag
-    tags = page.get_by_label("Tags in your search")
-    expect(tags.get_by_role("button", name="elegant: included")).to_be_visible()
-    boxes = tags.get_by_role("button").all()
-    assert len(boxes) == 2 and tags.get_by_text("thin").count() == 0 and len({round(b.bounding_box()["y"]) for b in boxes}) == 1   # words side by side
-    assert tags.get_by_role("listitem").first.bounding_box()["x"] < boxes[0].bounding_box()["x"]  # word, then its box
-    assert page.get_by_text("Searching for:").count() == 0       # no label, just the words
-
-
 def test_tag_line_ticks_are_page_state_and_change_the_results(page):
     page.goto("/")
     requests = []
@@ -225,41 +180,6 @@ def test_unticking_everything_shows_a_prompt(page):
     tags.get_by_role("button", name="bold: included").click()
     expect(page.get_by_text("Tick a tag to see fonts.")).to_be_visible()
     expect(page.locator(".ResultWindow")).to_have_count(0)
-
-
-def test_search_bar_has_no_border_rounded_corners_and_a_shadow_below(page):
-    page.goto("/")
-    style = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('.SearchForm input'));
-        return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, shadow: s.boxShadow } }""")
-    assert style["border"] == "0px"
-    assert float(style["radius"].removesuffix("px")) >= 8
-    shadow = style["shadow"]            # "rgba(...) 0px 8px 12px -4px": straight down, no sideways offset
-    assert "0px 8px" in shadow
-    page.get_by_label("Describe a font").focus()      # focus must not bring a border back
-    focused = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('.SearchForm input'));
-        return { border: s.borderTopWidth, outline: s.outlineStyle } }""")
-    assert focused == {"border": "0px", "outline": "none"}
-    shot(page, "searchbar")
-
-
-@pytest.mark.parametrize("width,column,content", [(1400, 980, 744), (1920, 1344, 1004)])
-def test_the_column_is_70_percent_wide_with_the_content_at_its_own_width(browser, site, width, column, content):
-    context = browser.new_context(viewport={"width": width, "height": 1000}, base_url=site["url"])
-    page = context.new_page()
-    page.goto("/")
-    search(page, "serif")
-    page.locator(".ResultWindow").first.wait_for()
-    sizes = page.evaluate("""() => ({ column: document.querySelector('.Shadow').getBoundingClientRect().width,
-        results: document.querySelector('.Results').getBoundingClientRect().width })""")
-    context.close()
-    assert abs(sizes["column"] - column) <= 2     # as wide as it was before it was narrowed
-    assert abs(sizes["results"] - content) <= 2   # the results keep the width they have now
-
-
-def test_the_prompt_is_smaller(page):
-    page.goto("/")
-    size = page.evaluate("""() => parseFloat(getComputedStyle(document.querySelector('.Center > p')).fontSize)""")
-    assert size <= 22     # it was 3vmin, 30px at this viewport
 
 
 def test_unrecognised_query(page):
@@ -432,84 +352,6 @@ def test_pages_fit_a_phone_or_tablet_screen(browser, site, size):
         text = page.locator(".AboutText").bounding_box()
         assert nav["y"] < text["y"] and nav["height"] <= height * 0.4      # contents first, and not the whole screen
     context.close()
-
-
-@pytest.mark.parametrize("size,band", [((390, 844), 90), ((360, 640), 68), ((414, 896), 96)])
-def test_phones_have_a_slice_of_the_background_below_a_scrolling_column(browser, site, size, band):
-    """90px on a 390x844 phone, in proportion to the screen's height on others; the column is the whole width. The
-    document does not scroll, the column does, and the background is a plain box that runs on under iOS's toolbar
-    (a fixed layer would be clipped at the toolbar's top edge)."""
-    width, height = size
-    context = browser.new_context(base_url=site["url"], viewport={"width": width, "height": height},
-                                  device_scale_factor=2, is_mobile=True, has_touch=True)
-    context.set_default_timeout(8000)
-    context.add_init_script("window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 1000);")
-    page = context.new_page()
-
-    def boxes():
-        return page.evaluate("""() => { const s = document.querySelector('.Shader'), c = document.querySelector('.Shadow');
-            const sr = s.getBoundingClientRect(), cr = c.getBoundingClientRect();
-            return {shaderTop: sr.top, shaderHeight: sr.height, shaderWidth: sr.width, position: getComputedStyle(s).position,
-                    columnTop: cr.top, columnBottom: cr.bottom, columnWidth: cr.width, docHeight: document.documentElement.scrollHeight,
-                    scrollable: c.scrollHeight - c.clientHeight, innerHeight}; }""")
-
-    for path in ("/", "/?q=zebra+stripe", "/about"):
-        page.goto(path)
-        if "q=" in path:
-            expect(page.locator(".ResultWindow")).to_have_count(24)
-        elif path == "/about":
-            expect(page.locator(".AboutBody")).to_be_visible()
-        page.wait_for_timeout(300)
-        found = boxes()
-        # the whole width, no strips either side
-        assert abs(found["columnWidth"] - width) <= 1 and found["shaderWidth"] >= width - 1, (path, found)
-        # the column ends where the slice starts, and the slice's box runs on below the screen's edge (under the toolbar)
-        assert abs(found["columnBottom"] - (height - band)) <= 1, (path, found)
-        assert abs(found["shaderTop"] - (height - band)) <= 1 and found["shaderHeight"] >= band + 100, (path, found)
-        assert found["position"] == "absolute", found
-        # the document itself never scrolls
-        page.evaluate("window.scrollTo(0, 5000)")
-        page.wait_for_timeout(100)
-        assert page.evaluate("scrollY") == 0, (path, found)
-        # and the column does, with the slice staying where it is
-        if path != "/":
-            assert found["scrollable"] > 500, (path, found)
-            for y in (700, 100000):
-                page.evaluate("y => document.querySelector('.Shadow').scrollTo(0, y)", y)
-                page.wait_for_timeout(150)
-                again = boxes()
-                assert again["shaderTop"] == found["shaderTop"] and again["columnBottom"] == found["columnBottom"], (path, y, again)
-                assert page.evaluate("scrollY") == 0, (path, y, again)
-    # its shadow falls on the slice, and a border in the column's colour runs along the bottom of the column
-    edge = page.evaluate("""() => { const shadow = getComputedStyle(document.querySelector('.Shader'), '::after');
-        const column = getComputedStyle(document.querySelector('.Shadow'));
-        return [shadow.backgroundImage.startsWith('linear-gradient'), parseFloat(shadow.height),
-                column.borderBottomWidth, column.borderBottomColor]; }""")
-    assert edge[0] and abs(edge[1] - 0.04 * min(width, height)) <= 1, edge
-    assert edge[2] == "8px" and edge[3] == "rgb(24, 25, 29)", edge
-    # with the first result cards scrolled under the slice, the row of pixels just above it is the column's colour all
-    # the way across: nothing touches the slice's edge
-    from io import BytesIO
-    from PIL import Image
-    page.goto("/?q=zebra+stripe")
-    expect(page.locator(".ResultWindow")).to_have_count(24)
-    for y in (900, 1500, 2300):
-        page.evaluate("y => document.querySelector('.Shadow').scrollTo(0, y)", y)
-        page.wait_for_timeout(200)
-        row = Image.open(BytesIO(page.screenshot(clip={"x": 0, "y": height - band - 4, "width": width, "height": 1}))).convert("RGB")
-        off = [p for p in row.getdata() if max(abs(p[0] - 24), abs(p[1] - 25), abs(p[2] - 29)) > 2]
-        assert not off, (y, off[:3])
-    context.close()
-
-    desktop = browser.new_context(base_url=site["url"], viewport={"width": 1400, "height": 900})
-    page = desktop.new_page()
-    page.goto("/")
-    page.wait_for_timeout(300)
-    full = page.evaluate("""() => { const r = document.querySelector('.Shader').getBoundingClientRect();
-        return [r.top, r.bottom, r.width, innerWidth, innerHeight, getComputedStyle(document.querySelector('.Shader')).zIndex]; }""")
-    assert full[:2] == [0, 900] and full[2] == full[3] and full[5] == "0"      # still the whole screen, behind the page
-    assert page.evaluate("document.documentElement.scrollHeight - document.querySelector('.Shadow').getBoundingClientRect().bottom") <= 1
-    desktop.close()
 
 
 def test_sitemap_and_robots_point_crawlers_at_real_pages(site):

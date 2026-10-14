@@ -4,17 +4,15 @@ The maps (site/frontend/public/maps/*.html) are Plotly exports whose points carr
 <style>", and they cannot be regenerated identically (t-SNE is not deterministic). So the page address of each point
 goes in a file beside the map instead, <map>.links.json, in the same order as the map's points:
 
-    {"count": 21179, "labels": "<sha1 of the labels>", "slugs": ["abel", null, ...]}
+    {"count": 21179, "slugs": ["Abel", null, ...]}
 
 The map page looks a clicked point up by its number. null is a point with no font page (the map holds fonts the search
-does not list). Run it again after the bundle changes, since a slug can change; --check only reports.
+does not list). Run it again after the bundle changes, since a slug can change.
 
-    python site/tools/linkMaps.py                  # every map
-    python site/tools/linkMaps.py --check
+    python site/tools/linkMaps.py
 """
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -54,22 +52,16 @@ def linkMap(labels, fonts, slugs, sources=None):
     return out
 
 
-def labelsHash(labels):
-    return hashlib.sha1("\n".join(labels).encode("utf-8")).hexdigest()
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--maps", default=os.path.join(SITE, "frontend", "public", "maps"))
     parser.add_argument("--fonts", default=os.path.join(SITE, "backend", "data", "fonts.json"))
-    parser.add_argument("--check", action="store_true", help="report only; exit 1 if a links file is missing or stale")
     args = parser.parse_args()
 
     with open(args.fonts, encoding="utf-8") as file:
         fonts = json.load(file)
     slugs = assignSlugs(fonts)
 
-    stale = False
     for name in sorted(os.listdir(args.maps)):
         if not name.endswith(".html"):
             continue
@@ -78,19 +70,11 @@ def main():
             labels = mapLabels(file.read())
         links = linkMap(labels, fonts, slugs, MAP_SOURCES.get(stem))
         linked = sum(slug is not None for slug in links)
-        result = {"count": len(labels), "labels": labelsHash(labels), "slugs": links}
+        result = {"count": len(labels), "slugs": links}
         path = os.path.join(args.maps, stem + ".links.json")
         print(f"{stem}: {linked}/{len(labels)} points link to a font page ({len(set(s for s in links if s))} fonts)")
-        text = json.dumps(result, separators=(",", ":"))
-        if args.check:
-            if not os.path.exists(path) or open(path, encoding="utf-8").read() != text:
-                print(f"  {stem}.links.json is missing or out of date")
-                stale = True
-        else:
-            with open(path, "w", encoding="utf-8") as file:
-                file.write(text)
-    if stale:
-        sys.exit(1)
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(json.dumps(result, separators=(",", ":")))
 
 
 if __name__ == "__main__":

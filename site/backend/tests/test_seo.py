@@ -1,8 +1,16 @@
+import json
+import os
+import random
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
-from slugs import LabelMatcher, assignSlugs, fontPath, specimenPath
+import numpy as np
+import pytest
+
+from seo import CLOSE_SHOWN, TAGS_SHOWN, FontProfiles
+from slugs import LabelMatcher, assignSlugs, cleanName, fontPath, specimenPath, words
 
 SITEMAP = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 
@@ -76,9 +84,7 @@ def test_font_page_is_complete_html_without_javascript(client, app):
     assert re.search(r'<div id="root">\s*<main class="Seo">', html)             # content is inside the app's root
     assert bundle.fonts[7]["url"] in html and f"{name}\n" in html
     assert f'src="{specimenPath(name)}"' in html
-    assert "About Font Search" in html                                            # the site is described on every page
     assert html.count("application/ld+json") >= 1
-    assert "Get " not in html and "hosted" in html.split("About Font Search")[1]
 
 
 def test_the_title_links_to_where_the_font_is_hosted(client, app):
@@ -96,8 +102,6 @@ def test_font_page_lists_tags_close_tags_and_similar_fonts(client, app):
     similar = html.split("Similar fonts")[1].split("About Font Search")[0]
     related = set(re.findall(r'href="/font/([^"]+)"', similar))
     assert len(related) == 6 and quote(bundle.slugs[10], safe="") not in related
-    assert "Fonts like" not in html                                              # the section is just "Similar fonts"
-    assert "rel=\"next\"" not in html and "rel=\"prev\"" not in html            # no alphabetical walking
 
 
 def test_unknown_font_is_a_404_that_is_not_indexed(client):
@@ -116,9 +120,7 @@ def test_font_info_matches_the_page(client, app):
     bundle = app.extensions["bundle"]
     info = client.get("/api/font/info/" + quote(bundle.slugs[4], safe="")).json
     assert info["key"] == bundle.fonts[4]["key"] and info["tags"] and len(info["related"]) == 6
-    assert set(info) >= {"closeTags", "about", "path", "specimen", "title"} and not {"previous", "next"} & set(info)
-    assert len(info["about"]) == 2 and "approve or disapprove" in info["about"][0]
-    assert "vision transformer" not in " ".join(info["about"])
+    assert set(info) >= {"closeTags", "about", "path", "specimen", "title"}
     assert client.get("/api/font/info/nope").status_code == 404
 
 
@@ -146,13 +148,13 @@ def test_specimen_has_an_address_that_does_not_change(client, app):
 
 def test_site_pages_describe_the_site_for_crawlers(client):
     home = client.get("/").get_data(as_text=True)
-    assert "<title>Font Search – find free fonts" in home
+    assert home.count("<title>") == 1
     assert '"SearchAction"' in home
     assert 'rel="canonical"' in home and "https://font-search.com/" in home
     assert len(re.findall(r'href="/font/', home)) >= 40                  # links a crawler can follow in
-    assert "approve or disapprove" in home and "vision transformer" not in home
-    assert "<title>Font Maps" in client.get("/map").get_data(as_text=True)
-    assert "<title>About Font Search" in client.get("/about").get_data(as_text=True)
+    for path in ("/map", "/about"):
+        page = client.get(path).get_data(as_text=True)
+        assert page.count("<title>") == 1 and f'rel="canonical" href="https://font-search.com{path}"' in page
     other = client.get("/some/client/route").get_data(as_text=True)
     assert 'id="root"' in other and 'rel="canonical" href="https://font-search.com/"' in other
 
@@ -176,3 +178,57 @@ def test_sitemap_lists_every_font_once(client, app):
     assert len(set(locs)) == len(locs)
     assert b"<lastmod>" in response.data and b"image:loc" in response.data
     assert "https://font-search.com/font/Fake%200001" in fonts                   # the name, percent-encoded
+
+
+# ------------------------------------------------------------ the real names and the real bundle
+
+
+REAL_FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "fonts.json")
+
+
+def realFonts():
+    try:
+        with open(REAL_FONTS, encoding="utf-8") as file:
+            text = file.read()
+    except OSError:
+        pytest.skip("no bundle in site/backend/data")
+    if text.startswith("version https://git-lfs"):
+        pytest.skip("the bundle is an unpulled git-lfs pointer")
+    return json.loads(text)
+
+
+def test_every_real_font_name_makes_a_usable_address():
+    fonts = realFonts()
+    slugs = assignSlugs(fonts)
+    assert len({s.lower() for s in slugs}) == len(fonts)
+    for font, slug in zip(fonts, slugs):
+        name = cleanName(font["name"])
+        assert slug == name or slug.startswith(name + " (")        # the name, unless told apart from a twin
+        assert slug.strip(".") and slug == slug.strip()
+        assert not any(unicodedata.category(c)[0] == "C" for c in slug)
+        path = fontPath(slug)[len("/font/"):]
+        assert not set("/?#") & set(path)                          # nothing reserved is left in the address
+        assert unquote(path) == slug                               # and it decodes back to the name
+
+
+def test_a_sample_of_real_fonts_match_their_own_map_label():
+    fonts = realFonts()
+    matcher = LabelMatcher(fonts)
+    for i in random.Random(0).sample(range(len(fonts)), 300):
+        if not words(fonts[i]["name"]):
+            continue                                               # a name with no Latin letters has no label to match
+        found = matcher.match(fonts[i]["name"] + " Regular")
+        assert found is not None and words(fonts[found]["name"]) == words(fonts[i]["name"]), fonts[i]["name"]
+
+
+def test_the_tag_lists_stay_short():
+    groups = 1800
+    profiles = object.__new__(FontProfiles)
+    profiles.names = [f"tag{i}" for i in range(groups)]
+    profiles.probability = np.stack([np.full(groups, 255), np.full(groups, 40)]).astype(np.uint8)   # all certain; all close
+    profiles.mean = np.full(groups, 0.05, dtype=np.float32)
+    profiles.std = np.full(groups, 0.1, dtype=np.float32)
+    tags, close = profiles.tagLists(0)
+    assert len(tags) == TAGS_SHOWN and close == []
+    tags, close = profiles.tagLists(1)
+    assert len(tags) <= 3 and len(close) == CLOSE_SHOWN

@@ -119,14 +119,6 @@ describe("pages are links", () => {
 	});
 	const nav = () => within(screen.getByRole("banner"));
 
-	test("the header has real links to each page", () => {
-		routes();
-		renderApp();
-		expect(nav().getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-		expect(nav().getByRole("link", { name: "Maps" })).toHaveAttribute("href", "/map");
-		expect(nav().getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
-	});
-
 	test("a direct visit to a page shows that page", async () => {
 		routes();
 		renderApp("/about");

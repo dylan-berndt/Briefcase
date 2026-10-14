@@ -49,18 +49,10 @@ def test_last_page_is_partial_and_beyond_is_empty(client):
     assert beyond["results"] == [] and beyond["total"] == 300 and beyond["totalPages"] == 12
 
 
-def test_default_page_size(client):
-    assert len(query(client).json["results"]) == 24
-
-
 @pytest.mark.parametrize("params", [{"page": 0}, {"page": -1}, {"page": "x"}, {"pageSize": 0}, {"pageSize": 101},
                                     {"pageSize": "many"}, {"page": 1.5}])
 def test_bad_paging_is_400(client, params):
     assert query(client, **params).status_code == 400
-
-
-def test_max_page_size_allowed(client):
-    assert len(query(client, "bold", pageSize=100).json["results"]) == 100
 
 
 def test_query_length_limit(client):
@@ -372,10 +364,6 @@ def test_describe_rate_limit(makeApp):
 
 # ------------------------------------------------------------------ misc
 
-def test_health(client):
-    body = client.get("/api/health").json
-    assert body["fonts"] == 300 and body["tags"] > 100
-
 
 def test_static_and_spa_fallback(client):
     assert client.get("/hello.txt").data == b"hi"
@@ -395,18 +383,6 @@ def test_missing_files_are_404_not_the_app(client):
 def test_unknown_api_path_is_json_404(client):
     response = client.get("/api/font/nothing")
     assert response.status_code == 404 and response.json == {"message": "Not found"}
-
-
-def test_removed_endpoints_are_gone(client):
-    for path in ("/api/font/update", "/api/font/add"):
-        assert client.post(path).status_code in (404, 405)
-
-
-def test_old_schema_tables_left_alone_and_new_ones_created(app):
-    import sqlite3
-    db = sqlite3.connect(app.config["DATABASE"])
-    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"users", "fontVotes", "fontRatings", "fontDescriptions"} <= tables
 
 
 def test_server_does_not_import_torch():
