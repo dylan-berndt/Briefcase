@@ -1,0 +1,28 @@
+/* The site description at the foot of the font pages and the search page: small and quiet. */
+
+.SiteBlurb {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--col-text-muted);
+}
+
+.SiteBlurb h2 {
+  margin: 0 0 16px;
+  font-weight: normal;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--col-text-muted);
+}
+
+.SiteBlurb p {
+  margin: 0 0 12px;
+}
+
+/* On the search page it follows the full-height search block, so it only comes into view when the page is scrolled to
+   its end. It has the page's colour and side padding, and room above it. */
+.SiteBlurbFooter {
+  background-color: var(--col-surface);
+  padding: 32px calc((var(--ui-width) - var(--content-width)) / 2) 96px;
+}

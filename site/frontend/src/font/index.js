@@ -1,6 +1,7 @@
 import './main.css'
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import SiteBlurb from '../blurb';
 
 const PREFIX = "/font/";
 
@@ -74,7 +75,7 @@ export default function FontPage() {
 				<div className="FontSpecimen">
 					<img src={font.specimen} alt={`${font.name} specimen`} width="640" height="180" />
 				</div>
-				{font.tags.length ? <p><Link to={"/?q=" + encodeURIComponent(font.tags.slice(0, 3).join(" "))}>Search for more fonts like this</Link></p> : null}
+				{font.tags.length ? <p><Link to={"/?q=" + encodeURIComponent(font.tags.join(" "))}>Search for more fonts like this</Link></p> : null}
 			</article>
 			<aside className="FontTagColumn">
 				<TagList title="Tags" tags={font.tags} />
@@ -92,9 +93,6 @@ export default function FontPage() {
 				</li>)}
 			</ul>
 		</section> : null}
-		<section className="FontAbout">
-			<h2>About Font Search</h2>
-			{font.about.map((paragraph, i) => <p key={i}>{paragraph}</p>)}
-		</section>
+		<div className="FontAbout"><SiteBlurb paragraphs={font.about} /></div>
 	</div>;
 }

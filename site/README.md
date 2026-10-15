@@ -232,10 +232,14 @@ to disk):
   it when it starts; it is not hydrated.
 - `/`, `/map`, `/about` and any other client route get this; `/font/<name>` is one page per family, e.g.
   `/font/Abril%20Fatface`. Its content is the font's name (a link to the font's own Google Fonts or DaFont page, with a
-  link-out icon), source and creator, the specimen, a column of the tags it has (probability 0.3 or more) and close ones
-  (0.1 to 0.3), "Search for more fonts like this", the six fonts with the most alike tags (cosine of the tags' z-scores)
-  under "Similar fonts", and the site description. `/api/font/info/<name>` returns the same data as JSON for the React
-  route (`frontend/src/font`). The site description is `aboutParagraphs` in `backend/seo.py`, the one place to edit it.
+  link-out icon), source and creator, the specimen, a column of the tags it has and the next ten after them, "Search for more fonts like this" (which searches
+  for all the tags in the column), the six fonts with the most alike tags (cosine of the tags' z-scores) under "Similar
+  fonts", and the site description. Nothing in the bundle says which tags a font has; the page decides with one rule
+  (`FontProfiles.tagLists`): the probabilities of the font's tag groups are added up, best first, and tags are taken until
+  the sum reaches 1.8 (at most 8). Over all 12,802 fonts that is 3 to 6 tags for 92%, 3 and 4 being the commonest; the
+  4.5% whose tags are weak enough to need more stop at the cap. The close tags are the ten that come next in the same ranking. The constants are at
+  the top of `backend/seo.py`. `/api/font/info/<name>` returns the same data as JSON for the React route
+  (`frontend/src/font`). The site description is `aboutParagraphs` in `backend/seo.py`, the one place to edit it.
 - `/specimen/<name>.webp` is the specimen at an address that does not change when the bundle does (the search page still
   uses `/api/font/specimen/<i>?v=`).
 - `/sitemap.xml` is built from the bundle: the three pages plus one `<url>` per font with `<lastmod>` (the bundle's build
@@ -254,7 +258,7 @@ If a page is added, add it to `SITE_PAGES` in `backend/app.py`.
 The Map tab shows `flower.html` / `routes.html` (Plotly exports) in an iframe. They are generated outside the repo: put them
 in `site/frontend/public/maps/` (tracked with git-lfs). A missing file is a 404, not the app.
 
-Clicking a point opens its font page. The maps cannot be regenerated identically (t-SNE is not deterministic), and their
+Clicking a point opens its font page in a new tab. The maps cannot be regenerated identically (t-SNE is not deterministic), and their
 points carry only a hover label (`<family> <style>`), so `site/tools/linkMaps.py` writes `<map>.links.json` beside each
 map: the slug of every point, in the point order, `null` where no font page matches (fonts the map holds that the search
 does not list). `LabelMatcher` takes the longest leading run of the label's words that spells a family name, ignoring

@@ -421,8 +421,11 @@ def test_clicking_a_map_point_opens_its_font_page(browser, site):
         g.emit('plotly_click', {points: [{pointNumber: n}]}); }"""
     page.evaluate(emit, 1)                               # a point with no page does nothing
     assert page.url.endswith("/map")
-    page.evaluate(emit, 2)
-    page.wait_for_url("**/font/Fake%200001")
-    page.locator("h1").wait_for()
-    assert page.locator("h1").inner_text() == "Fake 0001"
+    with page.expect_popup() as opened:                  # the font page opens in a new tab
+        page.evaluate(emit, 2)
+    tab = opened.value
+    tab.wait_for_url("**/font/Fake%200001")
+    tab.locator("h1").wait_for()
+    assert tab.locator("h1").inner_text() == "Fake 0001"
+    assert page.url.endswith("/map")                     # and the map stays where it was
     ctx.close()

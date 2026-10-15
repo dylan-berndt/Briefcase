@@ -1,6 +1,5 @@
 import './main.css'
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { fontPath } from '../font';
 
 // Plotly leaves 80-100px of margin round a 3D plot, which on a phone is most of the width, and its default camera
@@ -40,6 +39,13 @@ export function fitMap(frame) {
     return true;
 }
 
+// A press is a click, not a drag to rotate, if the pointer never gets more than this many pixels from where it went down
+// and the button is down no longer than this many milliseconds.
+const CLICK_MOVE = 5;
+const CLICK_HOLD = 500;
+// a click Plotly reports this soon after the button came up still belongs to that press
+const REPORTED_LATE = 250;
+
 // Makes the points of the map in `frame` open font pages. The maps cannot be regenerated, so the page each point opens
 // is listed beside the map (<map>.links.json, written by site/tools/linkMaps.py) in the order of the map's points; a
 // point's number is its place in that list. A list that does not fit the map (the map was replaced and the list was
@@ -60,9 +66,39 @@ export function linkMap(frame, slugs, onOpen) {
         const point = event && event.points && event.points[0];
         return point ? slugs[point.pointNumber ?? point.pointIndex] : null;
     };
+    // Plotly reports a click as soon as the button goes down on a point, before it is known whether the user is clicking or
+    // grabbing the map to rotate it. So the page opens when the button comes up, and only if the pointer stayed within a
+    // few pixels the whole time and was not held. (A build that reports the click on release instead is handled too, and a
+    // click with no press at all, from a script, opens at once.) The listeners are on the frame's window: once a drag
+    // starts Plotly follows the pointer there, not on the graph.
+    const win = doc.defaultView || doc;
+    let press = null;       // while the button is down: where, when, and the farthest the pointer has been from there
+    let waiting = null;     // the page Plotly reported during that press
+    let released = null;    // the press that just ended: was it a click, and when
+    const reach = (e) => { if (press) press.far = Math.max(press.far, Math.hypot(e.clientX - press.x, e.clientY - press.y)); };
+    win.addEventListener("pointerdown", (e) => {
+        press = { x: e.clientX, y: e.clientY, time: Date.now(), far: 0 };
+        waiting = null;
+        released = null;
+    }, true);
+    win.addEventListener("pointermove", reach, true);
+    win.addEventListener("pointerup", (e) => {
+        if (!press) return;
+        reach(e);
+        const ok = press.far <= CLICK_MOVE && Date.now() - press.time <= CLICK_HOLD;
+        const slug = waiting;
+        press = null;
+        waiting = null;
+        released = { ok, time: Date.now() };
+        if (slug && ok) onOpen(slug);
+    }, true);
+    win.addEventListener("pointercancel", () => { press = null; waiting = null; }, true);
     gd.on("plotly_click", (event) => {
         const slug = slugOf(event);
-        if (slug) onOpen(slug);
+        if (!slug) return;
+        if (press) waiting = slug;
+        else if (released && Date.now() - released.time < REPORTED_LATE) { if (released.ok) onOpen(slug); }
+        else onOpen(slug);
     });
     // a pointer over the points that open something, so it is clear they can be clicked
     gd.on("plotly_hover", (event) => { gd.style.cursor = slugOf(event) ? "pointer" : ""; });
@@ -71,8 +107,6 @@ export function linkMap(frame, slugs, onOpen) {
 }
 
 export default function MapPage() {
-    const navigate = useNavigate();
-
     const [selectedMap, setSelectedMap] = useState("flower");
     const frameRef = useRef(null);
 
@@ -88,7 +122,7 @@ export default function MapPage() {
             if (!frameRef.current) return;
             if (fitMap(frame)) {
                 links.then(list => {
-                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => navigate(fontPath(slug)));
+                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => window.open(fontPath(slug), "_blank", "noopener"));
                 });
                 return;
             }

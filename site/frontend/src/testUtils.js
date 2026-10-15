@@ -37,6 +37,8 @@ export function installFetch(handlers) {
 		"/api/font/tags": ({ params }) => jsonResponse({ tags: params.query ? [{ tag: params.query, weight: 1 }] : [], suggested: [], unmatched: [] }),
 		// and nothing to narrow it down with
 		"/api/font/refine": () => jsonResponse({ refinements: [] }),
+		// the site description at the foot of the search page
+		"/api/font/about": () => jsonResponse({ about: [] }),
 		...handlers,
 	};
 	const calls = [];
