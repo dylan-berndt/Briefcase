@@ -1,6 +1,5 @@
 import './main.css'
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { fontPath } from '../font';
 
 // Plotly leaves 80-100px of margin round a 3D plot, which on a phone is most of the width, and its default camera
@@ -108,8 +107,6 @@ export function linkMap(frame, slugs, onOpen) {
 }
 
 export default function MapPage() {
-    const navigate = useNavigate();
-
     const [selectedMap, setSelectedMap] = useState("flower");
     const frameRef = useRef(null);
 
@@ -125,7 +122,7 @@ export default function MapPage() {
             if (!frameRef.current) return;
             if (fitMap(frame)) {
                 links.then(list => {
-                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => navigate(fontPath(slug)));
+                    if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => window.open(fontPath(slug), "_blank", "noopener"));
                 });
                 return;
             }

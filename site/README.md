@@ -258,7 +258,7 @@ If a page is added, add it to `SITE_PAGES` in `backend/app.py`.
 The Map tab shows `flower.html` / `routes.html` (Plotly exports) in an iframe. They are generated outside the repo: put them
 in `site/frontend/public/maps/` (tracked with git-lfs). A missing file is a 404, not the app.
 
-Clicking a point opens its font page. The maps cannot be regenerated identically (t-SNE is not deterministic), and their
+Clicking a point opens its font page in a new tab. The maps cannot be regenerated identically (t-SNE is not deterministic), and their
 points carry only a hover label (`<family> <style>`), so `site/tools/linkMaps.py` writes `<map>.links.json` beside each
 map: the slug of every point, in the point order, `null` where no font page matches (fonts the map holds that the search
 does not list). `LabelMatcher` takes the longest leading run of the label's words that spells a family name, ignoring
