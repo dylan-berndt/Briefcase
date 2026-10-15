@@ -107,6 +107,92 @@ export function linkMap(frame, slugs, onOpen) {
     return true;
 }
 
+// While the pointer is over a point, a small picture of the point's own name set in its own font (written by
+// site/tools/mapSpecimens.py, served by /api/map/<map>/<point>.webp). A point with no picture gets its plain label in the
+// same box. Plotly's own label is turned off (its hover events still fire) and the box is drawn in the frame instead. A
+// touch screen has no hover and keeps Plotly's label. Returns whether the map was wired up.
+const HOVER_DELAY = 150;       // ms the pointer rests on a point before anything is asked for, so sweeping over the cloud is free
+const PICTURE_HEIGHT = 22;     // px, the height of one line of text
+
+export function previewMap(frame, name) {
+    let doc, win;
+    try {
+        doc = frame.contentDocument;
+        win = frame.contentWindow;
+    } catch (e) {
+        return false;
+    }
+    const gd = doc && doc.querySelector(".plotly-graph-div");
+    if (!gd || !gd.on || !Array.isArray(gd.data) || !win || !win.Plotly) return false;
+    const trace = gd.data.find(t => Array.isArray(t.text));
+    if (!trace) return false;
+    if (win.matchMedia && win.matchMedia("(hover: none)").matches) return false;
+
+    const box = doc.createElement("div");
+    Object.assign(box.style, {
+        position: "fixed", zIndex: "10", display: "none", pointerEvents: "none", lineHeight: "0",
+        padding: "6px 10px", background: "#1f2026", border: "1px solid rgba(255, 255, 255, 0.14)",
+        boxShadow: "0 6px 14px rgba(0, 0, 0, 0.6)",
+    });
+    doc.body.appendChild(box);
+    // "none" alone leaves the label up while the map has a hovertemplate; clearing that too hides it and keeps the events
+    win.Plotly.restyle(gd, { hoverinfo: "none", hovertemplate: null });
+
+    let timer = null;
+    let current = 0;       // which hover is current, so a picture that arrives late for an earlier point is dropped
+    // Plotly's hover events for these 3D plots carry no mouse event, so the pointer is followed here; the box sits just
+    // below and to the right of it, kept inside the frame.
+    let pointer = { x: 0, y: 0 };
+    const place = () => {
+        const x = Math.min(pointer.x + 14, (win.innerWidth || 0) - box.offsetWidth - 4);
+        const y = Math.min(pointer.y + 14, (win.innerHeight || 0) - box.offsetHeight - 4);
+        box.style.left = Math.max(x, 4) + "px";
+        box.style.top = Math.max(y, 4) + "px";
+    };
+    win.addEventListener("pointermove", (e) => {
+        pointer = { x: e.clientX, y: e.clientY };
+        if (box.style.display === "block") place();
+    }, true);
+    const hide = () => {
+        clearTimeout(timer);
+        current++;
+        box.style.display = "none";
+    };
+    const show = (point) => {
+        const mine = ++current;
+        const label = trace.text[point];
+        const put = (content) => {
+            if (mine !== current) return;
+            while (box.firstChild) box.removeChild(box.firstChild);
+            box.appendChild(content);
+            box.style.display = "block";
+            place();
+        };
+        const picture = doc.createElement("img");
+        picture.alt = label;
+        picture.style.display = "block";
+        picture.style.height = PICTURE_HEIGHT + "px";
+        picture.onload = () => put(picture);
+        picture.onerror = () => {
+            const text = doc.createElement("span");
+            text.textContent = label;
+            Object.assign(text.style, { font: "13px sans-serif", lineHeight: "1.2", color: "#e8e6e0" });
+            put(text);
+        };
+        picture.src = "/api/map/" + name + "/" + point + ".webp";
+    };
+
+    gd.on("plotly_hover", (event) => {
+        const point = event && event.points && event.points[0];
+        if (!point) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => show(point.pointNumber ?? point.pointIndex), HOVER_DELAY);
+    });
+    gd.on("plotly_unhover", hide);
+    win.addEventListener("pointerdown", hide, true);       // grabbing the map to rotate it
+    return true;
+}
+
 export default function MapPage() {
     const navigate = useNavigate();
 
@@ -124,6 +210,7 @@ export default function MapPage() {
         const attempt = () => {
             if (!frameRef.current) return;
             if (fitMap(frame)) {
+                previewMap(frame, name);
                 links.then(list => {
                     if (list && frameRef.current === frame) linkMap(frame, list.slugs, slug => navigate(fontPath(slug)));
                 });
