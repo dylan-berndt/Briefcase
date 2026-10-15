@@ -391,6 +391,12 @@ def createApp(overrides=None):
             abort(404)
         return i
 
+    @app.route("/api/font/about", methods=["GET"])
+    @limiter.limit("120 per minute")
+    def aboutSite():
+        """The site description shown at the foot of the pages, for the search page (a font page's data carries it)."""
+        return jsonify({"about": about}), 200
+
     # a name can hold "/" (it arrives decoded), so these take a path, not a single segment
     @app.route("/api/font/info/<path:slug>", methods=["GET"])
     @limiter.limit("120 per minute")

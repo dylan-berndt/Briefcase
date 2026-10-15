@@ -124,6 +124,13 @@ def test_font_info_matches_the_page(client, app):
     assert client.get("/api/font/info/nope").status_code == 404
 
 
+def test_the_site_description_is_one_text_for_every_page(client, app):
+    bundle = app.extensions["bundle"]
+    about = client.get("/api/font/about").json["about"]
+    assert about and all(isinstance(p, str) and p for p in about)
+    assert about == client.get("/api/font/info/" + quote(bundle.slugs[4], safe="")).json["about"]
+
+
 def test_names_with_a_slash_work(makeApp, tmp_path):
     # the fake bundle's names have none, so check the routes accept the encoded form directly
     app = makeApp()

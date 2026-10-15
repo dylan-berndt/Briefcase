@@ -1,6 +1,7 @@
 import './main.css'
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import SiteBlurb from '../blurb';
 
 const PREFIX = "/font/";
 
@@ -92,9 +93,6 @@ export default function FontPage() {
 				</li>)}
 			</ul>
 		</section> : null}
-		<section className="FontAbout">
-			<h2>About Font Search</h2>
-			{font.about.map((paragraph, i) => <p key={i}>{paragraph}</p>)}
-		</section>
+		<div className="FontAbout"><SiteBlurb paragraphs={font.about} /></div>
 	</div>;
 }
