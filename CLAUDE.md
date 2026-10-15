@@ -10,7 +10,7 @@ Briefcase is a research project for font search via neural embeddings. Pipeline:
 3. **Finetune**: train paired image/text embedders (ViT image side + CLIP or BERT text side) contrastively so a text query and a font's glyph images land in the same embedding space (`finetune.ipynb`, `finetuneViT.ipynb`).
 4. **Search**: use the finetuned embedders to rank a font corpus against a free-text query, or against tag vocab (`utils/search.py`, exposed via `site/`).
 
-There is also an exploratory line of work (`meander.py`, `trainMeander.py`, `testMeander.py`, `cluster_search.py`, all in `experiments/choice-searches/`) on interactive/preference-based search — narrowing a font corpus through repeated pairwise or clustered choices instead of typing a query — plus transferability estimation (`experiments/pretrain-analysis/estimation.py`) comparing pretraining objectives with LogME/TransRate/H-Alpha. See `README.md` for background, methodology and results tables.
+There is also an exploratory line of work (`meander.py`, `trainMeander.py`, `testMeander.py`, `cluster_search.py`, all in `experiments/choice-searches/`) on interactive/preference-based search — narrowing a font corpus through repeated pairwise or clustered choices instead of typing a query — plus transferability estimation (`experiments/pretrain-analysis/estimation.py`) comparing pretraining objectives with LogME/TransRate/H-Alpha. See `RESEARCH.md` (the former README) for background, methodology and results tables.
 
 ## Environment setup
 
