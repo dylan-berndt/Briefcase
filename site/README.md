@@ -11,6 +11,7 @@ No model runs on the server. A tagger scores every font offline; the server only
 
 ```
 site/tools/   offline: pick the fonts, run the tagger, render specimens, write the bundle   (needs torch, a GPU helps)
+              also findCycle.py (front-page font tours) and explore.py (Plotly embedding maps for the Map page)
 site/backend/ Flask + numpy: load the bundle, parse queries, rank, serve specimens, accounts/votes/ratings/descriptions
 site/frontend/ React app, built into the image
 site/e2e/     browser tests against the built site
@@ -218,21 +219,56 @@ almost no pattern. `e2e/test_site.py::test_pages_fit_a_phone_or_tablet_screen` a
 `test_phones_have_a_slice_of_the_background_below_a_scrolling_column` check sideways scrolling, header sizes, the About layout
 and the slice at several phone sizes.
 
-## Sitemap
+## Search engines: font pages, the sitemap and the shell
 
-`site/frontend/public/sitemap.xml` lists the three pages (`/`, `/map`, `/about`) at `https://font-search.com`, and
-`robots.txt` points to it. Search results (`/?q=...`) are not listed: there is no end to them. The files are copied into
-the build and served as static files. If a page is added, add it to the sitemap (`e2e/test_site.py` checks every listed
-address is served as the app).
+The React app's built `index.html` has an empty `#root`, so a crawler that does not run scripts sees nothing. The server
+fills it in per address (`backend/seo.py`, templates in `backend/templates/`; nothing is generated ahead of time or written
+to disk):
+
+- `<head>`: title, description, canonical address, Open Graph/Twitter card and JSON-LD (`WebSite` + `SearchAction` on the
+  home page, `WebPage` + `ImageObject` + breadcrumb on a font). The shell's own title, description and `<noscript>` are
+  replaced.
+- inside `#root`: plain HTML (a heading, what the site is and how the search works, links into the fonts). React replaces
+  it when it starts; it is not hydrated.
+- `/`, `/map`, `/about` and any other client route get this; `/font/<name>` is one page per family, e.g.
+  `/font/Abril%20Fatface`. Its content is the font's name (a link to the font's own Google Fonts or DaFont page, with a
+  link-out icon), source and creator, the specimen, a column of the tags it has and the next ten after them, "Search for more fonts like this" (which searches
+  for all the tags in the column), the six fonts with the most alike tags (cosine of the tags' z-scores) under "Similar
+  fonts", and the site description. Nothing in the bundle says which tags a font has; the page decides with one rule
+  (`FontProfiles.tagLists`): the probabilities of the font's tag groups are added up, best first, and tags are taken until
+  the sum reaches 1.8 (at most 8). Over all 12,802 fonts that is 3 to 6 tags for 92%, 3 and 4 being the commonest; the
+  4.5% whose tags are weak enough to need more stop at the cap. The close tags are the ten that come next in the same ranking. The constants are at
+  the top of `backend/seo.py`. `/api/font/info/<name>` returns the same data as JSON for the React route
+  (`frontend/src/font`). The site description is `aboutParagraphs` in `backend/seo.py`, the one place to edit it.
+- `/specimen/<name>.webp` is the specimen at an address that does not change when the bundle does (the search page still
+  uses `/api/font/specimen/<i>?v=`).
+- `/sitemap.xml` is built from the bundle: the three pages plus one `<url>` per font with `<lastmod>` (the bundle's build
+  date) and its specimen in the image extension. 12.8k fonts is far under the 50,000 URL limit. `robots.txt` (static)
+  points at it and disallows `/api/`.
+- `SITE_URL` (default `https://font-search.com`) is the address in canonical links, cards and the sitemap.
+
+Slugs (`backend/slugs.py`) are the family's own name, percent-encoded in the address (`quote(name, safe="")`, so a "/"
+in a name is `%2F`; the routes take a path for that reason). Two families whose names match ignoring case get their source
+added (`Abel (Google Fonts)`, `Abel (DaFont)`), and `Bundle` refuses to load if they are not unique ignoring case. A name in
+the wrong case is redirected to the right one. They depend only on the bundle. Search results (`/?q=...`) are not listed: there is no end to them.
+If a page is added, add it to `SITE_PAGES` in `backend/app.py`.
 
 ## Map page
 
-The Map tab shows `flower.html` / `blob.html` (Plotly exports) in an iframe. They are generated outside the repo: put them in
-`site/frontend/public/` (un-ignored in `.gitignore`, tracked with git-lfs). A missing file is a 404, not the app.
+The Map tab shows `flower.html` / `routes.html` (Plotly exports) in an iframe. They are generated outside the repo: put them
+in `site/frontend/public/maps/` (tracked with git-lfs). A missing file is a 404, not the app.
 
-The page reaches into the (same-origin) frame once the plot exists: it zeroes Plotly's 80-100px margins and, when the frame
-is taller than wide, pulls the 3D camera back 1.5x so the whole cloud fits a phone (`fitMap` in `src/map/index.js`; it works
-from the current camera, so a user's rotation survives a resize). Maps must keep Plotly's `.plotly-graph-div` and a `scatter3d` scene.
+Clicking a point opens its font page in a new tab. The maps cannot be regenerated identically (t-SNE is not deterministic), and their
+points carry only a hover label (`<family> <style>`), so `site/tools/linkMaps.py` writes `<map>.links.json` beside each
+map: the slug of every point, in the point order, `null` where no font page matches (fonts the map holds that the search
+does not list). `LabelMatcher` takes the longest leading run of the label's words that spells a family name, ignoring
+spacing, and a Google family wins a name Google and DaFont share. Short names (under 6 letters) only match when nothing
+but style words follows, so "3D Animals Regular" is not the family "3D". The map page checks the list is as long as the
+map's points before using it. Run it again after the maps or the bundle change:
+
+    python site/tools/linkMaps.py
+
+Currently 97% of `flower` and 85% of `routes` points link to a page; the rest are fonts not in the bundle.
 
 ## Tests
 

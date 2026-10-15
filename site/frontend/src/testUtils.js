@@ -5,6 +5,7 @@ export function makeResult(i, overrides = {}) {
 		name: `Font ${i}`,
 		source: i % 2 ? "google" : "dafont",
 		url: `https://example.com/font-${i}`,
+		path: `/font/Font%20${i}`,
 		creator: i % 2 ? null : "Some Designer",
 		specimen: `/api/font/specimen/${i}?v=abc`,
 		rating: { average: null, count: 0, mine: null },
@@ -36,6 +37,8 @@ export function installFetch(handlers) {
 		"/api/font/tags": ({ params }) => jsonResponse({ tags: params.query ? [{ tag: params.query, weight: 1 }] : [], suggested: [], unmatched: [] }),
 		// and nothing to narrow it down with
 		"/api/font/refine": () => jsonResponse({ refinements: [] }),
+		// the site description at the foot of the search page
+		"/api/font/about": () => jsonResponse({ about: [] }),
 		...handlers,
 	};
 	const calls = [];

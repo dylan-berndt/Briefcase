@@ -1,0 +1,18 @@
+{
+    "data": {
+        "sentenceModel": "BAAI/bge-large-en-v1.5",
+        "baseCheckpoint": "checkpoints/diffusion-searches/diffusion_sampling/diffusion_lr_5e-4",
+        "seed": 1234
+    },
+    "model": {
+        "hiddenDim": 256
+    },
+    "training": {
+        "epochs": 30,
+        "batchSize": 512,
+        "learningRate": 1e-3
+    },
+    "output": {
+        "checkpointDir": "checkpoints/diffusion-searches/point_regressor"
+    }
+}

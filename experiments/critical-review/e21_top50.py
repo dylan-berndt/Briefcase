@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Music-tagging protocol (Won et al. 2020): top-50 most frequent tags, macro ROC-AUC and PR-AUC
 # (= per-tag average precision) on the held-out test split. Applied to MyFonts with the frozen ViT.
 import numpy as np, pickle, torch

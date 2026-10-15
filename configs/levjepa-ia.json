@@ -1,0 +1,53 @@
+{
+    "runName": "levjepa-ia-d256",
+    "model": {
+        "dim": 256,
+        "depth": 12,
+        "heads": 4,
+        "mlpRatio": 3,
+        "projHidden": 2048,
+        "projDim": 256
+    },
+    "views": {
+        "keep": 0.1,
+        "inkFrac": 0.75,
+        "inkThreshold": 0.1,
+        "views": 4,
+        "cropPatches": 3
+    },
+    "loss": {
+        "lam": 0.02,
+        "invReduction": "mean",
+        "sketch": 1024
+    },
+    "optimization": {
+        "batch": 128,
+        "epochs": 36,
+        "lr": 0.0005,
+        "wd": 0.05,
+        "warmup": 0.05,
+        "clip": 1.0,
+        "seed": 0
+    },
+    "dataset": {
+        "myFonts": "dataset",
+        "standard": [
+            "dafont",
+            "google",
+            "dataset/internetArchive"
+        ],
+        "glyphCache": "dataset/levjepa",
+        "minGlyphs": 26,
+        "dedupThreshold": 0.995,
+        "holdout": 0.05,
+        "splitSalt": "levjepa-split-v1"
+    },
+    "logging": {
+        "saveEvery": 500,
+        "evalEvery": 500,
+        "evalBatches": 4,
+        "diagEvery": 50,
+        "wandbEntity": "dylanberndt123-missouri-state-university",
+        "wandbProject": "Briefcase"
+    }
+}

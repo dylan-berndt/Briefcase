@@ -401,7 +401,7 @@ operate at.
 things worse, not better.** `diffusion.ResidualBlock` supports
 `conditioning="film"` (Perez et al. 2018 -- text/timestep modulate the
 hidden state's own scale/shift instead of being added alongside it) as
-well as the original `"concat"`, selectable via `train.py --conditioning`
+well as the original `"concat"`, selectable via `train.py`'s `conditioning` setting (then a flag, now a key in `configs/diffusionTrain.json`)
 /`--checkpointDir`. A `checkpoints/diffusion_film` run (identical
 hyperparameters and epoch count -- 60 -- to the deployed checkpoint,
 conditioning mechanism only) converged to a HIGHER training loss (0.106

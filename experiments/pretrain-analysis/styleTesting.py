@@ -7,7 +7,11 @@
 
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+_repoRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repoRoot not in sys.path:
+    sys.path.insert(0, _repoRoot)
+os.chdir(_repoRoot)   # paths below are relative to the repo root
 
 from utils import *
 import pandas as pd
@@ -70,7 +74,7 @@ def diff(matrix):
 # TODO: Refactor the mess
 if __name__ == "__main__":
     # Inconsistencies between VSCode and Pycharm
-    cwd = ".." if os.getcwd().endswith("style") else ""
+    cwd = ""   # the bootstrap above runs from the repo root
 
     model, config = UNet.load(os.path.join(cwd, "checkpoints", "pretrain", "latest"))
 
@@ -321,7 +325,7 @@ if __name__ == "__main__":
                 canvas.paste(samples[i], (32, total))
                 total += samples[i].size[1] + 16
 
-            folderPath = os.path.join(cwd, "style", "results", "clustering", f"Layer {layer + 1}")
+            folderPath = os.path.join("experiments", "pretrain-analysis", "results", "clustering", f"Layer {layer + 1}")
             if not os.path.exists(folderPath):
                 os.makedirs(folderPath)
 

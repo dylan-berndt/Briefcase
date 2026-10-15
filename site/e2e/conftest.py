@@ -19,6 +19,15 @@ def freePort():
         return s.getsockname()[1]
 
 
+def serverCommand(port):
+    """gunicorn, as in production; waitress where gunicorn cannot run (it needs fcntl, so not on Windows)."""
+    try:
+        import gunicorn.app.wsgiapp  # noqa: F401
+        return [sys.executable, "-m", "gunicorn", "-w", "1", "-b", f"127.0.0.1:{port}", "app:app"]
+    except ImportError:
+        return [sys.executable, "-m", "waitress", f"--listen=127.0.0.1:{port}", "app:app"]
+
+
 @pytest.fixture(scope="session")
 def site(tmp_path_factory):
     """The production entry point (gunicorn app:app) serving the built frontend."""
@@ -30,8 +39,8 @@ def site(tmp_path_factory):
     port = freePort()
     env = {**os.environ, "SECRET_KEY": "e2e-secret-e2e-secret-e2e-secret-0123", "BUNDLE_DIR": str(work / "bundle"),
            "SQLITE_PATH": str(work / "site.db"), "STATIC_DIR": build, "COOKIE_SECURE": "0"}
-    process = subprocess.Popen([sys.executable, "-m", "gunicorn", "-w", "1", "-b", f"127.0.0.1:{port}", "app:app"],
-                               cwd=BACKEND, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(serverCommand(port), cwd=BACKEND, env=env, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"
     for _ in range(100):
         try:

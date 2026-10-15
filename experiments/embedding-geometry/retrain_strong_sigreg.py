@@ -17,10 +17,11 @@ checkpoints and automatic resume, a streaming sampler (DataLoader's shuffle=True
 a hard CUDA allocator cap (this driver silently spills VRAM into system RAM instead of raising
 OOM), and startup assertions that the images really are 64px from the new cache.
 
-Writes ONLY to checkpoints/pretrain/<RUN_NAME>; never touches pretrain/latest or pretrain/best.
-Run it under run_supervised.py, which restarts it after any crash.
+Writes ONLY to checkpoints/pretrain/<runName>; never touches pretrain/latest or pretrain/best.
+Run it under run_supervised.py, which restarts it after any crash. Run settings: configs/retrainSigreg.json (one copy
+per run; the old RUN_NAME/ALPHA/INIT_FROM/... environment variables are gone).
 
-    python -u experiments/embedding-geometry/retrain_strong_sigreg.py
+    python -u experiments/embedding-geometry/run_supervised.py --config configs/retrainSigreg.json
 """
 import os as _os
 import sys as _sys
@@ -30,6 +31,7 @@ if _repoRoot not in _sys.path:
     _sys.path.insert(0, _repoRoot)
 _os.chdir(_repoRoot)  # config/checkpoint/cache paths are repo-root-relative
 
+import argparse
 import json
 import queue
 import signal
@@ -42,39 +44,42 @@ import wandb
 import torch.nn as nn
 from torch.utils.data import DataLoader, Sampler
 
-from utils.config import Config
+from utils.config import Config, loadRunConfig
 from utils.loaders.standard import loadImage
 from utils.pretraining import PairedImageData, device
 from utils.training import EmbeddingLoss, MoCoQueue, MomentumEncoder, recallAtK
 from utils.vit import ViT
 
-# Environment overrides let a short branch run start from another run's checkpoint without touching it:
-#   RUN_NAME=<new dir/wandb name>  ALPHA=<sigreg weight>  INIT_FROM=<checkpoint dir with checkpoint.pt + train_state.pt>
-RUN_NAME = _os.environ.get("RUN_NAME", "strong-sigreg-64px-patch8")
-ALPHA = float(_os.environ.get("ALPHA", "0.1"))
-INIT_FROM = _os.environ.get("INIT_FROM")
-# Projector head (LeVJEPA arXiv 2608.27395 sec. 3 / LeJEPA 2511.08544): InfoNCE and SIGReg act on the projector output; the
-# encoder's CLS feature (a LayerNorm output) is what gets embedded afterwards. PROJ_DIM=0 disables it (loss on the CLS directly).
-SIGREG = _os.environ.get("SIGREG", "strong")   # "strong" (Epps-Pulley) or "weak" (covariance Frobenius), see utils/training.py
-PROJ_DIM = int(_os.environ.get("PROJ_DIM", "256"))
-EXCLUDE_FONTS_FILE = _os.environ.get("EXCLUDE_FONTS_FILE")   # optional: JSON list of font names to drop (see utils.pretraining.PairedImageData)
-PROJ_HIDDEN = int(_os.environ.get("PROJ_HIDDEN", "2048"))
-CHECKPOINT_DIR = _os.path.join("checkpoints", "pretrain", RUN_NAME)
-MODEL_PATH = _os.path.join(CHECKPOINT_DIR, "checkpoint.pt")
-STATE_PATH = _os.path.join(CHECKPOINT_DIR, "train_state.pt")
-PROGRESS_PATH = _os.path.join(CHECKPOINT_DIR, "progress.json")
+# Run settings come from a config file (configs/retrainSigreg.json; set by configure() in main, so importing ProjectedViT
+# from here needs no config). One file per run:
+#   runName          new checkpoint dir / wandb name          initFrom   checkpoint dir (checkpoint.pt + train_state.pt)
+#                                                                         to branch from, without touching it
+#   alpha, sigreg    SIGReg weight; "strong" (Epps-Pulley) or "weak" (covariance Frobenius), see utils/training.py
+#   projDim          projector head (LeVJEPA arXiv 2608.27395 sec. 3 / LeJEPA 2511.08544): InfoNCE and SIGReg act on the
+#                    projector output; the encoder's CLS feature (a LayerNorm output) is what gets embedded afterwards.
+#                    0 disables it (loss on the CLS directly)
+#   fontSize, cacheSuffix, patchSize, embedDim   geometry; 43 / "_64" / 8 / 512 is the original 64px run,
+#                    32 / "" / 4 / 256 gives 48px, 144 patches, 256-wide. imageSize = int(fontSize * 1.5)
+#   excludeFontsFile optional JSON list of font names to drop (see utils.pretraining.PairedImageData)
+DEFAULT_CONFIG = _os.path.join("configs", "retrainSigreg.json")
+VRAM_FRACTION = 0.93  # allocator cap: overflow raises OOM instead of spilling into host RAM (machine-specific, not a run setting)
+RUN = None            # the loaded run config (utils.config.loadRunConfig), set by configure()
 
-# Geometry (defaults: 64px / patch 8 / d512 -- the original run; override per run):
-#   FONT_SIZE=32 CACHE_SUFFIX= PATCH_SIZE=4 EMBED_DIM=256  ->  48px, 144 patches, 256-wide
-FONT_SIZE = int(_os.environ.get("FONT_SIZE", "43"))        # imageSize = int(fontSize * 1.5)
-CACHE_SUFFIX = _os.environ.get("CACHE_SUFFIX", "_64")      # "" = the original bitmaps/smallimage folders (48px)
-PATCH_SIZE = int(_os.environ.get("PATCH_SIZE", "8"))
-EMBED_DIM = int(_os.environ.get("EMBED_DIM", "512"))
-BATCH_SIZE = int(_os.environ.get("BATCH_SIZE", "64"))
-SAVE_EVERY = int(_os.environ.get("SAVE_EVERY", "500"))
-TEST_EVERY = 4
-GEOMETRY_EVERY = 50   # effective-rank diagnostic on the MoCo queue (see queueGeometry)
-VRAM_FRACTION = 0.93  # allocator cap: overflow raises OOM instead of spilling into host RAM
+
+def configure(path):
+    """Loads a run config and sets the module-level settings the training code reads."""
+    global RUN, RUN_NAME, ALPHA, INIT_FROM, SIGREG, PROJ_DIM, EXCLUDE_FONTS_FILE, PROJ_HIDDEN, FONT_SIZE, CACHE_SUFFIX
+    global PATCH_SIZE, EMBED_DIM, BATCH_SIZE, SAVE_EVERY, TEST_EVERY, GEOMETRY_EVERY
+    global CHECKPOINT_DIR, MODEL_PATH, STATE_PATH, PROGRESS_PATH
+    RUN = loadRunConfig(path)
+    RUN_NAME, ALPHA, INIT_FROM, SIGREG = RUN.runName, RUN.alpha, RUN.initFrom, RUN.sigreg
+    PROJ_DIM, PROJ_HIDDEN, EXCLUDE_FONTS_FILE = RUN.projDim, RUN.projHidden, RUN.excludeFontsFile
+    FONT_SIZE, CACHE_SUFFIX, PATCH_SIZE, EMBED_DIM = RUN.fontSize, RUN.cacheSuffix, RUN.patchSize, RUN.embedDim
+    BATCH_SIZE, SAVE_EVERY, TEST_EVERY, GEOMETRY_EVERY = RUN.batchSize, RUN.saveEvery, RUN.testEvery, RUN.geometryEvery
+    CHECKPOINT_DIR = _os.path.join("checkpoints", "pretrain", RUN_NAME)
+    MODEL_PATH = _os.path.join(CHECKPOINT_DIR, "checkpoint.pt")
+    STATE_PATH = _os.path.join(CHECKPOINT_DIR, "train_state.pt")
+    PROGRESS_PATH = _os.path.join(CHECKPOINT_DIR, "progress.json")
 
 
 class ProjectedViT(nn.Module):
@@ -282,7 +287,7 @@ def trainModel(config):
     trainQueue = MoCoQueue(dim=queueDim, size=config.queueSize)
     testQueue = MoCoQueue(dim=queueDim, size=config.queueSize)
     backboneRing = FeatureRing(config.queueSize, config.model.embedDim)
-    objective = EmbeddingLoss(temperature=0.04, alpha=ALPHA, sigregVariant=SIGREG)
+    objective = EmbeddingLoss(temperature=RUN.temperature, alpha=ALPHA, sigregVariant=SIGREG)
 
     train, test = PairedImageData.split(dataset, config)
     trainLoader = DataLoader(train, batch_size=config.batchSize, sampler=RandomStreamSampler(len(train)),
@@ -292,7 +297,7 @@ def trainModel(config):
     testIter = iter(ThreadPrefetcher(endless(testLoader), depth=2))
 
     run = wandb.init(entity="dylanberndt123-missouri-state-university", project="Briefcase",
-                     name=RUN_NAME, config={**config.serialize(), "alpha": ALPHA, "initFrom": INIT_FROM, "projDim": PROJ_DIM, "projHidden": PROJ_HIDDEN, "sigreg": SIGREG}, id=runId, resume="allow")
+                     name=RUN_NAME, config={**config.serialize(), "alpha": ALPHA, "initFrom": INIT_FROM, "projDim": PROJ_DIM, "projHidden": PROJ_HIDDEN, "sigreg": SIGREG, "runConfig": RUN.sections}, id=runId, resume="allow")
 
     try:
         for epoch in range(config.epochs):
@@ -372,7 +377,13 @@ def trainModel(config):
 
 
 def main():
-    config = Config().load(_os.path.join("configs", "vit.json"))
+    parser = argparse.ArgumentParser(description="every run setting is in the config file")
+    parser.add_argument("--config", default=DEFAULT_CONFIG)
+    configure(parser.parse_args().config)
+    _os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    with open(_os.path.join(CHECKPOINT_DIR, "runConfig.json"), "w") as f:
+        json.dump(RUN.sections, f, indent=2)
+    config = Config().load(RUN.baseConfig)
     # queueSize stays at configs/vit.json's 16384 (= best/latest): the fix here is the loss.
     config.dataset.fontSize = FONT_SIZE
     config.dataset.cacheSuffix = CACHE_SUFFIX

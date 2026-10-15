@@ -2,8 +2,9 @@
 Restarts retrain_strong_sigreg.py whenever it exits abnormally (it resumes from its own checkpoint).
 Gives up only after MAX_FAST_FAILURES consecutive runs that made no checkpoint progress.
 
-    python -u experiments/embedding-geometry/run_supervised.py
+    python -u experiments/embedding-geometry/run_supervised.py [--config configs/retrainSigreg.json]
 """
+import argparse
 import json
 import os
 import subprocess
@@ -14,7 +15,11 @@ scriptDir = os.path.dirname(os.path.abspath(__file__))
 repoRoot = os.path.dirname(os.path.dirname(scriptDir))
 os.chdir(repoRoot)
 
-progressPath = os.path.join("checkpoints", "pretrain", os.environ.get("RUN_NAME", "strong-sigreg-64px-patch8"), "progress.json")
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", default=os.path.join("configs", "retrainSigreg.json"))
+configPath = parser.parse_args().config
+with open(configPath) as f:
+    progressPath = os.path.join("checkpoints", "pretrain", json.load(f)["runName"], "progress.json")
 MAX_FAST_FAILURES = 30
 
 
@@ -32,7 +37,7 @@ while failures < MAX_FAST_FAILURES:
     attempt += 1
     before = savedStep()
     print(f"[supervisor] attempt {attempt}, saved step {before}, {time.strftime('%H:%M:%S')}", flush=True)
-    code = subprocess.call([sys.executable, "-u", os.path.join(scriptDir, "retrain_strong_sigreg.py")])
+    code = subprocess.call([sys.executable, "-u", os.path.join(scriptDir, "retrain_strong_sigreg.py"), "--config", configPath])
     after = savedStep()
     print(f"\n[supervisor] exit code {code}, saved step {after}", flush=True)
     if code == 0:

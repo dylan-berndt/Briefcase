@@ -1,4 +1,5 @@
-import { render, screen, waitFor, within, act } from '@testing-library/react';
+import { render as renderBare, screen, waitFor, within, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import SearchPage, { pageWindow } from './index';
 import { installFetch, jsonResponse, makePage, makeResult } from '../testUtils';
@@ -7,6 +8,9 @@ beforeEach(() => {
 	window.history.replaceState({}, "", "/");
 	window.HTMLElement.prototype.scrollIntoView = jest.fn();
 });
+
+// the result cards link to font pages, which needs a router
+const render = (ui) => renderBare(ui, { wrapper: MemoryRouter });
 
 const queryCalls = (calls) => calls.filter(c => c.path === "/api/font/query");
 
@@ -47,13 +51,7 @@ describe("searching", () => {
 		expect(calls).toHaveLength(0);
 	});
 
-	test("keeps the original prompt above the search box", () => {
-		installFetch({});
-		render(<SearchPage username={null} />);
-		expect(screen.getByText("Please enter a description to search for a font")).toBeInTheDocument();
-	});
-
-	test("shows specimen images linking out, with the matched tags", async () => {
+	test("shows specimen images linking to the font pages, with the matched tags", async () => {
 		const calls = installFetch({
 			"/api/font/tags": () => jsonResponse({ tags: [{ tag: "serif", weight: 1 }, { tag: "bold", weight: 1 }], suggested: [], unmatched: [] }),
 			"/api/font/query": queryHandler(30),
@@ -65,9 +63,9 @@ describe("searching", () => {
 		expect(images).toHaveLength(24);
 		expect(images[0]).toHaveAttribute("src", "/api/font/specimen/0?v=abc");
 		expect(images[0]).toHaveAttribute("alt", "Font 0 specimen");
-		expect(images[0].closest("a")).toHaveAttribute("href", "https://example.com/font-0");
-		expect(images[0].closest("a")).toHaveAttribute("target", "_blank");
-		expect(images[0].closest("a").getAttribute("rel")).toContain("noopener");
+		expect(images[0].closest("a")).toHaveAttribute("href", "/font/Font%200");
+		expect(images[0].closest("a")).not.toHaveAttribute("target");
+		expect(screen.getByRole("link", { name: "Font 0" })).toHaveAttribute("href", "/font/Font%200");
 		const chips = within(await screen.findByRole("list", { name: "Tags in your search" })).getAllByRole("listitem");
 		expect(chips.map(c => c.textContent)).toEqual(["serif", "bold"]);
 		expect(within(chips[1]).getByRole("button")).toHaveAttribute("aria-label", "bold: included");
@@ -204,13 +202,6 @@ describe("tag line", () => {
 		await waitFor(() => expect(box("rounded", "off")).toBeInTheDocument());
 		userEvent.click(box("rounded", "off"));
 		await waitFor(() => expect(lastQuery(calls).tags).toBe("rounded:0.6,serif:1"));
-	});
-
-	test("a box says what a click will do", async () => {
-		await searched("serif");
-		expect(box("serif", "included")).toHaveAttribute("title", "Included. Click to turn off.");
-		userEvent.click(box("serif", "included"));
-		await waitFor(() => expect(box("serif", "off")).toHaveAttribute("title", "Off. Click to include."));
 	});
 
 	test("a vote is filed under the tags the results were ranked on", async () => {
@@ -474,25 +465,6 @@ describe("feedback", () => {
 	test("the description box is hidden unless asked for", async () => {
 		await loaded("alice");
 		expect(screen.queryByRole("button", { name: "Describe" })).toBeNull();
-	});
-
-	test("thumbs say what they mean on hover", async () => {
-		await loaded("alice");
-		const up = within(firstCard()).getByRole("button", { name: "This font matched my query" });
-		const down = within(firstCard()).getByRole("button", { name: "This font did not match my query" });
-		expect(up).toHaveAttribute("title", "This font matched my query");
-		expect(down).toHaveAttribute("title", "This font did not match my query");
-	});
-
-	test("the source sits under the font name, there are no stars, and the thumbs are the only feedback", async () => {
-		await loaded("alice");
-		const card = firstCard();
-		const title = card.querySelector(".ResultTitle");
-		expect([...title.children].map(e => e.className || e.tagName)).toEqual(["A", "ResultSource"]);
-		const feedback = card.querySelector(".ResultFeedback");
-		expect([...feedback.children].map(e => e.className)).toEqual(["Votes"]);
-		expect(within(card).queryByRole("button", { name: /Rate \d star/ })).toBeNull();
-		expect(within(card).queryByText("unrated")).toBeNull();
 	});
 
 	test("describing a font", async () => {

@@ -7,13 +7,15 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import jwt
-from flask import Flask, jsonify, request, g, make_response, send_from_directory, abort, Response
+from flask import Flask, jsonify, request, g, make_response, send_from_directory, abort, Response, redirect, render_template
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from bundle import Bundle
 from db import initializeDB, normalizeQuery, tagsKey, MAX_QUERY
+from seo import Pages, Shell, aboutParagraphs
+from slugs import fontPath, specimenPath
 from tagsearch import TagIndex
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +38,8 @@ def createApp(overrides=None):
         VOCABULARY=os.getenv("TAG_VOCABULARY"),
         # WordNet table for suggested tags on unknown words: "auto" finds configs/synonymTags.json, "" turns them off
         SYNONYMS=os.getenv("SYNONYMS", "auto"),
+        # the address the site is served at, for canonical links, social cards and the sitemap
+        SITE_URL=os.getenv("SITE_URL", "https://font-search.com"),
         COOKIE_SECURE=os.getenv("COOKIE_SECURE", "1") == "1",
         RATELIMIT_ENABLED=True,
     )
@@ -58,6 +62,9 @@ def createApp(overrides=None):
 
     app.extensions["bundle"] = bundle
     app.extensions["tagIndex"] = index
+    pages = Pages(bundle, index, app.config["SITE_URL"])
+    shell = Shell(app.config["STATIC_DIR"])
+    app.extensions["pages"] = pages
 
     # ------------------------------------------------------------ helpers
 
@@ -261,6 +268,7 @@ def createApp(overrides=None):
                 "name": font["name"],
                 "source": font["source"],
                 "url": font["url"],
+                "path": fontPath(bundle.slugs[i]),
                 "creator": font.get("creator"),
                 "specimen": specimenURL(i),
                 "rating": {"average": round(rating["average"], 2) if rating else None,
@@ -371,6 +379,135 @@ def createApp(overrides=None):
     def health():
         return jsonify({"fonts": len(bundle.fonts), "tags": len(bundle.vocab), "version": bundle.version}), 200
 
+    # ------------------------------------------------------------ font pages
+
+    siteURL = pages.siteURL
+    cache = {}
+    about = aboutParagraphs(pages.siteSummary())
+
+    def fontIndexFromSlug(slug):
+        i = bundle.indexBySlug.get(slug)
+        if i is None:
+            abort(404)
+        return i
+
+    @app.route("/api/font/about", methods=["GET"])
+    @limiter.limit("120 per minute")
+    def aboutSite():
+        """The site description shown at the foot of the pages, for the search page (a font page's data carries it)."""
+        return jsonify({"about": about}), 200
+
+    # a name can hold "/" (it arrives decoded), so these take a path, not a single segment
+    @app.route("/api/font/info/<path:slug>", methods=["GET"])
+    @limiter.limit("120 per minute")
+    def fontInfo(slug):
+        """Everything the font page shows, for the React route (the server-rendered page is built from the same data)."""
+        return jsonify(pages.page(fontIndexFromSlug(slug))), 200
+
+    @app.route("/specimen/<path:slug>.webp", methods=["GET"])
+    @limiter.exempt
+    def specimenBySlug(slug):
+        """A font's specimen at an address that does not change when the bundle does, for search engines' image index."""
+        i = fontIndexFromSlug(slug)
+        response = Response(bundle.specimen(i), mimetype=specimenType)
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        response.set_etag(f"{bundle.version}-{i}")
+        return response.make_conditional(request)
+
+    def htmlResponse(head, body, status=200):
+        html = shell.render(render_template("head.html", **head), body)
+        response = make_response(html, status)
+        response.headers["Content-Type"] = "text/html; charset=utf-8"
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return response
+
+    def siteHead(title, description, path, jsonld=()):
+        return {"title": title, "description": description, "canonical": siteURL + path, "image": None,
+                "jsonld": list(jsonld), "noindex": False}
+
+    def siteBody(heading, lead, featured=()):
+        return render_template("siteBody.html", heading=heading, lead=lead, about=about, featured=featured)
+
+    SITE_PAGES = {
+        "": ("Font Search – find free fonts by describing them",
+             "Search free Google Fonts and DaFont fonts with plain words like “spooky handwritten” or “clean "
+             "geometric sans”. A model has tagged every font by how it looks.",
+             "Find a free font by describing it",
+             "Describe the font you have in mind and Font Search ranks free fonts from Google Fonts and DaFont "
+             "against your words."),
+        "map": ("Font Maps – every searchable font in one 3D map | Font Search",
+                "Explore the fonts you can search as points in a 3D map, placed by how they look. Fonts that sit "
+                "close together look alike; click a point to open its font.",
+                "Font Maps",
+                "Every font is turned into a vector of what its letters look like, and these maps squash the vectors "
+                "into a 3D space. Fonts close together look alike; click a point to open that font."),
+        "about": ("About Font Search – how the font search was made",
+                  "How Font Search works: a vision transformer tags each free font by how it looks, and your "
+                  "plain-text query is matched to those tags. Who made it and why.",
+                  "About Font Search",
+                  "How the search was built, from the model that looks at each font's letters to the tags the search "
+                  "ranks by."),
+    }
+
+    def sitePage(path):
+        title, description, heading, lead = SITE_PAGES[path]
+        urlPath = "/" + path
+        jsonld = []
+        if path == "":
+            jsonld.append({"@context": "https://schema.org", "@type": "WebSite", "name": "Font Search",
+                           "url": siteURL + "/", "description": description,
+                           "potentialAction": {"@type": "SearchAction",
+                                               "target": {"@type": "EntryPoint",
+                                                          "urlTemplate": siteURL + "/?q={search_term_string}"},
+                                               "query-input": "required name=search_term_string"}})
+        head = siteHead(title, description, urlPath if path else "/", jsonld)
+        return htmlResponse(head, siteBody(heading, lead, pages.featured() if path == "" else ()))
+
+    @app.route("/font/<path:slug>", methods=["GET"])
+    @limiter.exempt
+    def fontPage(slug):
+        i = bundle.indexBySlug.get(slug)
+        if i is None and slug.rstrip("/").lower() in bundle.indexBySlugLower:
+            # the right name in the wrong case, or with a slash on the end
+            return redirect(fontPath(bundle.slugs[bundle.indexBySlugLower[slug.rstrip("/").lower()]]), code=301)
+        if i is None:
+            head = siteHead("Font not found | Font Search", "There is no font at this address.", fontPath(slug))
+            head["noindex"] = True
+            return htmlResponse(head, siteBody("Font not found", "There is no font at this address."), 404)
+        font = pages.page(i)
+        canonical = siteURL + font["path"]
+        image = siteURL + font["specimen"]
+        crumbs = {"@type": "BreadcrumbList", "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Font Search", "item": siteURL + "/"},
+            {"@type": "ListItem", "position": 2, "name": font["name"], "item": canonical}]}
+        jsonld = [{"@context": "https://schema.org", "@type": "WebPage", "name": font["title"], "url": canonical,
+                   "description": font["description"], "keywords": ", ".join(font["tags"]), "breadcrumb": crumbs,
+                   "primaryImageOfPage": {"@type": "ImageObject", "contentUrl": image, "name": f"{font['name']} specimen"}}]
+        head = {"title": font["title"], "description": font["description"], "canonical": canonical, "image": image,
+                "jsonld": jsonld, "noindex": False}
+        return htmlResponse(head, render_template("fontBody.html", font=font, about=font["about"]))
+
+    @app.route("/sitemap.xml", methods=["GET"])
+    @limiter.exempt
+    def sitemap():
+        """Every page: the three of the app and one per font, with its specimen for the image index."""
+        if "sitemap" not in cache:
+            from xml.sax.saxutils import escape
+            modified = str(bundle.manifest.get("created", ""))[:10]
+            lastmod = f"<lastmod>{modified}</lastmod>" if modified else ""
+            rows = [f"<url><loc>{siteURL}{path}</loc>{lastmod}</url>" for path in ("/", "/map", "/about")]
+            for slug in bundle.slugs:
+                rows.append(f"<url><loc>{escape(siteURL + fontPath(slug))}</loc>{lastmod}"
+                            f"<image:image><image:loc>{escape(siteURL + specimenPath(slug))}</image:loc></image:image></url>")
+            cache["sitemap"] = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+                                'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+                                + "\n".join(rows) + "\n</urlset>\n")
+        response = make_response(cache["sitemap"])
+        response.headers["Content-Type"] = "application/xml; charset=utf-8"
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
+
     # ------------------------------------------------------------ frontend
 
     @app.route("/", defaults={"path": ""})
@@ -385,7 +522,10 @@ def createApp(overrides=None):
         # A missing file (the Map page's iframe, say) is a 404, not the app; only extensionless paths are routes
         if os.path.splitext(path)[1]:
             abort(404)
-        return send_from_directory(staticDir, "index.html")
+        if path.rstrip("/") in SITE_PAGES:
+            return sitePage(path.rstrip("/"))
+        # any other route is the app too, which sends the visitor to the search page
+        return sitePage("")
 
     @app.errorhandler(404)
     def notFound(error):

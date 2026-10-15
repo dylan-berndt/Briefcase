@@ -5,15 +5,13 @@ import os
 import cv2
 from glob import glob
 from .description import *
+from .standard import scaleToFit
 from multiprocessing import Pool
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def loadRochesterImage(args):
     imagePath, fontSize = args
-    imageSize = int(fontSize * 1.5)
-    padding = 8
-    targetGlyphSize = imageSize - 2 * padding
 
     image = Image.open(imagePath).convert("RGB")
     array = np.array(image, dtype=np.float32)
@@ -21,37 +19,10 @@ def loadRochesterImage(args):
     # Black glyph on white background → invert so glyph = 1.0
     gray = 1.0 - (array[:, :, 0] / 255.0)
 
-    # Trim the large right-side whitespace: last col where any pixel > threshold
-    col_max = np.max(gray, axis=0)
-    nonzero_cols = np.where(col_max > 0.05)[0]
-    if len(nonzero_cols) == 0:
+    # tight crop + scale-to-fit, shared with the font-file render (standard.scaleToFit)
+    canvas = scaleToFit(gray, fontSize)
+    if canvas is None:
         return None, None
-    gray = gray[:, : nonzero_cols[-1] + 1]
-
-    # Tight crop rows
-    row_max = np.max(gray, axis=1)
-    nonzero_rows = np.where(row_max > 0.05)[0]
-    if len(nonzero_rows) == 0:
-        return None, None
-    gray = gray[nonzero_rows[0]: nonzero_rows[-1] + 1, :]
-
-    if gray.shape[0] == 0 or gray.shape[1] == 0:
-        return None, None
-
-    # Scale to fit within targetGlyphSize preserving aspect ratio
-    h, w = gray.shape
-    scale = min(targetGlyphSize / h, targetGlyphSize / w)
-    new_h = max(1, round(h * scale))
-    new_w = max(1, round(w * scale))
-
-    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-    resized = cv2.resize(gray, (new_w, new_h), interpolation=interp)
-
-    # Center in canvas (glyph=1.0, background=0.0)
-    canvas = np.zeros((imageSize, imageSize), dtype=np.float32)
-    y0 = (imageSize - new_h) // 2
-    x0 = (imageSize - new_w) // 2
-    canvas[y0: y0 + new_h, x0: x0 + new_w] = resized
 
     name = os.path.basename(imagePath).removesuffix(".png")
     return name, canvas

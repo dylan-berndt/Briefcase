@@ -1,0 +1,28 @@
+{
+    "data": {
+        "sentenceModel": "BAAI/bge-large-en-v1.5",
+        "treeCache": "results/trees/tree_variant_15_15_5_5_15.pkl",
+        "baseCheckpoint": "checkpoints/diffusion-searches/diffusion_sampling/diffusion_lr_5e-4",
+        "maxDepth": 5,
+        "maxTrainExamples": 60000,
+        "maxTestExamples": 6000,
+        "seed": 1234
+    },
+    "text": {
+        "textMode": "bge",
+        "tfidfDim": 256,
+        "nodeTextWeight": 0.0
+    },
+    "model": {
+        "hiddenDim": 128
+    },
+    "training": {
+        "epochs": 15,
+        "batchSize": 512,
+        "learningRate": 1e-3,
+        "depthWeights": null
+    },
+    "output": {
+        "checkpointDir": "checkpoints/diffusion-searches/navigation_classifier/scale/nav_classifier"
+    }
+}

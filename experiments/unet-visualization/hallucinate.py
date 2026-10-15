@@ -1,3 +1,11 @@
+import os
+import sys
+
+_repoRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repoRoot not in sys.path:
+    sys.path.insert(0, _repoRoot)
+os.chdir(_repoRoot)   # paths below are relative to the repo root
+
 from utils import *
 import numpy as np
 from itertools import product
@@ -73,6 +81,6 @@ for i, char in enumerate(characters):
             break
 
     im = Image.fromarray((best[char] * 255).astype(np.uint8))
-    im.save(os.path.join("oblivion", char + ".bmp"))
+    im.save(os.path.join("experiments", "unet-visualization", "hallucinations", "oblivion", char + ".bmp"))
 
     print()

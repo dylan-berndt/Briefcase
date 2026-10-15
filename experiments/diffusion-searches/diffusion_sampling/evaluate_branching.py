@@ -153,7 +153,7 @@ def parseArgs():
                               "results as JSON, for later charting/analysis.")
     parser.add_argument("--checkpointDir", default=CHECKPOINT_DIR,
                          help="Diffusion checkpoint to evaluate -- point this at a variant trained with "
-                              "train.py --checkpointDir (e.g. a --conditioning film run) to compare "
+                              "train.py --checkpointDir (e.g. a conditioning=film config) to compare "
                               "against the default. --treeCache is independent of this (the corpus tree "
                               "doesn't depend on which diffusion checkpoint generates the particles).")
     return parser.parse_args()

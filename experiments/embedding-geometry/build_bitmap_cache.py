@@ -1,6 +1,6 @@
 """
 Builds a glyph-bitmap cache at a NEW resolution in size-suffixed folders
-("bitmaps<suffix>", "smallimage<suffix>") next to the existing ones, so the
+("bitmaps_mf<suffix>", "smallimage<suffix>") next to the existing ones, so the
 original 48px cache is untouched. imageSize = int(fontSize * 1.5) everywhere in
 this pipeline; fontSize=43 -> 64px.
 
@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-STANDARD_SOURCES = ["google", "dafont"]
+STANDARD_SOURCES = ["google", "dafont", os.path.join("dataset", "internetArchive")]
 MYFONTS_DIR = "dataset"
 
 _standard = None
@@ -58,19 +58,20 @@ def renderFont(args):
 
 def buildStandard(directory, fontSize, cacheSuffix, workers):
     standard = loadStandard()
+    if not os.path.isdir(os.path.join(directory, "fonts")):
+        print(f"{directory}: no fonts/ folder, skipped", flush=True)
+        return
     marker = standard.cacheCompleteMarker(directory, cacheSuffix)
     if os.path.exists(marker):
         print(f"{directory}: already complete ({marker})", flush=True)
         return
 
-    bitmapDir = "bitmaps" + cacheSuffix
-    for sub in (bitmapDir, "sdf" + cacheSuffix):
+    bitmapDir = standard.bitmapDirName(cacheSuffix)
+    for sub in (bitmapDir, standard.sdfDirName(cacheSuffix)):
         os.makedirs(os.path.join(directory, sub), exist_ok=True)
 
     imageSize = int(fontSize * 1.5)
-    fonts = (glob(os.path.join(directory, "fonts", "**", "*.ttf"), recursive=True)
-             + glob(os.path.join(directory, "fonts", "**", "*.otf"), recursive=True))
-    fonts = [f for f in fonts if os.path.isfile(f)]
+    fonts = [f for f in standard.fontFilePaths(directory) if os.path.isfile(f)]
     tasks = [(f, fontSize, imageSize, directory, bitmapDir) for f in fonts]
     print(f"{directory}: {len(tasks)} font files -> {directory}/{bitmapDir} at {imageSize}px, "
           f"{workers} workers", flush=True)
@@ -205,7 +206,7 @@ def selfTest(count=25):
 
 def report(fontSize, cacheSuffix):
     for directory in STANDARD_SOURCES:
-        folder = os.path.join(directory, "bitmaps" + cacheSuffix)
+        folder = os.path.join(directory, loadStandard().bitmapDirName(cacheSuffix))
         files = os.listdir(folder) if os.path.isdir(folder) else []
         print(f"{folder}: {len(files)} files", flush=True)
         for f in files[:1]:
@@ -222,7 +223,7 @@ def main():
     parser.add_argument("--fontSize", type=int, default=43)
     parser.add_argument("--cacheSuffix", default="_64")
     parser.add_argument("--only", choices=["standard", "myfonts", "all", "selftest", "report"], default="all")
-    parser.add_argument("--workers", type=int, default=8, help="rendering workers for google/dafont")
+    parser.add_argument("--workers", type=int, default=8, help="rendering workers for google/dafont/internetArchive")
     parser.add_argument("--myFontsWorkers", type=int, default=10)
     args = parser.parse_args()
 

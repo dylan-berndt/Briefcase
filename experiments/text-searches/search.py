@@ -1,14 +1,24 @@
+import os
+import sys
+
+_repoRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _repoRoot not in sys.path:
+    sys.path.insert(0, _repoRoot)
+os.chdir(_repoRoot)   # paths below are relative to the repo root
+
 from utils import *
 import pygame
 
-searchHelper = MeanderSearch(backbone=os.path.join("checkpoints", "pretrain", "best"))
 
-positive = None
-negative = None
+# Swap to FontSearch() for the CLIP image/text embedding search.
+search = TagSearch()
+
+
+queryText = ""
 results = []
 
 pygame.init()
-windowSize = [960, 960]
+windowSize = [960, 640]
 window = pygame.display.set_mode(windowSize)
 clock = pygame.time.Clock()
 
@@ -19,21 +29,19 @@ uiSurface = uiSurface.convert_alpha()
 images = []
 resetImages = False
 
+searchBarWidth = int(960 * 3/4)
 searchBarCorner = int(960 * 1/8), 96
-resultsCorner = int(960 * 1/8), 480
+resultsCorner = int(960 * 1/8), 160
 
 scrollOffset = 0
 
 
 def glyphSurface(name):
-    strip = searchHelper.glyphStrip(name)
+    strip = search.glyphStrip(name)
     if strip is None:
         return None
     h, w = strip.shape[:2]
     return pygame.image.fromstring(strip.tobytes(), (w, h), "RGBA")
-
-
-optionImages = [glyphSurface(name) for name, embedding in searchHelper.options]
 
 
 while True:
@@ -43,52 +51,27 @@ while True:
             pygame.quit()
             quit()
 
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:
-                height = 0
-                selected = None
-                for o, option in enumerate(searchHelper.options):
-                    fontImage = optionImages[o]
-                    if fontImage is not None:
-                        imageHeight = fontImage.get_height()
-                        if height < pygame.mouse.get_pos()[1] - searchBarCorner[1] < height + imageHeight:
-                            selected = option
-                            break
-                        height += imageHeight + 32
-
-                if selected is not None:
-                    if positive is None:
-                        positive = selected
-                    else:
-                        negative = selected
-
-            if positive is not None and negative is not None:
-                searchHelper.updateLocation(positive, negative)
-                results = searchHelper.search(None, k=100)
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_BACKSPACE:
+                queryText = queryText[:-1]
+            elif event.key == pygame.K_RETURN:
+                results = search.search(queryText, k=100)
                 print(len(results))
                 resetImages = True
                 scrollOffset = 0
-                positive = None
-                negative = None
+            else:
+                queryText += event.unicode
 
         if event.type == pygame.MOUSEWHEEL:
             scrollOffset = max(0, scrollOffset - event.y * 20)
 
     if resetImages:
         images = [glyphSurface(name) for name, score in results]
-        optionImages = [glyphSurface(name) for name, embedding in searchHelper.options]
         resetImages = False
 
-
-    uiSurface.fill((0, 0, 0, 0))
-
-    height = 0
-    for o, option in enumerate(searchHelper.options):
-        fontImage = optionImages[o]
-        if fontImage is not None:
-            uiSurface.blit(fontImage, (searchBarCorner[0], height))
-            height += fontImage.get_height() + 32
-
+    pygame.draw.rect(uiSurface, [255, 255, 255], (*searchBarCorner, searchBarWidth, 32))
+    queryRender = uiFont.render(queryText, False, [0, 0, 0])
+    uiSurface.blit(queryRender, (searchBarCorner[0] + 8, searchBarCorner[1] + 4))
 
     contentSurface = pygame.Surface(windowSize, pygame.SRCALPHA)
     height = -scrollOffset

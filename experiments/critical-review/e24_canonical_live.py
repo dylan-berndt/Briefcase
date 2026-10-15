@@ -1,3 +1,6 @@
+# NOTE (Oct 2026): this script trains a model with its settings hardcoded (constants or inline literals), unlike
+# the training scripts that read configs/*.json. Move them into a config (utils/config.py::loadRunConfig) before
+# re-running it for real.
 # Second blind trial: the canonical-vocabulary tag search (C) against the previous best (B) and random (R),
 # over the same DaFont gallery and the same 30 queries as e20_live.py.
 #   B = e20's system: raw MyFonts tags (>=20 train fonts), regex query parser, z-scored tagger over the

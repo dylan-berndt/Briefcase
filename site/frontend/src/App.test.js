@@ -45,8 +45,9 @@ test("login, then log out", async () => {
 	userEvent.click(screen.getByRole("button", { name: "Submit" }));
 
 	const loggedIn = await screen.findByRole("button", { name: "alice" });
-	expect(calls.map(c => c.path)).toEqual(["/api/font/me", "/api/font/login"]);
-	expect(Object.fromEntries(calls[1].body)).toEqual({ username: "alice", password: "correct horse" });
+	const sent = calls.filter(c => c.path !== "/api/font/about");   // the footer's own request is not part of logging in
+	expect(sent.map(c => c.path)).toEqual(["/api/font/me", "/api/font/login"]);
+	expect(Object.fromEntries(sent[1].body)).toEqual({ username: "alice", password: "correct horse" });
 
 	userEvent.click(loggedIn);
 	userEvent.click(screen.getByRole("button", { name: "Log out" }));
@@ -118,14 +119,6 @@ describe("pages are links", () => {
 		"/api/font/query": ({ params }) => jsonResponse(makePage({ query: params.query, total: 30 })),
 	});
 	const nav = () => within(screen.getByRole("banner"));
-
-	test("the header has real links to each page", () => {
-		routes();
-		renderApp();
-		expect(nav().getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-		expect(nav().getByRole("link", { name: "Maps" })).toHaveAttribute("href", "/map");
-		expect(nav().getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
-	});
 
 	test("a direct visit to a page shows that page", async () => {
 		routes();

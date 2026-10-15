@@ -12,7 +12,7 @@ dataset.tar.gz
 
 **/*.db
 
-/style/results/clustering
+/experiments/pretrain-analysis/results/clustering
 
 /checkpoints/finetune/*
 /checkpoints/pretrain/*
@@ -38,7 +38,7 @@ dataset.tar.gz
 
 wandb
 
-# LLM-generated query sets: 250k-340k lines each, regenerable with generate.py / experiments/text-searches/generateV2.py
+# LLM-generated query sets: 250k-340k lines each, regenerable with experiments/text-searches/generate.py / generateV2.py
 results/fontQueries.json
 results/fontQueriesV2.json
 results/shortQueries.json

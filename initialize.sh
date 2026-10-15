@@ -23,3 +23,22 @@ mkdir ./dafont/fonts
 mv ./dafont/*.ttf ./dafont/fonts
 mv ./dafont/*.otf ./dafont/fonts
 rm dafonts-free-v1.zip
+
+# Get the Internet Archive "1.5 Million Fonts Compilation" (experiments/internet-archive/).
+# Only the 7 zips that contain new file names (~36 GB download; together they hold all ~219k distinct names);
+# the other 6 are re-compilations of these. Extracts fonts to dataset/internetArchive/fonts/, deletes each zip.
+python3 experiments/internet-archive/fetch.py \
+    "Worlds Largest Font Collection 600000.zip" \
+    "2012_Font_Collection.zip" \
+    "ADDITIONAL SETS.zip" \
+    "dafont.com_categories_2010-05-19.zip" \
+    "Enormous font collection.zip" \
+    "Font Collection by nonhocapito.zip" \
+    "Fonts.zip"
+
+# Cache every source's glyphs, then find near-duplicates across the whole corpus (prints the threshold table).
+# LeVJEPA cache (configs/levjepa.json):
+python3 experiments/levjepa/build_glyph_cache.py
+# utils bitmap caches (configs/vit.json), rendered in parallel, then the dedup table for that corpus:
+python3 -u experiments/embedding-geometry/build_bitmap_cache.py --fontSize 32 --cacheSuffix "" --only all
+python3 -m utils.dedup --config configs/vit.json

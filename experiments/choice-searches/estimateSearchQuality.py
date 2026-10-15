@@ -22,8 +22,11 @@ import spacy
 import torch
 import torch.nn.functional as F
 
-from retrieval import RetrievalHead, HIDDEN_DIM, CHECKPOINT_DIR, loadFontEmbeddings
+from retrieval import RetrievalHead, loadFontEmbeddings, trainedHeadSettings
+
 from utils.search import NEGATIONS
+
+CHECKPOINT_DIR, HIDDEN_DIM = trainedHeadSettings()   # configs/retrieval.json + the checkpoint's runConfig.json
 
 SPACY_MODEL = "en_core_web_lg"
 SYNONYM_THRESHOLD = 0.5
