@@ -13,7 +13,6 @@ from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from bundle import Bundle
-from mapspecimens import MapSpecimens
 from db import initializeDB, normalizeQuery, tagsKey, MAX_QUERY
 from seo import Pages, Shell, aboutParagraphs
 from slugs import fontPath, specimenPath
@@ -35,8 +34,6 @@ def createApp(overrides=None):
         DATABASE=os.getenv("SQLITE_PATH", "/data/fontsearch.db"),
         BUNDLE_DIR=os.getenv("BUNDLE_DIR", os.path.join(HERE, "data")),
         VERIFY_BUNDLE=os.getenv("VERIFY_BUNDLE") == "1",
-        # the maps' hover pictures; a folder without them just means the maps show plain labels
-        MAP_SPECIMEN_DIR=os.getenv("MAP_SPECIMEN_DIR"),
         STATIC_DIR=os.getenv("STATIC_DIR", os.path.join(HERE, "static")),
         VOCABULARY=os.getenv("TAG_VOCABULARY"),
         # WordNet table for suggested tags on unknown words: "auto" finds configs/synonymTags.json, "" turns them off
@@ -65,7 +62,6 @@ def createApp(overrides=None):
 
     app.extensions["bundle"] = bundle
     app.extensions["tagIndex"] = index
-    mapSpecimens = MapSpecimens(app.config["MAP_SPECIMEN_DIR"] or os.path.join(app.config["BUNDLE_DIR"], "maps"))
     pages = Pages(bundle, index, app.config["SITE_URL"])
     shell = Shell(app.config["STATIC_DIR"])
     app.extensions["pages"] = pages
@@ -394,19 +390,6 @@ def createApp(overrides=None):
         if i is None:
             abort(404)
         return i
-
-    @app.route("/api/map/<name>/<int:point>.webp", methods=["GET"])
-    @limiter.exempt
-    def mapSpecimen(name, point):
-        """The picture a map shows when the pointer is over this point; 404 when the point has none."""
-        found = mapSpecimens.get(name, point)
-        if found is None:
-            abort(404)
-        data, version = found
-        response = Response(data, mimetype="image/webp")
-        response.headers["Cache-Control"] = "public, max-age=86400"
-        response.set_etag(f"{name}-{point}-{version}")
-        return response.make_conditional(request)
 
     @app.route("/api/font/about", methods=["GET"])
     @limiter.limit("120 per minute")

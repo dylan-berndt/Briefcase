@@ -270,20 +270,6 @@ map's points before using it. Run it again after the maps or the bundle change:
 
 Currently 97% of `flower` and 85% of `routes` points link to a page; the rest are fonts not in the bundle.
 
-While the pointer rests on a point (150ms) the map shows a small picture of that point's own name set in its own font,
-one line tall, instead of Plotly's text label; a point with no picture shows its plain label in the same box, and a touch
-screen keeps Plotly's label. A map point is a font *file* ("Abel Bold"), so `site/tools/mapSpecimens.py` finds the file
-whose Pillow `getname()` is that label (a trailing "(google)"/"(dafont)" picks the source; where several files share a
-label the family's preferred file is drawn) and renders the name in it, at twice the shown size with the baseline in the
-same place in every image. A font that cannot draw its own name shows its first glyphs and then the name in a plain
-font. The images go in `site/backend/data/maps/<map>.pack` (git-lfs) with `<map>.index.json` giving each point's
-offset and length, in point order; `/api/map/<map>/<point>.webp` serves them and is a 404 for a point with none. It needs
-the font files (`google/fonts`, `dafont`), so it runs on the build machine:
-
-    python site/tools/mapSpecimens.py
-
-Run it again when the maps change. A site without the `maps` folder just shows plain labels.
-
 ## Tests
 
 ```bash
