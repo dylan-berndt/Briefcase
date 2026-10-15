@@ -20,12 +20,11 @@ from slugs import fontPath, specimenPath
 
 SOURCE_LABELS = {"google": "Google Fonts", "dafont": "DaFont"}
 # Which tags a font "has": its tag groups' probabilities, best first, are added up and tags are taken until the sum
-# reaches TAG_SUM. (Over all fonts that is 3 to 6 tags for 80%, 3 being the commonest.) TAIL is how many of the best tags
-# are looked at, and TAGS_MAX a safety for the few fonts whose tags are all weak, which would otherwise take every one of
-# the TAIL to reach the sum.
-TAG_SUM = 1.5
+# reaches TAG_SUM, or there are TAGS_MAX. (Over all fonts that is 3 to 6 tags for 92%.) TAIL is how many of the best tags
+# are looked at; TAGS_MAX stops the few fonts whose tags are all weak from taking every one of them to reach the sum.
+TAG_SUM = 1.8
 TAIL = 100
-TAGS_MAX = 15
+TAGS_MAX = 8
 CLOSE_SHOWN = 10         # the tags that come next in the same ranking
 RELATED = 6
 

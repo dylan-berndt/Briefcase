@@ -236,8 +236,8 @@ to disk):
   for all the tags in the column), the six fonts with the most alike tags (cosine of the tags' z-scores) under "Similar
   fonts", and the site description. Nothing in the bundle says which tags a font has; the page decides with one rule
   (`FontProfiles.tagLists`): the probabilities of the font's tag groups are added up, best first, and tags are taken until
-  the sum reaches 1.5 (at most 15). Over all 12,802 fonts that is 3 to 6 tags for 80%, 3 being the commonest; a few fonts
-  whose tags are all weak hit the cap. The close tags are the ten that come next in the same ranking. The constants are at
+  the sum reaches 1.8 (at most 8). Over all 12,802 fonts that is 3 to 6 tags for 92%, 3 and 4 being the commonest; the
+  4.5% whose tags are weak enough to need more stop at the cap. The close tags are the ten that come next in the same ranking. The constants are at
   the top of `backend/seo.py`. `/api/font/info/<name>` returns the same data as JSON for the React route
   (`frontend/src/font`). The site description is `aboutParagraphs` in `backend/seo.py`, the one place to edit it.
 - `/specimen/<name>.webp` is the specimen at an address that does not change when the bundle does (the search page still

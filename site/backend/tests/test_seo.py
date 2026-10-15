@@ -226,12 +226,12 @@ def test_tags_are_taken_until_their_probabilities_add_up_and_never_more_than_the
     profiles = object.__new__(FontProfiles)
     profiles.names = [f"tag{i}" for i in range(groups)]
     two = np.full(groups, -9.0)
-    two[:2] = 2.0                                     # 0.88 + 0.88 = 1.76, which is enough
+    two[:2] = 3.0                                     # 0.95 + 0.95 = 1.9, which is enough
     three = np.full(groups, -9.0)
-    three[:3] = 1.0                                   # 0.73 each: 1.46 is not, 2.19 is
+    three[:3] = 1.0                                   # 0.73 each: 1.46 is not enough, 2.19 is
     weak = np.full(groups, -4.0)                      # 0.018 each: the sum would take 90 of them
     profiles.logit = np.stack([two, three, weak]).astype(np.float16)
-    assert TAG_SUM == 1.5
+    assert (TAG_SUM, TAGS_MAX) == (1.8, 8)
     tags, close = profiles.tagLists(0)
     assert tags == ["tag0", "tag1"] and len(close) == CLOSE_SHOWN
     assert profiles.tagLists(1)[0] == ["tag0", "tag1", "tag2"]
